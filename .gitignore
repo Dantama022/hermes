@@ -4,3 +4,4 @@ target
 # Local settings
 .soroban
 .stellar
+contracts/predictify-hybrid/test_snapshots
