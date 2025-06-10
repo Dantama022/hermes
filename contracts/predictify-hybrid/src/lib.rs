@@ -45,6 +45,8 @@ pub struct Market {
     pub votes: Map<Address, String>,
     pub total_staked: i128,
     pub dispute_stakes: Map<Address, i128>,
+    pub winning_outcome: Option<String>,
+    pub stakes: Map<Address, i128>, // User stakes
 }
 
 // Placeholder for Pyth oracle interface
@@ -165,6 +167,8 @@ impl PredictifyHybrid {
             votes: Map::new(&env),
             total_staked: 0,
             dispute_stakes: Map::new(&env),
+            winning_outcome: None,
+            stakes: Map::new(&env),
         };
 
         // Deduct 1 XLM fee from the admin
@@ -451,6 +455,17 @@ impl PredictifyHybrid {
                 }
             }
         };
+
+        // Calculate winning outcome
+        market.winning_outcome = Some(final_result.clone());
+
+        // Calculate total for winning outcome
+        let mut winning_total = 0;
+        for (user, outcome) in market.votes.iter() {
+            if outcome == final_result {
+                winning_total += market.stakes.get(user.clone()).unwrap_or(0);
+            }
+        }
 
         // Record the final result in the market
         market.oracle_result = Some(final_result.clone());
