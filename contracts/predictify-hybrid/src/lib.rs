@@ -201,6 +201,7 @@ impl PredictifyHybrid {
         question: String,
         outcomes: Vec<String>,
         duration_days: u32,
+        oracle_config: OracleConfig,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -736,5 +737,74 @@ impl PredictifyHybrid {
         // Remove market from storage
         env.storage().persistent().remove(&market_id);
     }
+
+    // Helper function to create a market with Reflector oracle
+    pub fn create_reflector_market(
+        env: Env,
+        admin: Address,
+        question: String,
+        outcomes: Vec<String>,
+        duration_days: u32,
+        asset_symbol: String,
+        threshold: i128,
+        comparison: String,
+    ) -> Symbol {
+        // Create Reflector oracle configuration
+        let oracle_config = OracleConfig {
+            provider: OracleProvider::Reflector,
+            feed_id: asset_symbol, // Use asset symbol as feed_id
+            threshold,
+            comparison,
+        };
+
+        // Call the main create_market function
+        Self::create_market(env, admin, question, outcomes, duration_days, oracle_config)
+    }
+
+        // Helper function to create a market with Pyth oracle
+        pub fn create_pyth_market(
+            env: Env,
+            admin: Address,
+            question: String,
+            outcomes: Vec<String>,
+            duration_days: u32,
+            feed_id: String,
+            threshold: i128,
+            comparison: String,
+        ) -> Symbol {
+            // Create Pyth oracle configuration
+            let oracle_config = OracleConfig {
+                provider: OracleProvider::Pyth,
+                feed_id,
+                threshold,
+                comparison,
+            };
+    
+            // Call the main create_market function
+            Self::create_market(env, admin, question, outcomes, duration_days, oracle_config)
+        }
+
+        // Helper function to create a market with Reflector oracle for specific assets
+        pub fn create_reflector_asset_market(
+            env: Env,
+            admin: Address,
+            question: String,
+            outcomes: Vec<String>,
+            duration_days: u32,
+            asset_symbol: String,  // e.g., "BTC", "ETH", "XLM"
+            threshold: i128,
+            comparison: String,
+        ) -> Symbol {
+            // Create Reflector oracle configuration
+            let oracle_config = OracleConfig {
+                provider: OracleProvider::Reflector,
+                feed_id: asset_symbol, // Use asset symbol as feed_id
+                threshold,
+                comparison,
+            };
+    
+            // Call the main create_market function
+            Self::create_market(env, admin, question, outcomes, duration_days, oracle_config)
+        }
 }
 mod test;
