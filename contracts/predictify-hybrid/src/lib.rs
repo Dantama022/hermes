@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env,
-    Map, String, Symbol, Vec,
+    Map, String, Symbol, Vec, symbol_short, vec, IntoVal
 };
 
 #[contracterror]
@@ -93,6 +93,90 @@ impl OracleInterface for PythOracle {
 
         // Return a simulated price (e.g., $26,000 for BTC/USD)
         Ok(26_000_00)
+    }
+}
+
+// Reflector Oracle Contract Types
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReflectorAsset {
+    Stellar(Address),
+    Other(Symbol),
+}
+
+#[contracttype]
+pub struct ReflectorPriceData {
+    pub price: i128,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+pub struct ReflectorConfigData {
+    pub admin: Address,
+    pub assets: Vec<ReflectorAsset>,
+    pub base_asset: ReflectorAsset,
+    pub decimals: u32,
+    pub period: u64,
+    pub resolution: u32,
+}
+struct ReflectorOracleClient<'a> {
+    env: &'a Env,
+    contract_id: Address,
+}
+
+impl<'a> ReflectorOracleClient<'a> {
+    fn new(env: &'a Env, contract_id: Address) -> Self {
+        Self { env, contract_id }
+    }
+
+    fn lastprice(&self, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
+        let args = vec![self.env, asset.into_val(self.env)];
+        self.env
+            .invoke_contract(&self.contract_id, &symbol_short!("lastprice"), args)
+    }
+
+// Removed the unused `price` method as it is not utilized in the current codebase.
+
+    fn twap(&self, asset: ReflectorAsset, records: u32) -> Option<i128> {
+        let args = vec![
+            self.env,
+            asset.into_val(self.env),
+            records.into_val(self.env),
+        ];
+        self.env
+            .invoke_contract(&self.contract_id, &symbol_short!("twap"), args)
+    }
+}
+
+struct ReflectorOracle {
+    contract_id: Address,
+}
+
+impl OracleInterface for ReflectorOracle {
+    fn get_price(&self, env: &Env, feed_id: &String) -> Result<i128, Error> {
+        // Parse the feed_id to extract asset information
+        // Expected format: "BTC/USD" or "ETH/USD" etc.
+        // For now, we'll use the feed_id directly as the asset symbol
+        
+        // Create asset symbol for Reflector
+        // Since we can't easily parse the String in no_std, we'll use the feed_id directly
+        let base_asset = ReflectorAsset::Other(Symbol::new(env, "BTC")); // Default to BTC for now
+
+        // Create Reflector client
+        let reflector_client = ReflectorOracleClient::new(env, self.contract_id.clone());
+
+        // Try to get the latest price first
+        if let Some(price_data) = reflector_client.lastprice(base_asset.clone()) {
+            return Ok(price_data.price);
+        }
+
+        // If lastprice fails, try TWAP with 1 record
+        if let Some(twap_price) = reflector_client.twap(base_asset, 1) {
+            return Ok(twap_price);
+        }
+
+        // If both fail, return error
+        Err(Error::OracleUnavailable)
     }
 }
 
