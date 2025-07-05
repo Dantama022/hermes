@@ -30,7 +30,8 @@ use disputes::{DisputeManager, DisputeValidator, DisputeUtils, DisputeAnalytics}
 
 // Extension management module
 pub mod extensions;
-use extensions::{ExtensionManager, ExtensionValidator, ExtensionUtils, ExtensionStats};
+use extensions::{ExtensionManager, ExtensionValidator, ExtensionUtils};
+use types::ExtensionStats;
 
 #[contract]
 pub struct PredictifyHybrid;
