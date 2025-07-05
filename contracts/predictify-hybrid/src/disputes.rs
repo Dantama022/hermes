@@ -2,11 +2,9 @@ use crate::{
     errors::Error,
     markets::{MarketStateManager, MarketValidator},
     types::Market,
-    voting::{VotingUtils, MIN_DISPUTE_STAKE, DISPUTE_EXTENSION_HOURS},
+    voting::{VotingUtils, DISPUTE_EXTENSION_HOURS, MIN_DISPUTE_STAKE},
 };
-use soroban_sdk::{
-    contracttype, Address, Env, Map, String, Symbol, Vec,
-};
+use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 
 // ===== DISPUTE STRUCTURES =====
 
@@ -152,7 +150,9 @@ impl DisputeManager {
     /// Get all disputes for a market
     pub fn get_market_disputes(env: &Env, market_id: Symbol) -> Result<Vec<Dispute>, Error> {
         let market = MarketStateManager::get_market(env, &market_id)?;
-        Ok(DisputeUtils::extract_disputes_from_market(env, &market, market_id))
+        Ok(DisputeUtils::extract_disputes_from_market(
+            env, &market, market_id,
+        ))
     }
 
     /// Check if user has disputed a market
@@ -162,7 +162,11 @@ impl DisputeManager {
     }
 
     /// Get user's dispute stake for a market
-    pub fn get_user_dispute_stake(env: &Env, market_id: Symbol, user: Address) -> Result<i128, Error> {
+    pub fn get_user_dispute_stake(
+        env: &Env,
+        market_id: Symbol,
+        user: Address,
+    ) -> Result<i128, Error> {
         let market = MarketStateManager::get_market(env, &market_id)?;
         Ok(DisputeUtils::get_user_dispute_stake(&market, &user))
     }
@@ -274,7 +278,9 @@ impl DisputeUtils {
     pub fn add_dispute_to_market(market: &mut Market, dispute: Dispute) -> Result<(), Error> {
         // Add dispute stake to market
         let current_stake = market.dispute_stakes.get(dispute.user.clone()).unwrap_or(0);
-        market.dispute_stakes.set(dispute.user, current_stake + dispute.stake);
+        market
+            .dispute_stakes
+            .set(dispute.user, current_stake + dispute.stake);
 
         // Update total dispute stakes - this is calculated automatically by the method
         // No need to assign it back since it's a computed value
@@ -301,11 +307,13 @@ impl DisputeUtils {
 
         // If there are significant disputes, consider community consensus more heavily
         let dispute_impact = DisputeAnalytics::calculate_dispute_impact(market);
-        
-        if dispute_impact > 30 { // Using integer percentage (30% = 30)
+
+        if dispute_impact > 30 {
+            // Using integer percentage (30% = 30)
             // High dispute impact - give more weight to community consensus
             let community_consensus = DisputeAnalytics::calculate_community_consensus(env, market);
-            if community_consensus.confidence > 70 { // Using integer percentage (70% = 70)
+            if community_consensus.confidence > 70 {
+                // Using integer percentage (70% = 70)
                 return Ok(community_consensus.outcome);
             }
         }
@@ -329,9 +337,13 @@ impl DisputeUtils {
     }
 
     /// Extract disputes from market
-    pub fn extract_disputes_from_market(env: &Env, market: &Market, market_id: Symbol) -> Vec<Dispute> {
+    pub fn extract_disputes_from_market(
+        env: &Env,
+        market: &Market,
+        market_id: Symbol,
+    ) -> Vec<Dispute> {
         let mut disputes = Vec::new(env);
-        
+
         for (user, stake) in market.dispute_stakes.iter() {
             if stake > 0 {
                 let dispute = Dispute {
@@ -413,11 +425,11 @@ impl DisputeAnalytics {
     /// Calculate oracle weight in resolution
     pub fn calculate_oracle_weight(market: &Market) -> i128 {
         let dispute_impact = Self::calculate_dispute_impact(market) as f64 / 100.0; // Convert back to decimal
-        
+
         // Oracle weight decreases with dispute impact
         let base_oracle_weight = 0.7;
         let dispute_penalty = dispute_impact * 0.3;
-        
+
         let weight = (base_oracle_weight - dispute_penalty).max(0.3);
         (weight * 100.0) as i128 // Convert to integer percentage
     }
@@ -425,11 +437,11 @@ impl DisputeAnalytics {
     /// Calculate community weight in resolution
     pub fn calculate_community_weight(market: &Market) -> i128 {
         let dispute_impact = Self::calculate_dispute_impact(market) as f64 / 100.0; // Convert back to decimal
-        
+
         // Community weight increases with dispute impact
         let base_community_weight = 0.3;
         let dispute_boost = dispute_impact * 0.4;
-        
+
         let weight = (base_community_weight + dispute_boost).min(0.7);
         (weight * 100.0) as i128 // Convert to integer percentage
     }
@@ -474,7 +486,7 @@ impl DisputeAnalytics {
     /// Get top disputers by stake amount
     pub fn get_top_disputers(env: &Env, market: &Market, limit: usize) -> Vec<(Address, i128)> {
         let mut disputers: Vec<(Address, i128)> = Vec::new(env);
-        
+
         for (user, stake) in market.dispute_stakes.iter() {
             if stake > 0 {
                 disputers.push_back((user, stake));
@@ -507,7 +519,12 @@ pub mod testing {
     use soroban_sdk::testutils::Address as _;
 
     /// Create a test dispute
-    pub fn create_test_dispute(env: &Env, user: Address, market_id: Symbol, stake: i128) -> Dispute {
+    pub fn create_test_dispute(
+        env: &Env,
+        user: Address,
+        market_id: Symbol,
+        stake: i128,
+    ) -> Dispute {
         Dispute {
             user,
             market_id,
@@ -534,9 +551,9 @@ pub mod testing {
         DisputeResolution {
             market_id,
             final_outcome: String::from_str(env, "yes"),
-            oracle_weight: 70, // Using integer percentage
+            oracle_weight: 70,    // Using integer percentage
             community_weight: 30, // Using integer percentage
-            dispute_impact: 10, // Using integer percentage
+            dispute_impact: 10,   // Using integer percentage
             resolution_timestamp: env.ledger().timestamp(),
         }
     }
@@ -584,7 +601,7 @@ mod tests {
         let mut outcomes = Vec::new(env);
         outcomes.push_back(String::from_str(env, "yes"));
         outcomes.push_back(String::from_str(env, "no"));
-        
+
         Market::new(
             env,
             Address::generate(env),
@@ -610,13 +627,13 @@ mod tests {
 
         // Set market as ended
         market.end_time = env.ledger().timestamp() - 1;
-        
+
         // No oracle result - should fail
         assert!(DisputeValidator::validate_market_for_dispute(&env, &market).is_err());
 
         // Add oracle result
         market.oracle_result = Some(String::from_str(&env, "yes"));
-        
+
         // Should pass
         assert!(DisputeValidator::validate_market_for_dispute(&env, &market).is_ok());
     }
@@ -629,10 +646,22 @@ mod tests {
         market.oracle_result = Some(String::from_str(&env, "yes"));
 
         // Valid stake
-        assert!(DisputeValidator::validate_dispute_parameters(&env, &user, &market, MIN_DISPUTE_STAKE).is_ok());
-        
+        assert!(DisputeValidator::validate_dispute_parameters(
+            &env,
+            &user,
+            &market,
+            MIN_DISPUTE_STAKE
+        )
+        .is_ok());
+
         // Invalid stake
-        assert!(DisputeValidator::validate_dispute_parameters(&env, &user, &market, MIN_DISPUTE_STAKE - 1).is_err());
+        assert!(DisputeValidator::validate_dispute_parameters(
+            &env,
+            &user,
+            &market,
+            MIN_DISPUTE_STAKE - 1
+        )
+        .is_err());
     }
 
     #[test]
@@ -668,17 +697,12 @@ mod tests {
     fn test_testing_utilities() {
         let env = Env::default();
         let user = Address::generate(&env);
-        
-        let dispute = testing::create_test_dispute(
-            &env,
-            user,
-            Symbol::new(&env, "market"),
-            1000,
-        );
+
+        let dispute = testing::create_test_dispute(&env, user, Symbol::new(&env, "market"), 1000);
 
         assert!(testing::validate_dispute_structure(&dispute).is_ok());
-        
+
         let stats = testing::create_test_dispute_stats();
         assert!(testing::validate_dispute_stats(&stats).is_ok());
     }
-} 
+}
