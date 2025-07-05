@@ -338,8 +338,7 @@ impl OracleInterface for ReflectorOracle {
 }
 
 // Dispute management module
-pub mod disputes;
-use disputes::{DisputeManager, DisputeValidator, DisputeUtils, DisputeAnalytics};
+use disputes::DisputeManager;
 
 #[contract]
 pub struct PredictifyHybrid;
