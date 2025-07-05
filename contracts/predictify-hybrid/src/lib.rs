@@ -1,23 +1,12 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env,
+    contract, contractimpl, contracttype, panic_with_error, token, Address, Env,
     Map, String, Symbol, Vec, symbol_short, vec, IntoVal,
 };
 
-#[contracterror]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Error {
-    Unauthorized = 1,
-    MarketClosed = 2,
-    OracleUnavailable = 3,
-    InsufficientStake = 4,
-    MarketAlreadyResolved = 5,
-    InvalidOracleConfig = 6,
-    AlreadyClaimed = 7,
-    NothingToClaim = 8,
-    MarketNotResolved = 9,
-    InvalidOutcome = 10,
-}
+// Error management module
+pub mod errors;
+use errors::Error;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -224,18 +213,14 @@ impl PredictifyHybrid {
                 panic!("Admin not set");
             });
 
-        if admin != stored_admin {
-            panic_with_error!(env, Error::Unauthorized);
-        }
+        // Use error helper for admin validation
+        errors::helpers::require_admin(&env, &admin, &stored_admin);
 
-        // Validate inputs
-        if outcomes.len() < 2 {
-            panic!("At least two outcomes are required");
-        }
+        // Use error helper for market parameter validation
+        errors::helpers::require_valid_market_params(&env, &question, &outcomes, duration_days);
 
-        if question.len() == 0 {
-            panic!("Question cannot be empty");
-        }
+        // Use error helper for oracle config validation
+        errors::helpers::require_valid_oracle_config(&env, &oracle_config);
 
         // Generate a unique market ID using timestamp and a counter
         let counter_key = Symbol::new(&env, "MarketCounter");
@@ -302,16 +287,15 @@ impl PredictifyHybrid {
             .get(&market_id)
             .expect("Market not found");
 
-        // Check if user has claimed already
-        if market.claimed.get(user.clone()).unwrap_or(false) {
-            panic_with_error!(env, Error::AlreadyClaimed);
-        }
+        // Use error helper for claim validation
+        let claimed = market.claimed.get(user.clone()).unwrap_or(false);
+        errors::helpers::require_not_claimed(&env, claimed);
 
-        // Check if market is resolved
-        let winning_outcome = match &market.winning_outcome {
-            Some(outcome) => outcome,
-            None => panic_with_error!(env, Error::MarketNotResolved),
-        };
+        // Use error helper for market resolution check
+        errors::helpers::require_market_resolved(&env, &Some(market.clone()));
+
+        // Get winning outcome
+        let winning_outcome = market.winning_outcome.as_ref().unwrap();
 
         // Get user's vote and stake
         let user_outcome = market
@@ -377,13 +361,12 @@ impl PredictifyHybrid {
             .get(&Symbol::new(&env, "Admin"))
             .expect("Admin not set");
 
-        if admin != stored_admin {
-            panic_with_error!(env, Error::Unauthorized);
-        }
+        // Use error helper for admin validation
+        errors::helpers::require_admin(&env, &admin, &stored_admin);
 
         // Check if fees already collected
         if market.fee_collected {
-            panic_with_error!(env, Error::AlreadyClaimed);
+            panic_with_error!(env, Error::FeeAlreadyCollected);
         }
 
         // Calculate 2% fee
@@ -418,9 +401,8 @@ impl PredictifyHybrid {
             .get(&Symbol::new(&env, "Admin"))
             .expect("Admin not set");
 
-        if admin != stored_admin {
-            panic_with_error!(env, Error::Unauthorized);
-        }
+        // Use error helper for admin validation
+        errors::helpers::require_admin(&env, &admin, &stored_admin);
 
         let mut market: Market = env
             .storage()
@@ -428,10 +410,8 @@ impl PredictifyHybrid {
             .get(&market_id)
             .expect("Market not found");
 
-        // Validate outcome
-        if !market.outcomes.contains(&outcome) {
-            panic_with_error!(env, Error::InvalidOutcome);
-        }
+        // Use error helper for outcome validation
+        errors::helpers::require_valid_outcome(&env, &outcome, &market.outcomes);
 
         // Set final outcome
         market.winning_outcome = Some(outcome);
@@ -452,16 +432,11 @@ impl PredictifyHybrid {
                 panic!("Market not found");
             });
 
-        // Check if the market is still active
-        if env.ledger().timestamp() >= market.end_time {
-            panic_with_error!(env, Error::MarketClosed);
-        }
+        // Use error helper for market state validation
+        errors::helpers::require_market_open(&env, &Some(market.clone()));
 
-        // Validate that the chosen outcome is valid
-        let outcome_exists = market.outcomes.iter().any(|o| o == outcome);
-        if !outcome_exists {
-            panic!("Invalid outcome");
-        }
+        // Use error helper for outcome validation
+        errors::helpers::require_valid_outcome(&env, &outcome, &market.outcomes);
 
         // Define the token contract to use for staking
         let token_id = env
@@ -591,11 +566,9 @@ impl PredictifyHybrid {
             panic!("Cannot dispute before market ends");
         }
 
-        // Require a minimum stake (10 XLM) to raise a dispute
+        // Use error helper for stake validation
         let min_stake: i128 = 10_0000000; // 10 XLM (in stroops, 1 XLM = 10^7 stroops)
-        if stake < min_stake {
-            panic_with_error!(env, Error::InsufficientStake);
-        }
+        errors::helpers::require_sufficient_stake(&env, stake, min_stake);
 
         // Define the token contract to use for staking
         let token_id = env
@@ -745,9 +718,8 @@ impl PredictifyHybrid {
             .get(&Symbol::new(&env, "Admin"))
             .expect("Admin not set");
 
-        if admin != stored_admin {
-            panic_with_error!(env, Error::Unauthorized);
-        }
+        // Use error helper for admin validation
+        errors::helpers::require_admin(&env, &admin, &stored_admin);
 
         // Remove market from storage
         env.storage().persistent().remove(&market_id);
