@@ -1,6 +1,8 @@
 #![cfg(test)]
 
 use super::*;
+use crate::oracles::ReflectorOracle;
+use crate::errors::Error;
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo}, token::{self, StellarAssetClient}, vec, String, Symbol
 };
@@ -185,7 +187,7 @@ fn test_create_market_with_non_admin() {
 }
 
 #[test]
-#[should_panic(expected = "Error(WasmVm, InvalidAction)")]
+#[should_panic(expected = "Error(Contract, #53)")]
 fn test_create_market_with_empty_outcome() {
     // Setup test environment
     let test = PredictifyTest::setup();
@@ -207,7 +209,7 @@ fn test_create_market_with_empty_outcome() {
 }
 
 #[test]
-#[should_panic(expected = "Error(WasmVm, InvalidAction)")]
+#[should_panic(expected = "Error(Contract, #52)")]
 fn test_create_market_with_empty_question() {
     // Setup test environment
     let test = PredictifyTest::setup();
@@ -363,7 +365,7 @@ fn test_vote_on_closed_market() {
 }
 
 #[test]
-#[should_panic(expected = "Invalid outcome")]
+#[should_panic(expected = "Error(Contract, #10)")]
 fn test_vote_with_invalid_outcome() {
     //Setup test environment
     let test = PredictifyTest::setup();
@@ -401,7 +403,7 @@ fn test_vote_with_invalid_outcome() {
 }
 
 #[test]
-#[should_panic(expected = "Market not found")]
+#[should_panic(expected = "Error(Contract, #11)")]
 fn test_vote_on_nonexistent_market() {
     // Setup test environment
     let test = PredictifyTest::setup();
@@ -642,10 +644,12 @@ fn test_dispute_result_insufficient_stake() {
     client.fetch_oracle_result(&test.market_id, &test.pyth_contract);
 
     // Attempt to dispute with insufficient stake
-    let insufficient_stake: i128 = 5_0000000;
+    let insufficient_stake: i128 = 5_000_000; // 5 XLM
     test.env.mock_all_auths();
     client.dispute_result(&test.user, &test.market_id, &insufficient_stake);
 }
+
+
 
 #[test]
 #[should_panic(expected = "Error(Contract, #2)")]
@@ -930,9 +934,7 @@ fn test_reflector_oracle_get_price_success() {
     let mock_reflector_contract = Address::generate(&test.env);
     
     // Create ReflectorOracle instance
-    let reflector_oracle = ReflectorOracle {
-        contract_id: mock_reflector_contract.clone(),
-    };
+    let reflector_oracle = ReflectorOracle::new(mock_reflector_contract.clone());
     
     // Test get_price function with mock Reflector contract
     // This should panic because the mock contract doesn't exist
@@ -953,9 +955,7 @@ fn test_reflector_oracle_get_price_with_different_assets() {
     let mock_reflector_contract = Address::generate(&test.env);
     
     // Create ReflectorOracle instance
-    let reflector_oracle = ReflectorOracle {
-        contract_id: mock_reflector_contract.clone(),
-    };
+    let reflector_oracle = ReflectorOracle::new(mock_reflector_contract.clone());
     
     // Test different asset feed IDs with mock Reflector oracle
     // This should panic because the mock contract doesn't exist
@@ -1051,9 +1051,7 @@ fn test_reflector_oracle_error_handling() {
     
     // Create ReflectorOracle with an invalid contract address to test error handling
     let invalid_contract = Address::generate(&test.env);
-    let reflector_oracle = ReflectorOracle {
-        contract_id: invalid_contract,
-    };
+    let reflector_oracle = ReflectorOracle::new(invalid_contract);
     
     // Test get_price with invalid contract - should panic because contract doesn't exist
     let feed_id = String::from_str(&test.env, "BTC/USD");
@@ -1071,9 +1069,7 @@ fn test_reflector_oracle_fallback_mechanism() {
     
     // Use a mock contract address for testing
     let mock_reflector_contract = Address::generate(&test.env);
-    let reflector_oracle = ReflectorOracle {
-        contract_id: mock_reflector_contract.clone(),
-    };
+    let reflector_oracle = ReflectorOracle::new(mock_reflector_contract.clone());
     
     // Test that the fallback mechanism works
     // This should panic because the mock contract doesn't exist
@@ -1085,24 +1081,24 @@ fn test_reflector_oracle_fallback_mechanism() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Storage, MissingValue)")]
 fn test_reflector_oracle_with_empty_feed_id() {
     // Setup test environment
     let test = PredictifyTest::setup();
     
     // Use a mock contract address for testing
     let mock_reflector_contract = Address::generate(&test.env);
-    let reflector_oracle = ReflectorOracle {
-        contract_id: mock_reflector_contract.clone(),
-    };
+    let reflector_oracle = ReflectorOracle::new(mock_reflector_contract.clone());
     
-    // Test with empty feed_id - should still work with default asset
-    // This should panic because the mock contract doesn't exist
+    // Test with empty feed_id - should return InvalidOracleFeed error
     let empty_feed_id = String::from_str(&test.env, "");
-    let _result = reflector_oracle.get_price(&test.env, &empty_feed_id);
+    let result = reflector_oracle.get_price(&test.env, &empty_feed_id);
     
-    // This line should not be reached due to panic
-    panic!("Should have panicked before reaching this point");
+    // Should return InvalidOracleFeed error for empty feed ID
+    assert!(result.is_err());
+    match result {
+        Err(Error::InvalidOracleFeed) => (), // Expected error
+        _ => panic!("Expected InvalidOracleFeed error, got {:?}", result),
+    }
 }
 
 #[test]
@@ -1113,9 +1109,7 @@ fn test_reflector_oracle_performance() {
     
     // Use a mock contract address for testing
     let mock_reflector_contract = Address::generate(&test.env);
-    let reflector_oracle = ReflectorOracle {
-        contract_id: mock_reflector_contract.clone(),
-    };
+    let reflector_oracle = ReflectorOracle::new(mock_reflector_contract.clone());
     
     // Test multiple price requests to check performance
     // This should panic because the mock contract doesn't exist
