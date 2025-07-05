@@ -405,6 +405,10 @@ impl OracleInterface for ReflectorOracle {
     }
 }
 
+// Dispute management module
+pub mod disputes;
+use disputes::{DisputeManager, DisputeValidator, DisputeUtils, DisputeAnalytics};
+
 #[contract]
 pub struct PredictifyHybrid;
 
@@ -787,65 +791,65 @@ impl PredictifyHybrid {
         outcome
     }
 
-    // Allows users to dispute the market result by staking tokens
-    pub fn dispute_result(env: Env, user: Address, market_id: Symbol, stake: i128) {
-        // Require authentication from the user
-        user.require_auth();
+// Allows users to dispute the market result by staking tokens
+pub fn dispute_result(env: Env, user: Address, market_id: Symbol, stake: i128) {
+    // Require authentication from the user
+    user.require_auth();
 
-        // Get the market from storage
-        let mut market: Market = env
-            .storage()
-            .persistent()
-            .get(&market_id)
-            .unwrap_or_else(|| {
-                panic!("Market not found");
-            });
+    // Get the market from storage
+    let mut market: Market = env
+        .storage()
+        .persistent()
+        .get(&market_id)
+        .unwrap_or_else(|| {
+            panic!("Market not found");
+        });
 
-        // Ensure disputes are only possible after the market ends
-        let current_time = env.ledger().timestamp();
-        if current_time < market.end_time {
-            panic!("Cannot dispute before market ends");
-        }
-
-        // Require a minimum stake (10 XLM) to raise a dispute
-        let min_stake: i128 = 10_0000000; // 10 XLM (in stroops, 1 XLM = 10^7 stroops)
-        if stake < min_stake {
-            panic_with_error!(env, Error::InsufficientStake);
-        }
-
-        // Define the token contract to use for staking
-        let token_id = env
-            .storage()
-            .persistent()
-            .get::<Symbol, Address>(&Symbol::new(&env, "TokenID"))
-            .unwrap_or_else(|| {
-                panic!("Token contract not set");
-            });
-
-        // Create a client for the token contract
-        let token_client = token::Client::new(&env, &token_id);
-
-        // Transfer the stake from the user to the contract
-        token_client.transfer(&user, &env.current_contract_address(), &stake);
-
-        // Store the dispute stake in the market
-        if let Some(existing_stake) = market.dispute_stakes.get(user.clone()) {
-            market
-                .dispute_stakes
-                .set(user.clone(), existing_stake + stake);
-        } else {
-            market.dispute_stakes.set(user.clone(), stake);
-        }
-
-        // Extend the market end time by 24 hours during a dispute (if not already extended)
-        let dispute_extension = 24 * 60 * 60; // 24 hours in seconds
-        if market.end_time < current_time + dispute_extension {
-            market.end_time = current_time + dispute_extension;
-        }
-
-        // Update the market in storage
-        env.storage().persistent().set(&market_id, &market);
+    // Ensure disputes are only possible after the market ends
+    let current_time = env.ledger().timestamp();
+    if current_time < market.end_time {
+        panic!("Cannot dispute before market ends");
     }
+
+    // Require a minimum stake (10 XLM) to raise a dispute
+    let min_stake: i128 = 10_0000000; // 10 XLM (in stroops, 1 XLM = 10^7 stroops)
+    if stake < min_stake {
+        panic_with_error!(env, Error::InsufficientStake);
+    }
+
+    // Define the token contract to use for staking
+    let token_id = env
+        .storage()
+        .persistent()
+        .get::<Symbol, Address>(&Symbol::new(&env, "TokenID"))
+        .unwrap_or_else(|| {
+            panic!("Token contract not set");
+        });
+
+    // Create a client for the token contract
+    let token_client = token::Client::new(&env, &token_id);
+
+    // Transfer the stake from the user to the contract
+    token_client.transfer(&user, &env.current_contract_address(), &stake);
+
+    // Store the dispute stake in the market
+    if let Some(existing_stake) = market.dispute_stakes.get(user.clone()) {
+        market
+            .dispute_stakes
+            .set(user.clone(), existing_stake + stake);
+    } else {
+        market.dispute_stakes.set(user.clone(), stake);
+    }
+
+    // Extend the market end time by 24 hours during a dispute (if not already extended)
+    let dispute_extension = 24 * 60 * 60; // 24 hours in seconds
+    if market.end_time < current_time + dispute_extension {
+        market.end_time = current_time + dispute_extension;
+    }
+
+    // Update the market in storage
+    env.storage().persistent().set(&market_id, &market);
+}
 
     // Resolves a market by combining oracle results and community votes
     pub fn resolve_market(env: Env, market_id: Symbol) -> String {
@@ -948,6 +952,46 @@ impl PredictifyHybrid {
 
         // Return the final result
         final_result
+    }
+
+    // Resolve a dispute and determine final market outcome
+    pub fn resolve_dispute(env: Env, admin: Address, market_id: Symbol) -> String {
+        match DisputeManager::resolve_dispute(&env, market_id, admin) {
+            Ok(resolution) => resolution.final_outcome,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    // Get dispute statistics for a market
+    pub fn get_dispute_stats(env: Env, market_id: Symbol) -> disputes::DisputeStats {
+        match DisputeManager::get_dispute_stats(&env, market_id) {
+            Ok(stats) => stats,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    // Get all disputes for a market
+    pub fn get_market_disputes(env: Env, market_id: Symbol) -> Vec<disputes::Dispute> {
+        match DisputeManager::get_market_disputes(&env, market_id) {
+            Ok(disputes) => disputes,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    // Check if user has disputed a market
+    pub fn has_user_disputed(env: Env, market_id: Symbol, user: Address) -> bool {
+        match DisputeManager::has_user_disputed(&env, market_id, user) {
+            Ok(has_disputed) => has_disputed,
+            Err(_) => false,
+        }
+    }
+
+    // Get user's dispute stake for a market
+    pub fn get_user_dispute_stake(env: Env, market_id: Symbol, user: Address) -> i128 {
+        match DisputeManager::get_user_dispute_stake(&env, market_id, user) {
+            Ok(stake) => stake,
+            Err(_) => 0,
+        }
     }
 
     // Clean up market storage
