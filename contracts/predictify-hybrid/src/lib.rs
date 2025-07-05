@@ -276,6 +276,12 @@ pub struct PythOracle {
     contract_id: Address,
 }
 
+impl PythOracle {
+    pub fn new(contract_id: Address) -> Self {
+        Self { contract_id }
+    }
+}
+
 impl OracleInterface for PythOracle {
     fn get_price(&self, env: &Env, feed_id: &String) -> Result<i128, Error> {
         // Create Pyth client
@@ -363,6 +369,12 @@ impl<'a> ReflectorOracleClient<'a> {
 
 pub struct ReflectorOracle {
     contract_id: Address,
+}
+
+impl ReflectorOracle {
+    pub fn new(contract_id: Address) -> Self {
+        Self { contract_id }
+    }
 }
 
 impl OracleInterface for ReflectorOracle {
