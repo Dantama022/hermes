@@ -24,6 +24,10 @@ use markets::{MarketCreator, MarketValidator, MarketStateManager, MarketAnalytic
 pub mod voting;
 use voting::{VotingManager, VotingValidator, VotingUtils, VotingAnalytics};
 
+// Dispute management module
+pub mod disputes;
+use disputes::{DisputeManager, DisputeValidator, DisputeUtils, DisputeAnalytics};
+
 #[contract]
 pub struct PredictifyHybrid;
 
@@ -176,7 +180,7 @@ impl PredictifyHybrid {
 
     // Allows users to dispute the market result by staking tokens
     pub fn dispute_result(env: Env, user: Address, market_id: Symbol, stake: i128) {
-        match VotingManager::process_dispute(&env, user, market_id, stake) {
+        match DisputeManager::process_dispute(&env, user, market_id, stake, None) {
             Ok(_) => (), // Success
             Err(e) => panic_with_error!(env, e),
         }
@@ -215,6 +219,46 @@ impl PredictifyHybrid {
 
         // Return the final result
         final_result
+    }
+
+    // Resolve a dispute and determine final market outcome
+    pub fn resolve_dispute(env: Env, admin: Address, market_id: Symbol) -> String {
+        match DisputeManager::resolve_dispute(&env, market_id, admin) {
+            Ok(resolution) => resolution.final_outcome,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    // Get dispute statistics for a market
+    pub fn get_dispute_stats(env: Env, market_id: Symbol) -> disputes::DisputeStats {
+        match DisputeManager::get_dispute_stats(&env, market_id) {
+            Ok(stats) => stats,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    // Get all disputes for a market
+    pub fn get_market_disputes(env: Env, market_id: Symbol) -> Vec<disputes::Dispute> {
+        match DisputeManager::get_market_disputes(&env, market_id) {
+            Ok(disputes) => disputes,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    // Check if user has disputed a market
+    pub fn has_user_disputed(env: Env, market_id: Symbol, user: Address) -> bool {
+        match DisputeManager::has_user_disputed(&env, market_id, user) {
+            Ok(has_disputed) => has_disputed,
+            Err(_) => false,
+        }
+    }
+
+    // Get user's dispute stake for a market
+    pub fn get_user_dispute_stake(env: Env, market_id: Symbol, user: Address) -> i128 {
+        match DisputeManager::get_user_dispute_stake(&env, market_id, user) {
+            Ok(stake) => stake,
+            Err(_) => 0,
+        }
     }
 
     // Clean up market storage
