@@ -212,7 +212,7 @@ impl PredictifyHybrid {
         let final_result = MarketUtils::determine_final_result(&env, &oracle_result, &community_consensus);
 
         // Set winning outcome
-        MarketStateManager::set_winning_outcome(&mut market, final_result.clone());
+        MarketStateManager::set_winning_outcome(&mut market, final_result.clone(), Some(&market_id));
 
         // Update the market in storage
         MarketStateManager::update_market(&env, &market_id, &market);
