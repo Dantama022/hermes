@@ -1,8 +1,10 @@
 #![no_std]
+extern crate alloc;
 use soroban_sdk::{
     contract, contractimpl, contracttype, panic_with_error, symbol_short, token, vec, Address, Env,
     IntoVal, Map, String, Symbol, Vec,
 };
+use alloc::string::ToString;
 
 // Error management module
 pub mod errors;
@@ -41,6 +43,10 @@ use resolution::{OracleResolutionManager, MarketResolutionManager, MarketResolut
 // Configuration management module
 pub mod config;
 use config::{ConfigManager, ConfigValidator, ConfigUtils, ContractConfig, Environment};
+
+// Utility functions module
+pub mod utils;
+use utils::{TimeUtils, StringUtils, NumericUtils, ValidationUtils, ConversionUtils, CommonUtils, TestingUtils};
 
 pub mod resolution;
 
@@ -298,7 +304,10 @@ impl PredictifyHybrid {
     // Calculate resolution time for a market
     pub fn calculate_resolution_time(env: Env, market_id: Symbol) -> u64 {
         match MarketStateManager::get_market(&env, &market_id) {
-            Ok(market) => resolution::ResolutionUtils::calculate_resolution_time(&env, &market),
+            Ok(market) => {
+                let current_time = env.ledger().timestamp();
+                TimeUtils::time_difference(current_time, market.end_time)
+            },
             Err(_) => 0,
         }
     }
@@ -533,7 +542,14 @@ impl PredictifyHybrid {
 
     /// Calculate extension fee for given days
     pub fn calculate_extension_fee(additional_days: u32) -> i128 {
-        ExtensionManager::calculate_extension_fee(additional_days)
+        // Use numeric utilities for fee calculation
+        let base_fee = 100_000_000; // 10 XLM base fee
+        let fee_per_day = 10_000_000; // 1 XLM per day
+        NumericUtils::clamp(
+            &(base_fee + (fee_per_day * additional_days as i128)),
+            &100_000_000, // Minimum fee
+            &1_000_000_000 // Maximum fee
+        )
     }
 
     // ===== DISPUTE RESOLUTION FUNCTIONS =====
@@ -819,6 +835,116 @@ impl PredictifyHybrid {
             Err(_) => return false,
         };
         ConfigValidator::validate_contract_config(&config).is_ok()
+    }
+
+    // ===== UTILITY-BASED METHODS =====
+
+    /// Format duration in human-readable format
+    pub fn format_duration(seconds: u64) -> String {
+        TimeUtils::format_duration(seconds)
+    }
+
+    /// Calculate percentage with custom denominator
+    pub fn calculate_percentage(percentage: i128, value: i128, denominator: i128) -> i128 {
+        NumericUtils::calculate_percentage(&percentage, &value, &denominator)
+    }
+
+    /// Validate string length
+    pub fn validate_string_length(s: String, min_length: u32, max_length: u32) -> bool {
+        StringUtils::validate_string_length(&s, min_length, max_length).is_ok()
+    }
+
+    /// Sanitize string
+    pub fn sanitize_string(s: String) -> String {
+        StringUtils::sanitize_string(&s)
+    }
+
+    /// Convert number to string
+    pub fn number_to_string(value: i128) -> String {
+        let env = Env::default();
+        NumericUtils::i128_to_string(&env, &value)
+    }
+
+    /// Convert string to number
+    pub fn string_to_number(s: String) -> i128 {
+        NumericUtils::string_to_i128(&s)
+    }
+
+    /// Generate unique ID
+    pub fn generate_unique_id(prefix: String) -> String {
+        let env = Env::default();
+        CommonUtils::generate_unique_id(&env, &prefix)
+    }
+
+    /// Compare addresses for equality
+    pub fn addresses_equal(a: Address, b: Address) -> bool {
+        CommonUtils::addresses_equal(&a, &b)
+    }
+
+    /// Compare strings ignoring case
+    pub fn strings_equal_ignore_case(a: String, b: String) -> bool {
+        CommonUtils::strings_equal_ignore_case(&a, &b)
+    }
+
+    /// Calculate weighted average
+    pub fn calculate_weighted_average(values: Vec<i128>, weights: Vec<i128>) -> i128 {
+        CommonUtils::calculate_weighted_average(&values, &weights)
+    }
+
+    /// Calculate simple interest
+    pub fn calculate_simple_interest(principal: i128, rate: i128, periods: i128) -> i128 {
+        CommonUtils::calculate_simple_interest(&principal, &rate, &periods)
+    }
+
+    /// Round to nearest multiple
+    pub fn round_to_nearest(value: i128, multiple: i128) -> i128 {
+        NumericUtils::round_to_nearest(&value, &multiple)
+    }
+
+    /// Clamp value between min and max
+    pub fn clamp_value(value: i128, min: i128, max: i128) -> i128 {
+        NumericUtils::clamp(&value, &min, &max)
+    }
+
+    /// Check if value is within range
+    pub fn is_within_range(value: i128, min: i128, max: i128) -> bool {
+        NumericUtils::is_within_range(&value, &min, &max)
+    }
+
+    /// Calculate absolute difference
+    pub fn abs_difference(a: i128, b: i128) -> i128 {
+        NumericUtils::abs_difference(&a, &b)
+    }
+
+    /// Calculate square root
+    pub fn sqrt(value: i128) -> i128 {
+        NumericUtils::sqrt(&value)
+    }
+
+    /// Validate positive number
+    pub fn validate_positive_number(value: i128) -> bool {
+        ValidationUtils::validate_positive_number(&value)
+    }
+
+    /// Validate number range
+    pub fn validate_number_range(value: i128, min: i128, max: i128) -> bool {
+        ValidationUtils::validate_number_range(&value, &min, &max)
+    }
+
+    /// Validate future timestamp
+    pub fn validate_future_timestamp(timestamp: u64) -> bool {
+        ValidationUtils::validate_future_timestamp(&timestamp)
+    }
+
+    /// Get time utilities information
+    pub fn get_time_utilities() -> String {
+        let env = Env::default();
+        let current_time = env.ledger().timestamp();
+        let mut s = alloc::string::String::new();
+        s.push_str("Current time: ");
+        s.push_str(&current_time.to_string());
+        s.push_str(", Days to seconds: 86400");
+        String::from_str(&env, &s)
     }
 }
 mod test;
