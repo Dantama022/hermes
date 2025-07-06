@@ -9,6 +9,14 @@ mod markets;
 mod voting;
 mod oracles;
 mod disputes;
+// Temporarily disabled advanced modules until they are fully implemented
+// mod config;
+// mod events;
+// mod extensions;
+// mod fees;
+// mod resolution;
+// mod utils;
+// mod validation;
 
 
 // Re-export commonly used items
@@ -25,6 +33,18 @@ use oracles::{OracleFactory, OracleInterface};
 
 // Import from disputes module
 use disputes::DisputeManager;
+
+// Import from other modules (simplified for now)
+// use config::{ConfigManager, ConfigValidator, ConfigUtils, ContractConfig, Environment};
+// use events::{EventLogger, EventDocumentation, EventTestingUtils, EventHelpers};
+// use extensions::{ExtensionManager, ExtensionValidator, ExtensionUtils};
+// use types::ExtensionStats;
+// use fees::{FeeManager};
+// use markets::{MarketStateManager};
+// use resolution::{MarketResolutionManager};
+// use utils::{TimeUtils, NumericUtils, StringUtils, CommonUtils, ValidationUtils};
+// use validation::{ComprehensiveValidator, InputValidator, ValidationVoteValidator, ValidationMarketValidator, ValidationOracleValidator, ValidationFeeValidator, ValidationDisputeValidator, ValidationDocumentation, ValidationResult};
+// use voting::{VotingManager};
 
 
 #[contract]
@@ -251,41 +271,30 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
     }
 
-    // Get fee analytics
-    pub fn get_fee_analytics(env: Env) -> fees::FeeAnalytics {
-        match FeeManager::get_fee_analytics(&env) {
-            Ok(analytics) => analytics,
-            Err(e) => panic_with_error!(env, e),
-        }
-    }
+    // // Get fee analytics (temporarily disabled)
+    // pub fn get_fee_analytics(env: Env) -> fees::FeeAnalytics {
+    //     match FeeManager::get_fee_analytics(&env) {
+    //         Ok(analytics) => analytics,
+    //         Err(e) => panic_with_error!(env, e),
+    //     }
+    // }
 
-        if admin != stored_admin {
-            panic_with_error!(env, Error::Unauthorized);
-        }
-
-
-    // Get current fee configuration
-    pub fn get_fee_config(env: Env) -> fees::FeeConfig {
-        match FeeManager::get_fee_config(&env) {
-            Ok(config) => config,
-            Err(e) => panic_with_error!(env, e),
-        }
-    }
+    // // Get current fee configuration (temporarily disabled)
+    // pub fn get_fee_config(env: Env) -> fees::FeeConfig {
+    //     match FeeManager::get_fee_config(&env) {
+    //         Ok(config) => config,
+    //         Err(e) => panic_with_error!(env, e),
+    //     }
+    // }
 
 
-        // Validate outcome
-        if !market.outcomes.contains(&outcome) {
-            panic_with_error!(env, Error::InvalidOutcome);
-        }
-
-
-    // Finalize market after disputes
-    pub fn finalize_market(env: Env, admin: Address, market_id: Symbol, outcome: String) {
-        match resolution::MarketResolutionManager::finalize_market(&env, &admin, &market_id, &outcome) {
-            Ok(_) => (), // Success
-            Err(e) => panic_with_error!(env, e),
-        }
-    }
+    // // Finalize market after disputes (temporarily disabled)
+    // pub fn finalize_market(env: Env, admin: Address, market_id: Symbol, outcome: String) {
+    //     match resolution::MarketResolutionManager::finalize_market(&env, &admin, &market_id, &outcome) {
+    //         Ok(_) => (), // Success
+    //         Err(e) => panic_with_error!(env, e),
+    //     }
+    // }
 
     // Allows users to vote on a market outcome by staking tokens
     pub fn vote(env: Env, user: Address, market_id: Symbol, outcome: String, stake: i128) {
@@ -480,7 +489,6 @@ impl PredictifyHybrid {
 
     // Resolves a market by combining oracle results and community votes
     pub fn resolve_market(env: Env, market_id: Symbol) -> String {
-
         // Get the market from storage
         let mut market: Market = env
             .storage()
@@ -494,26 +502,7 @@ impl PredictifyHybrid {
         let current_time = env.ledger().timestamp();
         if current_time < market.end_time {
             panic_with_error!(env, Error::MarketClosed);
-
         }
-    }
-
-    // Get market resolution for a market
-    pub fn get_market_resolution(env: Env, market_id: Symbol) -> Option<resolution::MarketResolution> {
-        match MarketResolutionManager::get_market_resolution(&env, &market_id) {
-            Ok(resolution) => resolution,
-            Err(_) => None,
-        }
-    }
-
-    // Get resolution analytics
-    pub fn get_resolution_analytics(env: Env) -> resolution::ResolutionAnalytics {
-        match resolution::MarketResolutionAnalytics::calculate_resolution_analytics(&env) {
-            Ok(analytics) => analytics,
-            Err(_) => resolution::ResolutionAnalytics::default(),
-        }
-    }
-
 
         // Retrieve the oracle result (or fail if unavailable)
         let oracle_result = match &market.oracle_result {
@@ -597,44 +586,42 @@ impl PredictifyHybrid {
         // Update the market in storage
         env.storage().persistent().set(&market_id, &market);
 
-
-        validation
+        // Return the final result
+        final_result
     }
 
-    // Get resolution state for a market
-    pub fn get_resolution_state(env: Env, market_id: Symbol) -> resolution::ResolutionState {
-        match MarketStateManager::get_market(&env, &market_id) {
-            Ok(market) => resolution::ResolutionUtils::get_resolution_state(&env, &market),
-            Err(_) => resolution::ResolutionState::Active,
-        }
-    }
+    // // Resolution functionality temporarily disabled
+    // pub fn get_market_resolution(env: Env, market_id: Symbol) -> Option<resolution::MarketResolution> {
+    //     // Implementation pending
+    //     None
+    // }
 
-    // Check if market can be resolved
-    pub fn can_resolve_market(env: Env, market_id: Symbol) -> bool {
-        match MarketStateManager::get_market(&env, &market_id) {
-            Ok(market) => resolution::ResolutionUtils::can_resolve_market(&env, &market),
-            Err(_) => false,
-        }
-    }
+    // // Get resolution analytics (temporarily disabled)
+    // pub fn get_resolution_analytics(env: Env) -> resolution::ResolutionAnalytics {
+    //     // Implementation pending
+    // }
 
-    // Calculate resolution time for a market
-    pub fn calculate_resolution_time(env: Env, market_id: Symbol) -> u64 {
-        match MarketStateManager::get_market(&env, &market_id) {
-            Ok(market) => {
-                let current_time = env.ledger().timestamp();
-                TimeUtils::time_difference(current_time, market.end_time)
-            },
-            Err(_) => 0,
-        }
-    }
+    // // Get resolution state (temporarily disabled)
+    // pub fn get_resolution_state(env: Env, market_id: Symbol) -> resolution::ResolutionState {
+    //     // Implementation pending
+    // }
 
-    // Get dispute statistics for a market
-    pub fn get_dispute_stats(env: Env, market_id: Symbol) -> disputes::DisputeStats {
-        match DisputeManager::get_dispute_stats(&env, market_id) {
-            Ok(stats) => stats,
-            Err(e) => panic_with_error!(env, e),
-        }
-    }
+    // // Check if market can be resolved (temporarily disabled)
+    // pub fn can_resolve_market(env: Env, market_id: Symbol) -> bool {
+    //     // Implementation pending
+    //     false
+    // }
+
+    // // Calculate resolution time (temporarily disabled)
+    // pub fn calculate_resolution_time(env: Env, market_id: Symbol) -> u64 {
+    //     // Implementation pending
+    //     0
+    // }
+
+    // // Advanced features temporarily disabled
+    // pub fn get_dispute_stats(env: Env, market_id: Symbol) -> disputes::DisputeStats {
+    //     // Implementation pending
+    // }
 
     // Get all disputes for a market
     pub fn get_market_disputes(env: Env, market_id: Symbol) -> Vec<disputes::Dispute> {

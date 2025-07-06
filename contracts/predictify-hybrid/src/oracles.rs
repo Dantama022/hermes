@@ -267,11 +267,11 @@ impl OracleFactory {
         PythOracle::new(contract_id)
     }
 
-    
     /// Create a Reflector oracle instance (RECOMMENDED FOR STELLAR)
     /// 
     /// Reflector is the primary oracle provider for Stellar Network
-
+    pub fn create_reflector_oracle(contract_id: Address) -> ReflectorOracle {
+        ReflectorOracle::new(contract_id)
     }
 
     /// Create an oracle instance based on provider and contract ID
