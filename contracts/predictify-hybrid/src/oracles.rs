@@ -1,14 +1,16 @@
+
 #![allow(dead_code)]
 
 use soroban_sdk::{
     Address, Env, String, Symbol, symbol_short, vec, IntoVal,
 };
 
+
 use crate::errors::Error;
 use crate::types::*;
 
 /// Oracle management system for Predictify Hybrid contract
-/// 
+///
 /// This module provides a comprehensive oracle management system with:
 /// - OracleInterface trait for standardized oracle interactions
 /// - Reflector oracle implementation (primary oracle for Stellar Network)
@@ -23,13 +25,13 @@ use crate::types::*;
 pub trait OracleInterface {
     /// Get the current price for a given feed ID
     fn get_price(&self, env: &Env, feed_id: &String) -> Result<i128, Error>;
-    
+
     /// Get the oracle provider type
     fn provider(&self) -> OracleProvider;
-    
+
     /// Get the oracle contract ID
     fn contract_id(&self) -> Address;
-    
+
     /// Check if the oracle is healthy and available
     fn is_healthy(&self, env: &Env) -> Result<bool, Error>;
 }
@@ -50,30 +52,34 @@ impl PythOracle {
     pub fn new(contract_id: Address) -> Self {
         Self { contract_id }
     }
-    
+
     /// Get the Pyth oracle contract ID
     pub fn contract_id(&self) -> Address {
         self.contract_id.clone()
     }
+
 }
 
 impl OracleInterface for PythOracle {
     fn get_price(&self, _env: &Env, _feed_id: &String) -> Result<i128, Error> {
         // Pyth Network is not available on Stellar
         Err(Error::InvalidOracleConfig)
+
     }
-    
+
     fn provider(&self) -> OracleProvider {
         OracleProvider::Pyth
     }
-    
+
     fn contract_id(&self) -> Address {
         self.contract_id.clone()
     }
+
     
     fn is_healthy(&self, _env: &Env) -> Result<bool, Error> {
         // Pyth Network is not available on Stellar
         Ok(false)
+
     }
 }
 
@@ -93,14 +99,14 @@ impl<'a> ReflectorOracleClient<'a> {
     pub fn new(env: &'a Env, contract_id: Address) -> Self {
         Self { env, contract_id }
     }
-    
+
     /// Get the latest price for an asset
     pub fn lastprice(&self, asset: ReflectorAsset) -> Option<ReflectorPriceData> {
         let args = vec![self.env, asset.into_val(self.env)];
         self.env
             .invoke_contract(&self.contract_id, &symbol_short!("lastprice"), args)
     }
-    
+
     /// Get price for an asset at a specific timestamp
     pub fn price(&self, asset: ReflectorAsset, timestamp: u64) -> Option<ReflectorPriceData> {
         let args = vec![
@@ -111,7 +117,7 @@ impl<'a> ReflectorOracleClient<'a> {
         self.env
             .invoke_contract(&self.contract_id, &symbol_short!("price"), args)
     }
-    
+
     /// Get TWAP (Time-Weighted Average Price) for an asset
     pub fn twap(&self, asset: ReflectorAsset, records: u32) -> Option<i128> {
         let args = vec![
@@ -122,7 +128,7 @@ impl<'a> ReflectorOracleClient<'a> {
         self.env
             .invoke_contract(&self.contract_id, &symbol_short!("twap"), args)
     }
-    
+
     /// Check if the Reflector oracle is healthy
     pub fn is_healthy(&self) -> bool {
         // Try to get a simple price to check if oracle is responsive
@@ -150,12 +156,12 @@ impl ReflectorOracle {
     pub fn new(contract_id: Address) -> Self {
         Self { contract_id }
     }
-    
+
     /// Get the Reflector oracle contract ID
     pub fn contract_id(&self) -> Address {
         self.contract_id.clone()
     }
-    
+
     /// Parse feed ID to extract asset information
     /// 
     /// Converts feed IDs like "BTC/USD", "ETH/USD", "XLM/USD" to Reflector asset types
@@ -163,6 +169,7 @@ impl ReflectorOracle {
         if feed_id.is_empty() {
             return Err(Error::InvalidOracleFeed);
         }
+
         
         // Extract the base asset from the feed ID
         // For simplicity, we'll check for common patterns
@@ -215,8 +222,9 @@ impl ReflectorOracle {
             // Default to BTC price for unknown assets
             Ok(2600000)
         }
+
     }
-    
+
     /// Check if the Reflector oracle is healthy
     pub fn check_health(&self, env: &Env) -> Result<bool, Error> {
         let reflector_client = ReflectorOracleClient::new(env, self.contract_id.clone());
@@ -228,15 +236,15 @@ impl OracleInterface for ReflectorOracle {
     fn get_price(&self, env: &Env, feed_id: &String) -> Result<i128, Error> {
         self.get_reflector_price(env, feed_id)
     }
-    
+
     fn provider(&self) -> OracleProvider {
         OracleProvider::Reflector
     }
-    
+
     fn contract_id(&self) -> Address {
         self.contract_id.clone()
     }
-    
+
     fn is_healthy(&self, env: &Env) -> Result<bool, Error> {
         self.check_health(env)
     }
@@ -258,14 +266,14 @@ impl OracleFactory {
     pub fn create_pyth_oracle(contract_id: Address) -> PythOracle {
         PythOracle::new(contract_id)
     }
+
     
     /// Create a Reflector oracle instance (RECOMMENDED FOR STELLAR)
     /// 
     /// Reflector is the primary oracle provider for Stellar Network
-    pub fn create_reflector_oracle(contract_id: Address) -> ReflectorOracle {
-        ReflectorOracle::new(contract_id)
+
     }
-    
+
     /// Create an oracle instance based on provider and contract ID
     pub fn create_oracle(
         provider: OracleProvider,
@@ -280,12 +288,10 @@ impl OracleFactory {
                 let oracle = ReflectorOracle::new(contract_id);
                 Ok(OracleInstance::Reflector(oracle))
             }
-            OracleProvider::BandProtocol | OracleProvider::DIA => {
-                Err(Error::InvalidOracleConfig)
-            }
+            OracleProvider::BandProtocol | OracleProvider::DIA => Err(Error::InvalidOracleConfig),
         }
     }
-    
+
     /// Create an oracle instance from oracle configuration
     pub fn create_from_config(
         oracle_config: &OracleConfig,
@@ -293,8 +299,10 @@ impl OracleFactory {
     ) -> Result<OracleInstance, Error> {
         Self::create_oracle(oracle_config.provider.clone(), contract_id)
     }
+
     
     /// Check if a provider is supported on Stellar
+
     pub fn is_provider_supported(provider: &OracleProvider) -> bool {
         match provider {
             OracleProvider::Reflector => true,
@@ -327,7 +335,7 @@ impl OracleInstance {
             OracleInstance::Reflector(oracle) => oracle.get_price(env, feed_id),
         }
     }
-    
+
     /// Get the oracle provider type
     pub fn provider(&self) -> OracleProvider {
         match self {
@@ -335,7 +343,7 @@ impl OracleInstance {
             OracleInstance::Reflector(_) => OracleProvider::Reflector,
         }
     }
-    
+
     /// Get the oracle contract ID
     pub fn contract_id(&self) -> Address {
         match self {
@@ -343,7 +351,7 @@ impl OracleInstance {
             OracleInstance::Reflector(oracle) => oracle.contract_id(),
         }
     }
-    
+
     /// Check if the oracle is healthy
     pub fn is_healthy(&self, env: &Env) -> Result<bool, Error> {
         match self {
@@ -376,7 +384,7 @@ impl OracleUtils {
             Err(Error::InvalidComparison)
         }
     }
-    
+
     /// Determine market outcome based on price comparison
     pub fn determine_outcome(
         price: i128,
@@ -385,25 +393,25 @@ impl OracleUtils {
         env: &Env,
     ) -> Result<String, Error> {
         let is_condition_met = Self::compare_prices(price, threshold, comparison, env)?;
-        
+
         if is_condition_met {
             Ok(String::from_str(env, "yes"))
         } else {
             Ok(String::from_str(env, "no"))
         }
     }
-    
+
     /// Validate oracle response
     pub fn validate_oracle_response(price: i128) -> Result<(), Error> {
         if price <= 0 {
             return Err(Error::InvalidThreshold);
         }
-        
+
         // Check for reasonable price range (1 cent to $1M)
         if price < 1 || price > 100_000_000_00 {
             return Err(Error::InvalidThreshold);
         }
-        
+
         Ok(())
     }
 }
@@ -420,7 +428,7 @@ mod tests {
         let env = Env::default();
         let contract_id = Address::generate(&env);
         let oracle = PythOracle::new(contract_id.clone());
-        
+
         assert_eq!(oracle.contract_id(), contract_id);
         assert_eq!(oracle.provider(), OracleProvider::Pyth);
     }
@@ -430,7 +438,7 @@ mod tests {
         let env = Env::default();
         let contract_id = Address::generate(&env);
         let oracle = ReflectorOracle::new(contract_id.clone());
-        
+
         assert_eq!(oracle.contract_id(), contract_id);
         assert_eq!(oracle.provider(), OracleProvider::Reflector);
     }
@@ -439,18 +447,22 @@ mod tests {
     fn test_oracle_factory() {
         let env = Env::default();
         let contract_id = Address::generate(&env);
+
         
         // Test Pyth oracle creation (should fail)
         let pyth_oracle = OracleFactory::create_oracle(OracleProvider::Pyth, contract_id.clone());
         assert!(pyth_oracle.is_err());
         assert_eq!(pyth_oracle.unwrap_err(), Error::InvalidOracleConfig);
         
+
         // Test Reflector oracle creation
-        let reflector_oracle = OracleFactory::create_oracle(OracleProvider::Reflector, contract_id.clone());
+        let reflector_oracle =
+            OracleFactory::create_oracle(OracleProvider::Reflector, contract_id.clone());
         assert!(reflector_oracle.is_ok());
-        
+
         // Test unsupported provider
-        let unsupported_oracle = OracleFactory::create_oracle(OracleProvider::BandProtocol, contract_id);
+        let unsupported_oracle =
+            OracleFactory::create_oracle(OracleProvider::BandProtocol, contract_id);
         assert!(unsupported_oracle.is_err());
         assert_eq!(unsupported_oracle.unwrap_err(), Error::InvalidOracleConfig);
     }
@@ -458,49 +470,33 @@ mod tests {
     #[test]
     fn test_oracle_utils() {
         let env = Env::default();
-        
+
         // Test price comparison
         let price = 30_000_00; // $30k
         let threshold = 25_000_00; // $25k
-        
+
         // Test greater than
-        let gt_result = OracleUtils::compare_prices(
-            price,
-            threshold,
-            &String::from_str(&env, "gt"),
-            &env,
-        );
+        let gt_result =
+            OracleUtils::compare_prices(price, threshold, &String::from_str(&env, "gt"), &env);
         assert!(gt_result.is_ok());
         assert!(gt_result.unwrap());
-        
+
         // Test less than
-        let lt_result = OracleUtils::compare_prices(
-            price,
-            threshold,
-            &String::from_str(&env, "lt"),
-            &env,
-        );
+        let lt_result =
+            OracleUtils::compare_prices(price, threshold, &String::from_str(&env, "lt"), &env);
         assert!(lt_result.is_ok());
         assert!(!lt_result.unwrap());
-        
+
         // Test equal to
-        let eq_result = OracleUtils::compare_prices(
-            threshold,
-            threshold,
-            &String::from_str(&env, "eq"),
-            &env,
-        );
+        let eq_result =
+            OracleUtils::compare_prices(threshold, threshold, &String::from_str(&env, "eq"), &env);
         assert!(eq_result.is_ok());
         assert!(eq_result.unwrap());
-        
+
         // Test outcome determination
-        let outcome = OracleUtils::determine_outcome(
-            price,
-            threshold,
-            &String::from_str(&env, "gt"),
-            &env,
-        );
+        let outcome =
+            OracleUtils::determine_outcome(price, threshold, &String::from_str(&env, "gt"), &env);
         assert!(outcome.is_ok());
         assert_eq!(outcome.unwrap(), String::from_str(&env, "yes"));
     }
-} 
+}

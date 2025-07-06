@@ -1,11 +1,13 @@
+
 #![allow(dead_code)]
 
 use soroban_sdk::{
     contracttype, Address, Env, Map, String, Symbol, Vec,
 };
 
+
 /// Comprehensive type system for Predictify Hybrid contract
-/// 
+///
 /// This module provides organized type definitions categorized by functionality:
 /// - Oracle Types: Oracle providers, configurations, and data structures
 /// - Market Types: Market data structures and state management
@@ -39,13 +41,15 @@ impl OracleProvider {
             OracleProvider::Pyth => "Pyth Network (Not Available on Stellar)",
         }
     }
+
     
     /// Check if the oracle provider is supported on Stellar Network
+
     pub fn is_supported(&self) -> bool {
         // Only Reflector is currently supported on Stellar
         matches!(self, OracleProvider::Reflector)
     }
-    
+
     /// Get the default feed ID format for this provider
     pub fn default_feed_format(&self) -> &'static str {
         match self {
@@ -91,54 +95,55 @@ impl OracleConfig {
             comparison,
         }
     }
-    
+
     /// Validate the oracle configuration
     pub fn validate(&self, env: &Env) -> Result<(), crate::errors::Error> {
         // Validate threshold
         if self.threshold <= 0 {
             return Err(crate::errors::Error::InvalidThreshold);
         }
-        
+
         // Validate comparison operator
-        if self.comparison != String::from_str(env, "gt") && 
-           self.comparison != String::from_str(env, "lt") && 
-           self.comparison != String::from_str(env, "eq") {
+        if self.comparison != String::from_str(env, "gt")
+            && self.comparison != String::from_str(env, "lt")
+            && self.comparison != String::from_str(env, "eq")
+        {
             return Err(crate::errors::Error::InvalidComparison);
         }
-        
+
         // Validate feed_id is not empty
         if self.feed_id.is_empty() {
             return Err(crate::errors::Error::InvalidOracleFeed);
         }
-        
+
         // Validate provider is supported
         if !self.provider.is_supported() {
             return Err(crate::errors::Error::InvalidOracleConfig);
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if the configuration is for a supported provider
     pub fn is_supported(&self) -> bool {
         self.provider.is_supported()
     }
-    
+
     /// Get the comparison operator as a string
     pub fn comparison_operator(&self) -> &String {
         &self.comparison
     }
-    
+
     /// Check if the comparison is "greater than"
     pub fn is_greater_than(&self, env: &Env) -> bool {
         self.comparison == String::from_str(env, "gt")
     }
-    
+
     /// Check if the comparison is "less than"
     pub fn is_less_than(&self, env: &Env) -> bool {
         self.comparison == String::from_str(env, "lt")
     }
-    
+
     /// Check if the comparison is "equal to"
     pub fn is_equal_to(&self, env: &Env) -> bool {
         self.comparison == String::from_str(env, "eq")
@@ -177,6 +182,64 @@ pub struct Market {
     pub winning_outcome: Option<String>,
     /// Whether fees have been collected
     pub fee_collected: bool,
+    /// Market extension history
+    pub extension_history: Vec<MarketExtension>,
+    /// Total extension days applied
+    pub total_extension_days: u32,
+    /// Maximum allowed extension days
+    pub max_extension_days: u32,
+}
+
+/// Market extension record
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketExtension {
+    /// Extension timestamp
+    pub timestamp: u64,
+    /// Additional days requested
+    pub additional_days: u32,
+    /// Admin who requested the extension
+    pub admin: Address,
+    /// Extension reason/justification
+    pub reason: String,
+    /// Extension fee paid
+    pub fee_paid: i128,
+}
+
+impl MarketExtension {
+    /// Create a new market extension record
+    pub fn new(
+        env: &Env,
+        additional_days: u32,
+        admin: Address,
+        reason: String,
+        fee_paid: i128,
+    ) -> Self {
+        Self {
+            timestamp: env.ledger().timestamp(),
+            additional_days,
+            admin,
+            reason,
+            fee_paid,
+        }
+    }
+
+    /// Validate extension parameters
+    pub fn validate(&self, env: &Env) -> Result<(), crate::errors::Error> {
+        if self.additional_days == 0 {
+            return Err(crate::errors::Error::InvalidExtensionDays);
+        }
+
+        if self.additional_days > 30 {
+            return Err(crate::errors::Error::ExtensionDaysExceeded);
+        }
+
+        if self.reason.is_empty() {
+            return Err(crate::errors::Error::InvalidExtensionReason);
+        }
+
+        Ok(())
+    }
 }
 
 impl Market {
@@ -203,82 +266,85 @@ impl Market {
             dispute_stakes: Map::new(env),
             winning_outcome: None,
             fee_collected: false,
+            extension_history: vec![env],
+            total_extension_days: 0,
+            max_extension_days: 30, // Default maximum extension days
         }
     }
-    
+
     /// Check if the market is active (not ended)
     pub fn is_active(&self, current_time: u64) -> bool {
         current_time < self.end_time
     }
-    
+
     /// Check if the market has ended
     pub fn has_ended(&self, current_time: u64) -> bool {
         current_time >= self.end_time
     }
-    
+
     /// Check if the market is resolved
     pub fn is_resolved(&self) -> bool {
         self.winning_outcome.is_some()
     }
-    
+
     /// Check if the market has oracle result
     pub fn has_oracle_result(&self) -> bool {
         self.oracle_result.is_some()
     }
-    
+
     /// Get user's vote
     pub fn get_user_vote(&self, user: &Address) -> Option<String> {
         self.votes.get(user.clone())
     }
-    
+
     /// Get user's stake
     pub fn get_user_stake(&self, user: &Address) -> i128 {
         self.stakes.get(user.clone()).unwrap_or(0)
     }
-    
+
     /// Check if user has claimed
     pub fn has_user_claimed(&self, user: &Address) -> bool {
         self.claimed.get(user.clone()).unwrap_or(false)
     }
-    
+
     /// Get user's dispute stake
     pub fn get_user_dispute_stake(&self, user: &Address) -> i128 {
         self.dispute_stakes.get(user.clone()).unwrap_or(0)
     }
-    
+
     /// Add user vote and stake
     pub fn add_vote(&mut self, user: Address, outcome: String, stake: i128) {
         self.votes.set(user.clone(), outcome);
         self.stakes.set(user.clone(), stake);
         self.total_staked += stake;
     }
-    
+
     /// Add dispute stake
     pub fn add_dispute_stake(&mut self, user: Address, stake: i128) {
         let current_stake = self.dispute_stakes.get(user.clone()).unwrap_or(0);
         self.dispute_stakes.set(user, current_stake + stake);
     }
-    
+
     /// Mark user as claimed
     pub fn mark_claimed(&mut self, user: Address) {
         self.claimed.set(user, true);
     }
-    
+
     /// Set oracle result
     pub fn set_oracle_result(&mut self, result: String) {
         self.oracle_result = Some(result);
     }
-    
+
     /// Set winning outcome
     pub fn set_winning_outcome(&mut self, outcome: String) {
         self.winning_outcome = Some(outcome);
     }
-    
+
     /// Mark fees as collected
     pub fn mark_fees_collected(&mut self) {
         self.fee_collected = true;
     }
-    
+
     /// Get total dispute stakes
     pub fn total_dispute_stakes(&self) -> i128 {
         let mut total = 0;
@@ -287,7 +353,7 @@ impl Market {
         }
         total
     }
-    
+
     /// Get winning stake total
     pub fn winning_stake_total(&self) -> i128 {
         if let Some(winning_outcome) = &self.winning_outcome {
@@ -302,29 +368,45 @@ impl Market {
             0
         }
     }
-    
+
     /// Validate market parameters
     pub fn validate(&self, env: &Env) -> Result<(), crate::errors::Error> {
         // Validate question
         if self.question.is_empty() {
             return Err(crate::errors::Error::InvalidQuestion);
         }
-        
+
         // Validate outcomes
         if self.outcomes.len() < 2 {
             return Err(crate::errors::Error::InvalidOutcomes);
         }
-        
+
         // Validate oracle config
         self.oracle_config.validate(env)?;
-        
+
         // Validate end time
         if self.end_time <= env.ledger().timestamp() {
             return Err(crate::errors::Error::InvalidDuration);
         }
-        
+
         Ok(())
     }
+}
+
+/// Extension statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExtensionStats {
+    /// Total number of extensions made
+    pub total_extensions: u32,
+    /// Total extension days applied
+    pub total_extension_days: u32,
+    /// Maximum allowed extension days
+    pub max_extension_days: u32,
+    /// Whether market can still be extended
+    pub can_extend: bool,
+    /// Extension fee per day
+    pub extension_fee_per_day: i128,
 }
 
 // ===== PRICE TYPES =====
@@ -352,27 +434,27 @@ impl PythPrice {
             publish_time,
         }
     }
-    
+
     /// Get the price in cents
     pub fn price_in_cents(&self) -> i128 {
         self.price
     }
-    
+
     /// Check if the price is stale (older than max_age seconds)
     pub fn is_stale(&self, current_time: u64, max_age: u64) -> bool {
         current_time - self.publish_time > max_age
     }
-    
+
     /// Validate the price data
     pub fn validate(&self) -> Result<(), crate::errors::Error> {
         if self.price <= 0 {
             return Err(crate::errors::Error::OraclePriceOutOfRange);
         }
-        
+
         if self.conf == 0 {
             return Err(crate::errors::Error::OracleDataStale);
         }
-        
+
         Ok(())
     }
 }
@@ -392,12 +474,12 @@ impl ReflectorAsset {
     pub fn stellar(contract_id: Address) -> Self {
         ReflectorAsset::Stellar(contract_id)
     }
-    
+
     /// Create an other asset
     pub fn other(symbol: Symbol) -> Self {
         ReflectorAsset::Other(symbol)
     }
-    
+
     /// Get the asset identifier as a string
     pub fn to_string(&self, env: &Env) -> String {
         match self {
@@ -405,12 +487,12 @@ impl ReflectorAsset {
             ReflectorAsset::Other(_symbol) => String::from_str(env, "other_asset"),
         }
     }
-    
+
     /// Check if this is a Stellar asset
     pub fn is_stellar(&self) -> bool {
         matches!(self, ReflectorAsset::Stellar(_))
     }
-    
+
     /// Check if this is an other asset
     pub fn is_other(&self) -> bool {
         matches!(self, ReflectorAsset::Other(_))
@@ -431,23 +513,23 @@ impl ReflectorPriceData {
     pub fn new(price: i128, timestamp: u64) -> Self {
         Self { price, timestamp }
     }
-    
+
     /// Get the price in cents
     pub fn price_in_cents(&self) -> i128 {
         self.price
     }
-    
+
     /// Check if the price is stale
     pub fn is_stale(&self, current_time: u64, max_age: u64) -> bool {
         current_time - self.timestamp > max_age
     }
-    
+
     /// Validate the price data
     pub fn validate(&self) -> Result<(), crate::errors::Error> {
         if self.price <= 0 {
             return Err(crate::errors::Error::OraclePriceOutOfRange);
         }
-        
+
         Ok(())
     }
 }
@@ -488,30 +570,30 @@ impl ReflectorConfigData {
             resolution,
         }
     }
-    
+
     /// Check if an asset is supported
     pub fn supports_asset(&self, asset: &ReflectorAsset) -> bool {
         self.assets.contains(asset)
     }
-    
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), crate::errors::Error> {
         if self.assets.is_empty() {
             return Err(crate::errors::Error::InvalidOracleConfig);
         }
-        
+
         if self.decimals == 0 {
             return Err(crate::errors::Error::InvalidOracleConfig);
         }
-        
+
         if self.period == 0 {
             return Err(crate::errors::Error::InvalidOracleConfig);
         }
-        
+
         if self.resolution == 0 {
             return Err(crate::errors::Error::InvalidOracleConfig);
         }
-        
+
         Ok(())
     }
 }
@@ -545,30 +627,30 @@ impl MarketCreationParams {
             oracle_config,
         }
     }
-    
+
     /// Validate all parameters
     pub fn validate(&self, env: &Env) -> Result<(), crate::errors::Error> {
         // Validate question
         if self.question.is_empty() {
             return Err(crate::errors::Error::InvalidQuestion);
         }
-        
+
         // Validate outcomes
         if self.outcomes.len() < 2 {
             return Err(crate::errors::Error::InvalidOutcomes);
         }
-        
+
         // Validate duration
         if self.duration_days == 0 || self.duration_days > 365 {
             return Err(crate::errors::Error::InvalidDuration);
         }
-        
+
         // Validate oracle config
         self.oracle_config.validate(env)?;
-        
+
         Ok(())
     }
-    
+
     /// Calculate end time from duration
     pub fn calculate_end_time(&self, env: &Env) -> u64 {
         let seconds_per_day: u64 = 24 * 60 * 60;
@@ -594,24 +676,24 @@ impl VoteParams {
             stake,
         }
     }
-    
+
     /// Validate vote parameters
     pub fn validate(&self, _env: &Env, market: &Market) -> Result<(), crate::errors::Error> {
         // Validate outcome
         if !market.outcomes.contains(&self.outcome) {
             return Err(crate::errors::Error::InvalidOutcome);
         }
-        
+
         // Validate stake
         if self.stake <= 0 {
             return Err(crate::errors::Error::InsufficientStake);
         }
-        
+
         // Check if user already voted
         if market.get_user_vote(&self.user).is_some() {
             return Err(crate::errors::Error::AlreadyVoted);
         }
-        
+
         Ok(())
     }
 }
@@ -642,17 +724,20 @@ impl MarketState {
             MarketState::Active
         }
     }
-    
+
     /// Check if market is active
     pub fn is_active(&self) -> bool {
         matches!(self, MarketState::Active)
     }
-    
+
     /// Check if market has ended
     pub fn has_ended(&self) -> bool {
-        matches!(self, MarketState::Ended | MarketState::Resolved | MarketState::Closed)
+        matches!(
+            self,
+            MarketState::Ended | MarketState::Resolved | MarketState::Closed
+        )
     }
-    
+
     /// Check if market is resolved
     pub fn is_resolved(&self) -> bool {
         matches!(self, MarketState::Resolved)
@@ -675,22 +760,22 @@ impl OracleResult {
     pub fn price(price: i128) -> Self {
         OracleResult::Price(price)
     }
-    
+
     /// Create unavailable result
     pub fn unavailable() -> Self {
         OracleResult::Unavailable
     }
-    
+
     /// Create stale result
     pub fn stale() -> Self {
         OracleResult::Stale
     }
-    
+
     /// Check if result is available
     pub fn is_available(&self) -> bool {
         matches!(self, OracleResult::Price(_))
     }
-    
+
     /// Get price if available
     pub fn get_price(&self) -> Option<i128> {
         match self {
@@ -705,7 +790,7 @@ impl OracleResult {
 /// Type validation helpers
 pub mod validation {
     use super::*;
-    
+
     /// Validate oracle provider
     pub fn validate_oracle_provider(provider: &OracleProvider) -> Result<(), crate::errors::Error> {
         if !provider.is_supported() {
@@ -713,7 +798,7 @@ pub mod validation {
         }
         Ok(())
     }
-    
+
     /// Validate price data
     pub fn validate_price(price: i128) -> Result<(), crate::errors::Error> {
         if price <= 0 {
@@ -721,7 +806,7 @@ pub mod validation {
         }
         Ok(())
     }
-    
+
     /// Validate stake amount
     pub fn validate_stake(stake: i128, min_stake: i128) -> Result<(), crate::errors::Error> {
         if stake < min_stake {
@@ -729,7 +814,7 @@ pub mod validation {
         }
         Ok(())
     }
-    
+
     /// Validate market duration
     pub fn validate_duration(duration_days: u32) -> Result<(), crate::errors::Error> {
         if duration_days == 0 || duration_days > 365 {
@@ -742,7 +827,7 @@ pub mod validation {
 /// Type conversion helpers
 pub mod conversion {
     use super::*;
-    
+
     /// Convert string to oracle provider
     pub fn string_to_oracle_provider(s: &str) -> Option<OracleProvider> {
         match s.to_lowercase().as_str() {
@@ -753,30 +838,31 @@ pub mod conversion {
             _ => None,
         }
     }
-    
+
     /// Convert oracle provider to string
     pub fn oracle_provider_to_string(provider: &OracleProvider) -> &'static str {
         provider.name()
     }
-    
+
     /// Convert comparison string to validation
     pub fn validate_comparison(comparison: &String, env: &Env) -> Result<(), crate::errors::Error> {
-        if comparison != &String::from_str(env, "gt") && 
-           comparison != &String::from_str(env, "lt") && 
-           comparison != &String::from_str(env, "eq") {
+        if comparison != &String::from_str(env, "gt")
+            && comparison != &String::from_str(env, "lt")
+            && comparison != &String::from_str(env, "eq")
+        {
             return Err(crate::errors::Error::InvalidComparison);
         }
         Ok(())
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use soroban_sdk::{vec, testutils::Address as _};
     
+
     #[test]
     fn test_oracle_provider() {
         let provider = OracleProvider::Pyth;
@@ -784,7 +870,7 @@ mod tests {
         assert!(!provider.is_supported());
         assert_eq!(provider.default_feed_format(), "BTC/USD (Not Available)");
     }
-    
+
     #[test]
     fn test_oracle_config() {
         let env = soroban_sdk::Env::default();
@@ -808,11 +894,13 @@ mod tests {
             2500000,
             String::from_str(&env, "gt"),
         );
+
         
         assert!(pyth_config.validate(&env).is_err()); // Should fail validation
         assert!(!pyth_config.is_supported());         // Should not be supported
+
     }
-    
+
     #[test]
     fn test_market_creation() {
         let env = soroban_sdk::Env::default();
@@ -830,7 +918,7 @@ mod tests {
             2500000,
             String::from_str(&env, "gt"),
         );
-        
+
         let market = Market::new(
             &env,
             admin.clone(),
@@ -839,22 +927,22 @@ mod tests {
             env.ledger().timestamp() + 86400,
             oracle_config,
         );
-        
+
         assert!(market.is_active(env.ledger().timestamp()));
         assert!(!market.is_resolved());
         assert_eq!(market.total_staked, 0);
     }
-    
+
     #[test]
     fn test_reflector_asset() {
         let env = soroban_sdk::Env::default();
         let symbol = Symbol::new(&env, "BTC");
         let asset = ReflectorAsset::other(symbol);
-        
+
         assert!(asset.is_other());
         assert!(!asset.is_stellar());
     }
-    
+
     #[test]
     fn test_market_state() {
         let env = soroban_sdk::Env::default();
@@ -872,7 +960,7 @@ mod tests {
             2500000,
             String::from_str(&env, "gt"),
         );
-        
+
         let market = Market::new(
             &env,
             admin,
@@ -881,24 +969,24 @@ mod tests {
             env.ledger().timestamp() + 86400,
             oracle_config,
         );
-        
+
         let state = MarketState::from_market(&market, env.ledger().timestamp());
         assert!(state.is_active());
         assert!(!state.has_ended());
         assert!(!state.is_resolved());
     }
-    
+
     #[test]
     fn test_oracle_result() {
         let result = OracleResult::price(2500000);
         assert!(result.is_available());
         assert_eq!(result.get_price(), Some(2500000));
-        
+
         let unavailable = OracleResult::unavailable();
         assert!(!unavailable.is_available());
         assert_eq!(unavailable.get_price(), None);
     }
-    
+
     #[test]
     fn test_validation_helpers() {
         // Test with supported provider (Reflector)
@@ -911,7 +999,7 @@ mod tests {
         assert!(validation::validate_stake(1000000, 500000).is_ok());
         assert!(validation::validate_duration(30).is_ok());
     }
-    
+
     #[test]
     fn test_conversion_helpers() {
         assert_eq!(
@@ -931,4 +1019,4 @@ mod tests {
             "Reflector"
         );
     }
-} 
+}
