@@ -78,8 +78,8 @@ impl VotingManager {
         // Process stake transfer
         VotingUtils::transfer_stake(env, &user, stake)?;
 
-        // Add vote to market
-        MarketStateManager::add_vote(&mut market, user, outcome, stake);
+        // Add vote to market (pass market_id for event emission)
+        MarketStateManager::add_vote(&mut market, user, outcome, stake, Some(&market_id));
         MarketStateManager::update_market(env, &market_id, &market);
 
         Ok(())
@@ -105,8 +105,8 @@ impl VotingManager {
         // Process stake transfer
         VotingUtils::transfer_stake(env, &user, stake)?;
 
-        // Add dispute stake and extend market
-        MarketStateManager::add_dispute_stake(&mut market, user, stake);
+        // Add dispute stake and extend market (pass market_id for event emission)
+        MarketStateManager::add_dispute_stake(&mut market, user, stake, Some(&market_id));
         MarketStateManager::extend_for_dispute(&mut market, env, DISPUTE_EXTENSION_HOURS.into());
         MarketStateManager::update_market(env, &market_id, &market);
 
@@ -135,7 +135,7 @@ impl VotingManager {
         }
 
         // Mark as claimed
-        MarketStateManager::mark_claimed(&mut market, user);
+        MarketStateManager::mark_claimed(&mut market, user, Some(&market_id));
         MarketStateManager::update_market(env, &market_id, &market);
 
         Ok(payout)
@@ -164,7 +164,7 @@ impl VotingManager {
         VotingUtils::transfer_fees(env, &admin, fee_amount)?;
 
         // Mark fees as collected
-        MarketStateManager::mark_fees_collected(&mut market);
+        MarketStateManager::mark_fees_collected(&mut market, Some(&market_id));
         MarketStateManager::update_market(env, &market_id, &market);
 
         Ok(fee_amount)
@@ -564,6 +564,7 @@ mod tests {
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            crate::types::MarketState::Active
         );
         market.total_staked = 10000;
 
@@ -586,6 +587,7 @@ mod tests {
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            crate::types::MarketState::Active
         );
 
         // Add some test votes
@@ -614,6 +616,7 @@ mod tests {
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            crate::types::MarketState::Active
         );
 
         let user = Address::generate(&env);
@@ -643,4 +646,4 @@ mod tests {
         let stats = testing::create_test_voting_stats(&env);
         assert!(testing::validate_voting_stats(&stats).is_ok());
     }
-} 
+}
