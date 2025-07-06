@@ -59,6 +59,14 @@ pub enum Error {
     DisputeAlreadyVoted = 23,
     /// Dispute fee distribution failed
     DisputeFeeDistributionFailed = 24,
+    /// Invalid dispute threshold
+    InvalidDisputeThreshold = 25,
+    /// Threshold adjustment not allowed
+    ThresholdAdjustmentNotAllowed = 26,
+    /// Threshold exceeds maximum limit
+    ThresholdExceedsMaximum = 27,
+    /// Threshold below minimum limit
+    ThresholdBelowMinimum = 28,
 
     // ===== ORACLE ERRORS (31-50) =====
     /// Oracle service is unavailable or not responding
@@ -154,7 +162,11 @@ impl Error {
             | Error::DisputeEscalationNotAllowed
             | Error::DisputeVotingPeriodExpired
             | Error::DisputeAlreadyVoted
-            | Error::DisputeFeeDistributionFailed => ErrorCategory::Market,
+            | Error::DisputeFeeDistributionFailed
+            | Error::InvalidDisputeThreshold
+            | Error::ThresholdAdjustmentNotAllowed
+            | Error::ThresholdExceedsMaximum
+            | Error::ThresholdBelowMinimum => ErrorCategory::Market,
 
             // Oracle errors
             Error::OracleUnavailable
@@ -217,6 +229,10 @@ impl Error {
             Error::DisputeVotingPeriodExpired => "Dispute voting period expired",
             Error::DisputeAlreadyVoted => "Dispute already voted on",
             Error::DisputeFeeDistributionFailed => "Dispute fee distribution failed",
+            Error::InvalidDisputeThreshold => "Invalid dispute threshold",
+            Error::ThresholdAdjustmentNotAllowed => "Threshold adjustment not allowed",
+            Error::ThresholdExceedsMaximum => "Threshold exceeds maximum limit",
+            Error::ThresholdBelowMinimum => "Threshold below minimum limit",
 
             // Oracle errors
             Error::OracleUnavailable => "Oracle service is unavailable or not responding",
@@ -274,6 +290,10 @@ impl Error {
             Error::DisputeVotingPeriodExpired => "DISPUTE_VOTING_PERIOD_EXPIRED",
             Error::DisputeAlreadyVoted => "DISPUTE_ALREADY_VOTED",
             Error::DisputeFeeDistributionFailed => "DISPUTE_FEE_DISTRIBUTION_FAILED",
+            Error::InvalidDisputeThreshold => "INVALID_DISPUTE_THRESHOLD",
+            Error::ThresholdAdjustmentNotAllowed => "THRESHOLD_ADJUSTMENT_NOT_ALLOWED",
+            Error::ThresholdExceedsMaximum => "THRESHOLD_EXCEEDS_MAXIMUM",
+            Error::ThresholdBelowMinimum => "THRESHOLD_BELOW_MINIMUM",
             Error::NothingToClaim => "NOTHING_TO_CLAIM",
             Error::MarketNotResolved => "MARKET_NOT_RESOLVED",
             Error::InvalidOutcome => "INVALID_OUTCOME",
