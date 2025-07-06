@@ -36,6 +36,9 @@ use types::ExtensionStats;
 // Fee management module
 pub mod fees;
 use fees::{FeeManager, FeeCalculator, FeeValidator, FeeUtils, FeeTracker, FeeConfigManager};
+use resolution::{OracleResolutionManager, MarketResolutionManager, MarketResolutionAnalytics, OracleResolutionAnalytics, ResolutionUtils};
+
+pub mod resolution;
 
 #[contract]
 pub struct PredictifyHybrid;
@@ -144,30 +147,10 @@ impl PredictifyHybrid {
 
     // Finalize market after disputes
     pub fn finalize_market(env: Env, admin: Address, market_id: Symbol, outcome: String) {
-        admin.require_auth();
-
-        // Verify admin
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .expect("Admin not set");
-
-        // Use error helper for admin validation
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        let mut market: Market = env
-            .storage()
-            .persistent()
-            .get(&market_id)
-            .expect("Market not found");
-
-        // Use error helper for outcome validation
-        errors::helpers::require_valid_outcome(&env, &outcome, &market.outcomes);
-
-        // Set final outcome
-        market.winning_outcome = Some(outcome);
-        env.storage().persistent().set(&market_id, &market);
+        match resolution::MarketResolutionManager::finalize_market(&env, &admin, &market_id, &outcome) {
+            Ok(_) => (), // Success
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
     // Allows users to vote on a market outcome by staking tokens
@@ -180,59 +163,10 @@ impl PredictifyHybrid {
 
     // Fetch oracle result to determine market outcome
     pub fn fetch_oracle_result(env: Env, market_id: Symbol, oracle_contract: Address) -> String {
-        // Get the market from storage
-        let mut market: Market = env
-            .storage()
-            .persistent()
-            .get(&market_id)
-            .unwrap_or_else(|| {
-                panic!("Market not found");
-            });
-
-        // Check if the market has already been resolved
-        if market.oracle_result.is_some() {
-            panic_with_error!(env, Error::MarketAlreadyResolved);
+        match resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id, &oracle_contract) {
+            Ok(resolution) => resolution.oracle_result,
+            Err(e) => panic_with_error!(env, e),
         }
-
-        // Check if the market ended (we can only fetch oracle result after market ends)
-        let current_time = env.ledger().timestamp();
-        if current_time < market.end_time {
-            panic_with_error!(env, Error::MarketClosed);
-        }
-
-        // Get the price from the appropriate oracle using the factory pattern
-        let oracle = match OracleFactory::create_oracle(
-            market.oracle_config.provider.clone(),
-            oracle_contract,
-        ) {
-            Ok(oracle) => oracle,
-            Err(e) => panic_with_error!(env, e),
-        };
-
-        let price = match oracle.get_price(&env, &market.oracle_config.feed_id) {
-            Ok(p) => p,
-            Err(e) => panic_with_error!(env, e),
-        };
-
-        // Determine the outcome based on the price and threshold using OracleUtils
-        let outcome = match OracleUtils::determine_outcome(
-            price,
-            market.oracle_config.threshold,
-            &market.oracle_config.comparison,
-            &env,
-        ) {
-            Ok(result) => result,
-            Err(e) => panic_with_error!(env, e),
-        };
-
-        // Store the result in the market
-        market.oracle_result = Some(outcome.clone());
-
-        // Update the market in storage
-        env.storage().persistent().set(&market_id, &market);
-
-        // Return the outcome
-        outcome
     }
 
     // Allows users to dispute the market result by staking tokens
@@ -245,38 +179,10 @@ impl PredictifyHybrid {
 
     // Resolves a market by combining oracle results and community votes
     pub fn resolve_market(env: Env, market_id: Symbol) -> String {
-        // Get the market from storage
-        let mut market = match MarketStateManager::get_market(&env, &market_id) {
-            Ok(market) => market,
+        match resolution::MarketResolutionManager::resolve_market(&env, &market_id) {
+            Ok(resolution) => resolution.final_outcome,
             Err(e) => panic_with_error!(env, e),
-        };
-
-        // Validate market for resolution
-        if let Err(e) = MarketValidator::validate_market_for_resolution(&env, &market) {
-            panic_with_error!(env, e);
         }
-
-        // Retrieve the oracle result
-        let oracle_result = match &market.oracle_result {
-            Some(result) => result.clone(),
-            None => panic_with_error!(env, Error::OracleUnavailable),
-        };
-
-        // Calculate community consensus
-        let community_consensus = MarketAnalytics::calculate_community_consensus(&market);
-
-        // Determine final result using hybrid algorithm
-        let final_result =
-            MarketUtils::determine_final_result(&env, &oracle_result, &community_consensus);
-
-        // Set winning outcome
-        MarketStateManager::set_winning_outcome(&mut market, final_result.clone());
-
-        // Update the market in storage
-        MarketStateManager::update_market(&env, &market_id, &market);
-
-        // Return the final result
-        final_result
     }
 
     // Resolve a dispute and determine final market outcome
@@ -284,6 +190,114 @@ impl PredictifyHybrid {
         match DisputeManager::resolve_dispute(&env, market_id, admin) {
             Ok(resolution) => resolution.final_outcome,
             Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    // ===== RESOLUTION SYSTEM METHODS =====
+
+    // Get oracle resolution for a market
+    pub fn get_oracle_resolution(env: Env, market_id: Symbol) -> Option<resolution::OracleResolution> {
+        match OracleResolutionManager::get_oracle_resolution(&env, &market_id) {
+            Ok(resolution) => resolution,
+            Err(_) => None,
+        }
+    }
+
+    // Get market resolution for a market
+    pub fn get_market_resolution(env: Env, market_id: Symbol) -> Option<resolution::MarketResolution> {
+        match MarketResolutionManager::get_market_resolution(&env, &market_id) {
+            Ok(resolution) => resolution,
+            Err(_) => None,
+        }
+    }
+
+    // Get resolution analytics
+    pub fn get_resolution_analytics(env: Env) -> resolution::ResolutionAnalytics {
+        match resolution::MarketResolutionAnalytics::calculate_resolution_analytics(&env) {
+            Ok(analytics) => analytics,
+            Err(_) => resolution::ResolutionAnalytics::default(),
+        }
+    }
+
+    // Get oracle statistics
+    pub fn get_oracle_stats(env: Env) -> resolution::OracleStats {
+        match resolution::OracleResolutionAnalytics::get_oracle_stats(&env) {
+            Ok(stats) => stats,
+            Err(_) => resolution::OracleStats::default(),
+        }
+    }
+
+    // Validate resolution for a market
+    pub fn validate_resolution(env: Env, market_id: Symbol) -> resolution::ResolutionValidation {
+        let mut validation = resolution::ResolutionValidation {
+            is_valid: true,
+            errors: vec![&env],
+            warnings: vec![&env],
+            recommendations: vec![&env],
+        };
+
+        // Get market
+        let market = match MarketStateManager::get_market(&env, &market_id) {
+            Ok(market) => market,
+            Err(_) => {
+                validation.is_valid = false;
+                validation.errors.push_back(String::from_str(&env, "Market not found"));
+                return validation;
+            }
+        };
+
+        // Check resolution state
+        let state = resolution::ResolutionUtils::get_resolution_state(&env, &market);
+        let (eligible, reason) = resolution::ResolutionUtils::get_resolution_eligibility(&env, &market);
+
+        if !eligible {
+            validation.is_valid = false;
+            validation.errors.push_back(reason);
+        }
+
+        // Add recommendations based on state
+        match state {
+            resolution::ResolutionState::Active => {
+                validation.recommendations.push_back(String::from_str(&env, "Market is active, wait for end time"));
+            }
+            resolution::ResolutionState::OracleResolved => {
+                validation.recommendations.push_back(String::from_str(&env, "Oracle resolved, ready for market resolution"));
+            }
+            resolution::ResolutionState::MarketResolved => {
+                validation.recommendations.push_back(String::from_str(&env, "Market already resolved"));
+            }
+            resolution::ResolutionState::Disputed => {
+                validation.recommendations.push_back(String::from_str(&env, "Resolution disputed, consider admin override"));
+            }
+            resolution::ResolutionState::Finalized => {
+                validation.recommendations.push_back(String::from_str(&env, "Resolution finalized"));
+            }
+        }
+
+        validation
+    }
+
+    // Get resolution state for a market
+    pub fn get_resolution_state(env: Env, market_id: Symbol) -> resolution::ResolutionState {
+        match MarketStateManager::get_market(&env, &market_id) {
+            Ok(market) => resolution::ResolutionUtils::get_resolution_state(&env, &market),
+            Err(_) => resolution::ResolutionState::Active,
+        }
+    }
+
+    // Check if market can be resolved
+    pub fn can_resolve_market(env: Env, market_id: Symbol) -> bool {
+        match MarketStateManager::get_market(&env, &market_id) {
+            Ok(market) => resolution::ResolutionUtils::can_resolve_market(&env, &market),
+            Err(_) => false,
+        }
+    }
+
+    // Calculate resolution time for a market
+    pub fn calculate_resolution_time(env: Env, market_id: Symbol) -> u64 {
+        match MarketStateManager::get_market(&env, &market_id) {
+            Ok(market) => resolution::ResolutionUtils::calculate_resolution_time(&env, &market),
+            Err(_) => 0,
         }
     }
 
