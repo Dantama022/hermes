@@ -29,6 +29,7 @@ use types::*;
 
 /// Oracle integration and management module
 pub mod oracles;
+use oracles::{OracleInterface};
 
 /// Market creation and state management module
 pub mod markets;
@@ -36,11 +37,11 @@ use markets::{MarketCreator, MarketStateManager};
 
 /// Voting system and consensus module
 pub mod voting;
-use voting::VotingManager;
+use voting::{VotingManager};
 
 /// Dispute resolution and escalation module
 pub mod disputes;
-use disputes::DisputeManager;
+use disputes::{DisputeManager};
 
 /// Market resolution and analytics module
 pub mod resolution;
@@ -48,7 +49,7 @@ use resolution::{OracleResolutionManager, MarketResolutionManager};
 
 /// Fee calculation and management module
 pub mod fees;
-use fees::FeeManager;
+use fees::{FeeManager};
 
 /// Configuration management module
 pub mod config;
@@ -60,11 +61,11 @@ use utils::{TimeUtils, StringUtils, NumericUtils, ValidationUtils, CommonUtils};
 
 /// Event logging and monitoring module
 pub mod events;
-use events::{EventLogger, EventHelpers, EventTestingUtils, EventDocumentation};
+use events::{EventEmitter, EventLogger, EventHelpers, EventTestingUtils, EventDocumentation};
 
 /// Admin controls and functions module
 pub mod admin;
-use admin::{AdminInitializer, AdminFunctions};
+use admin::{AdminInitializer, AdminFunctions, AdminAccessControl};
 
 /// Market extensions and modifications module
 pub mod extensions;
@@ -79,6 +80,7 @@ use validation::{
     FeeValidator as ValidationFeeValidator, 
     VoteValidator as ValidationVoteValidator, 
     DisputeValidator as ValidationDisputeValidator, 
+    ConfigValidator as ValidationConfigValidator, 
     ComprehensiveValidator, ValidationDocumentation,
 };
 
