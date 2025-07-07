@@ -1,7 +1,12 @@
+extern crate alloc;
+
 use soroban_sdk::{contracttype, vec, symbol_short, Address, Env, Map, String, Symbol, Vec};
 use alloc::string::ToString;
+use alloc::format;
 
 use crate::errors::Error;
+use crate::Environment;
+use crate::admin::AdminRole;
 
 /// Comprehensive event system for Predictify Hybrid contract
 ///
@@ -206,6 +211,98 @@ pub struct PerformanceMetricEvent {
     /// Context
     pub context: String,
     /// Metric timestamp
+    pub timestamp: u64,
+}
+
+/// Admin action event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminActionEvent {
+    /// Admin address
+    pub admin: Address,
+    /// Action performed
+    pub action: String,
+    /// Target of action
+    pub target: Option<String>,
+    /// Action timestamp
+    pub timestamp: u64,
+    /// Action success status
+    pub success: bool,
+}
+
+/// Admin role event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminRoleEvent {
+    /// Admin address
+    pub admin: Address,
+    /// Role assigned
+    pub role: String,
+    /// Assigned by
+    pub assigned_by: Address,
+    /// Assignment timestamp
+    pub timestamp: u64,
+}
+
+/// Admin permission event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminPermissionEvent {
+    /// Admin address
+    pub admin: Address,
+    /// Permission checked
+    pub permission: String,
+    /// Access granted
+    pub granted: bool,
+    /// Check timestamp
+    pub timestamp: u64,
+}
+
+/// Market closed event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketClosedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Admin who closed it
+    pub admin: Address,
+    /// Close timestamp
+    pub timestamp: u64,
+}
+
+/// Market finalized event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketFinalizedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Admin who finalized it
+    pub admin: Address,
+    /// Final outcome
+    pub outcome: String,
+    /// Finalization timestamp
+    pub timestamp: u64,
+}
+
+/// Admin initialized event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminInitializedEvent {
+    /// Admin address
+    pub admin: Address,
+    /// Initialization timestamp
+    pub timestamp: u64,
+}
+
+/// Config initialized event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigInitializedEvent {
+    /// Admin address
+    pub admin: Address,
+    /// Environment
+    pub environment: String,
+    /// Initialization timestamp
     pub timestamp: u64,
 }
 
@@ -440,6 +537,114 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("perf_met"), &event);
+    }
+
+    /// Emit admin action logged event
+    pub fn emit_admin_action_logged(
+        env: &Env,
+        admin: &Address,
+        action: &str,
+        success: &bool,
+    ) {
+        let event = AdminActionEvent {
+            admin: admin.clone(),
+            action: String::from_str(env, action),
+            target: None,
+            timestamp: env.ledger().timestamp(),
+            success: *success,
+        };
+
+        Self::store_event(env, &symbol_short!("adm_act"), &event);
+    }
+
+    /// Emit admin initialized event
+    pub fn emit_admin_initialized(env: &Env, admin: &Address) {
+        let event = AdminInitializedEvent {
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("adm_init"), &event);
+    }
+
+    /// Emit config initialized event
+    pub fn emit_config_initialized(
+        env: &Env,
+        admin: &Address,
+        environment: &Environment,
+    ) {
+        let event = ConfigInitializedEvent {
+            admin: admin.clone(),
+            environment: String::from_str(env, &format!("{:?}", environment)),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("cfg_init"), &event);
+    }
+
+    /// Emit admin role assigned event
+    pub fn emit_admin_role_assigned(
+        env: &Env,
+        admin: &Address,
+        role: &AdminRole,
+        assigned_by: &Address,
+    ) {
+        let event = AdminRoleEvent {
+            admin: admin.clone(),
+            role: String::from_str(env, &format!("{:?}", role)),
+            assigned_by: assigned_by.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("adm_role"), &event);
+    }
+
+    /// Emit admin role deactivated event
+    pub fn emit_admin_role_deactivated(
+        env: &Env,
+        admin: &Address,
+        deactivated_by: &Address,
+    ) {
+        let event = AdminRoleEvent {
+            admin: admin.clone(),
+            role: String::from_str(env, "deactivated"),
+            assigned_by: deactivated_by.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("adm_deact"), &event);
+    }
+
+    /// Emit market closed event
+    pub fn emit_market_closed(
+        env: &Env,
+        market_id: &Symbol,
+        admin: &Address,
+    ) {
+        let event = MarketClosedEvent {
+            market_id: market_id.clone(),
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("mkt_close"), &event);
+    }
+
+    /// Emit market finalized event
+    pub fn emit_market_finalized(
+        env: &Env,
+        market_id: &Symbol,
+        admin: &Address,
+        outcome: &String,
+    ) {
+        let event = MarketFinalizedEvent {
+            market_id: market_id.clone(),
+            admin: admin.clone(),
+            outcome: outcome.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("mkt_final"), &event);
     }
 
     /// Store event in persistent storage
