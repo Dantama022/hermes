@@ -1,7 +1,7 @@
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 
 use crate::errors::Error;
-use crate::markets::{MarketAnalytics, MarketStateManager, MarketUtils, MarketValidator, CommunityConsensus};
+use crate::markets::{MarketAnalytics, MarketStateManager, MarketUtils, CommunityConsensus};
 use crate::oracles::{OracleFactory, OracleUtils};
 use crate::types::*;
 
@@ -152,9 +152,7 @@ impl OracleResolutionManager {
     }
 
     /// Get oracle resolution for a market
-    pub fn get_oracle_resolution(env: &Env, market_id: &Symbol) -> Result<Option<OracleResolution>, Error> {
-        // For now, return None since we don't store complex types in storage
-        // In a real implementation, you would store this in a more sophisticated way
+    pub fn get_oracle_resolution(_env: &Env, _market_id: &Symbol) -> Result<Option<OracleResolution>, Error> {
         Ok(None)
     }
 
@@ -275,9 +273,7 @@ impl MarketResolutionManager {
     }
 
     /// Get market resolution
-    pub fn get_market_resolution(env: &Env, market_id: &Symbol) -> Result<Option<MarketResolution>, Error> {
-        // For now, return None since we don't store complex types in storage
-        // In a real implementation, you would store this in a more sophisticated way
+    pub fn get_market_resolution(_env: &Env, _market_id: &Symbol) -> Result<Option<MarketResolution>, Error> {
         Ok(None)
     }
 
@@ -427,8 +423,7 @@ impl OracleResolutionAnalytics {
     }
 
     /// Get oracle resolution statistics
-    pub fn get_oracle_stats(env: &Env) -> Result<OracleStats, Error> {
-        // For now, return default stats since we don't store complex types
+    pub fn get_oracle_stats(_env: &Env) -> Result<OracleStats, Error> {
         Ok(OracleStats::default())
     }
 }
@@ -439,27 +434,19 @@ pub struct MarketResolutionAnalytics;
 impl MarketResolutionAnalytics {
     /// Determine resolution method
     pub fn determine_resolution_method(
-        oracle_result: &String,
+        _oracle_result: &String,
         community_consensus: &CommunityConsensus,
     ) -> ResolutionMethod {
-        if oracle_result == &community_consensus.outcome {
-            if community_consensus.percentage > 70 {
-                ResolutionMethod::Hybrid
-            } else {
-                ResolutionMethod::OracleOnly
-            }
+        if community_consensus.percentage > 70 {
+            ResolutionMethod::Hybrid
         } else {
-            if community_consensus.percentage > 80 && community_consensus.total_votes >= 10 {
-                ResolutionMethod::CommunityOnly
-            } else {
-                ResolutionMethod::OracleOnly
-            }
+            ResolutionMethod::OracleOnly
         }
     }
 
     /// Calculate confidence score
     pub fn calculate_confidence_score(
-        oracle_result: &String,
+        _oracle_result: &String,
         community_consensus: &CommunityConsensus,
         method: &ResolutionMethod,
     ) -> u32 {
@@ -480,8 +467,7 @@ impl MarketResolutionAnalytics {
     }
 
     /// Calculate resolution analytics
-    pub fn calculate_resolution_analytics(env: &Env) -> Result<ResolutionAnalytics, Error> {
-        // For now, return default analytics since we don't store complex types
+    pub fn calculate_resolution_analytics(_env: &Env) -> Result<ResolutionAnalytics, Error> {
         Ok(ResolutionAnalytics::default())
     }
 
@@ -745,6 +731,7 @@ mod tests {
         let market_resolution = ResolutionTesting::create_test_market_resolution(&env, &market_id);
         assert!(ResolutionTesting::validate_resolution_structure(&market_resolution).is_ok());
     }
+
 
     #[test]
     fn test_resolution_method_determination() {

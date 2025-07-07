@@ -1,15 +1,13 @@
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contracttype, vec, Address, Env, Map, String, Symbol, Vec};
 use alloc::string::ToString;
-use alloc::format;
 
 use crate::errors::Error;
-use crate::events::{EventEmitter, AdminActionEvent, AdminRoleEvent, AdminPermissionEvent, MarketClosedEvent, MarketFinalizedEvent, AdminInitializedEvent, ConfigInitializedEvent};
-use crate::markets::{MarketStateManager, MarketValidator};
+use crate::markets::MarketStateManager;
 use crate::fees::{FeeManager, FeeConfig};
 use crate::config::{ConfigManager, ContractConfig, Environment, ConfigUtils};
 use crate::resolution::MarketResolutionManager;
 use crate::extensions::ExtensionManager;
-use crate::types::*;
+use crate::events::EventEmitter;
 
 /// Admin management system for Predictify Hybrid contract
 ///
@@ -304,7 +302,7 @@ impl AdminRoleManager {
     }
 
     /// Get admin role
-    pub fn get_admin_role(env: &Env, admin: &Address) -> Result<AdminRole, Error> {
+    pub fn get_admin_role(env: &Env, _admin: &Address) -> Result<AdminRole, Error> {
         let key = Symbol::new(env, "admin_role");
         let assignment: AdminRoleAssignment = env
             .storage()
@@ -321,7 +319,7 @@ impl AdminRoleManager {
 
     /// Check if admin has permission
     pub fn has_permission(
-        env: &Env,
+        _env: &Env,
         role: &AdminRole,
         permission: &AdminPermission,
     ) -> Result<bool, Error> {
@@ -421,7 +419,7 @@ impl AdminFunctions {
         AdminAccessControl::validate_admin_for_action(env, admin, "close_market")?;
 
         // Get market
-        let market = MarketStateManager::get_market(env, market_id)?;
+        let _market = MarketStateManager::get_market(env, market_id)?;
 
         // Close market
         MarketStateManager::remove_market(env, market_id);
@@ -448,7 +446,7 @@ impl AdminFunctions {
         AdminAccessControl::validate_admin_for_action(env, admin, "finalize_market")?;
 
         // Finalize market using resolution manager
-        let resolution = MarketResolutionManager::finalize_market(env, admin, market_id, outcome)?;
+        let _resolution = MarketResolutionManager::finalize_market(env, admin, market_id, outcome)?;
 
         // Emit market finalized event
         EventEmitter::emit_market_finalized(env, market_id, admin, outcome);
@@ -551,7 +549,7 @@ pub struct AdminValidator;
 
 impl AdminValidator {
     /// Validate admin address
-    pub fn validate_admin_address(env: &Env, admin: &Address) -> Result<(), Error> {
+    pub fn validate_admin_address(_env: &Env, admin: &Address) -> Result<(), Error> {
         // Check if address is valid
         if admin.to_string().is_empty() {
             return Err(Error::InvalidInput);
@@ -650,7 +648,7 @@ impl AdminActionLogger {
     }
 
     /// Get admin actions
-    pub fn get_admin_actions(env: &Env, limit: u32) -> Result<Vec<AdminAction>, Error> {
+    pub fn get_admin_actions(env: &Env, _limit: u32) -> Result<Vec<AdminAction>, Error> {
         // For now, return empty vector since we don't have a way to iterate over storage
         // In a real implementation, you would store actions in a more sophisticated way
         Ok(Vec::new(env))
@@ -659,8 +657,8 @@ impl AdminActionLogger {
     /// Get admin actions for specific admin
     pub fn get_admin_actions_for_admin(
         env: &Env,
-        admin: &Address,
-        limit: u32,
+        _admin: &Address,
+        _limit: u32,
     ) -> Result<Vec<AdminAction>, Error> {
         // For now, return empty vector
         Ok(Vec::new(env))
@@ -672,7 +670,7 @@ impl AdminActionLogger {
 /// Admin analytics
 impl AdminAnalytics {
     /// Calculate admin analytics
-    pub fn calculate_admin_analytics(env: &Env) -> Result<AdminAnalytics, Error> {
+    pub fn calculate_admin_analytics(_env: &Env) -> Result<AdminAnalytics, Error> {
         // For now, return default analytics since we don't store complex types
         Ok(AdminAnalytics::default())
     }
@@ -827,7 +825,7 @@ impl Default for AdminAnalytics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
+    use soroban_sdk::testutils::{Address as _,};
 
     #[test]
     fn test_admin_initializer_initialize() {
@@ -888,7 +886,7 @@ mod tests {
     fn test_admin_functions_close_market() {
         let env = Env::default();
         let admin = Address::generate(&env);
-        let market_id = Symbol::new(&env, "test_market");
+        let _market_id = Symbol::new(&env, "test_market");
 
         // Initialize admin
         AdminInitializer::initialize(&env, &admin).unwrap();

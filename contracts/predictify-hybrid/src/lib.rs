@@ -53,7 +53,7 @@ use fees::{FeeManager};
 
 /// Configuration management module
 pub mod config;
-use config::{ConfigManager, ConfigValidator, ConfigUtils, ContractConfig, Environment};
+use config::{ConfigManager, ConfigUtils, ConfigValidator, ContractConfig, Environment};
 
 /// Utility functions and helpers module
 pub mod utils;
@@ -74,7 +74,7 @@ use extensions::{ExtensionManager, ExtensionUtils, ExtensionValidator};
 /// Input validation and security module
 pub mod validation;
 use validation::{
-    ValidationError, ValidationResult, InputValidator, 
+    ValidationResult, InputValidator, 
     MarketValidator as ValidationMarketValidator, 
     OracleValidator as ValidationOracleValidator,
     FeeValidator as ValidationFeeValidator, 
@@ -118,7 +118,7 @@ impl PredictifyHybrid {
             });
 
         // Use error helper for admin validation
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
+        let _ = errors::helpers::require_admin(&env, &admin, &stored_admin);
 
         // Use the markets module to create the market
         match MarketCreator::create_market(
@@ -633,7 +633,7 @@ impl PredictifyHybrid {
 
     /// Get dispute votes
     pub fn get_dispute_votes(env: Env, dispute_id: Symbol) -> Vec<disputes::DisputeVote> {
-        match DisputeManager::get_dispute_votes(&env, dispute_id) {
+        match DisputeManager::get_dispute_votes(&env, &dispute_id) {
             Ok(votes) => votes,
             Err(_) => vec![&env],
         }
@@ -942,7 +942,7 @@ impl PredictifyHybrid {
     }
 
     /// Validate event structure
-    pub fn validate_event_structure(env: Env, event_type: String, event_data: String) -> bool {
+    pub fn validate_event_structure(_env: Env, event_type: String, _event_data: String) -> bool {
         match event_type.to_string().as_str() {
             "MarketCreated" => {
                 // In a real implementation, you would deserialize and validate
@@ -963,12 +963,12 @@ impl PredictifyHybrid {
     }
 
     /// Get event documentation
-    pub fn get_event_documentation(env: Env) -> Map<String, String> {
+    pub fn get_event_documentation(_env: Env) -> Map<String, String> {
         EventDocumentation::get_event_type_docs()
     }
 
     /// Get event usage examples
-    pub fn get_event_usage_examples(env: Env) -> Map<String, String> {
+    pub fn get_event_usage_examples(_env: Env) -> Map<String, String> {
         EventDocumentation::get_usage_examples()
     }
 
@@ -1141,7 +1141,7 @@ impl PredictifyHybrid {
     pub fn validate_oracle_config(env: Env, oracle_config: OracleConfig) -> ValidationResult {
         let mut result = ValidationResult::valid();
         
-        if let Err(error) = ValidationOracleValidator::validate_oracle_config(&env, &oracle_config) {
+        if let Err(_error) = ValidationOracleValidator::validate_oracle_config(&env, &oracle_config) {
             result.add_error();
         }
         
