@@ -1,7 +1,7 @@
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec, vec};
 
 use crate::errors::Error;
-use crate::markets::{MarketAnalytics, MarketStateManager, MarketUtils, MarketValidator, CommunityConsensus};
+use crate::markets::{MarketAnalytics, MarketStateManager, MarketUtils, CommunityConsensus};
 use crate::oracles::{OracleFactory, OracleUtils};
 use crate::types::*;
 
