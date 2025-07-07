@@ -511,17 +511,17 @@ pub mod debug {
     use super::*;
 
     /// Log error with context for debugging
-    pub fn log_error(env: &Env, error: Error, context: &ErrorContext) {
+    pub fn log_error(env: &Env, error: Error, _context: &ErrorContext) {
         // In a real implementation, this would log to a debug storage or event
         // For now, we'll just use the panic mechanism
         // Note: In no_std environment, we can't use format! macro
         // This is a placeholder - in a real implementation you might want to
         // store this in a debug log or emit an event
-        let _ = (env, error, context); // Suppress unused variable warning
+        let _ = (env, error); // Suppress unused variable warning
     }
 
     /// Create a detailed error report
-    pub fn create_error_report(env: &Env, error: Error, context: &ErrorContext) -> String {
+    pub fn create_error_report(env: &Env, error: Error, _context: &ErrorContext) -> String {
         // In no_std environment, we can't use format! macro
         // For now, return a simple error message
         String::from_str(env, &error.message())
