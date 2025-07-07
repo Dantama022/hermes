@@ -498,7 +498,7 @@ impl FeeTracker {
     /// Record creation fee
     pub fn record_creation_fee(
         env: &Env,
-        admin: &Address,
+        _admin: &Address,
         amount: i128,
     ) -> Result<(), Error> {
         // Record creation fee in analytics
@@ -519,8 +519,8 @@ impl FeeTracker {
     /// Record configuration change
     pub fn record_config_change(
         env: &Env,
-        admin: &Address,
-        config: &FeeConfig,
+        _admin: &Address,
+        _config: &FeeConfig,
     ) -> Result<(), Error> {
         // Store configuration change timestamp
         let config_key = symbol_short!("cfg_time");
