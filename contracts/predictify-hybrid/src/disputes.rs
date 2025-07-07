@@ -1,6 +1,6 @@
 use crate::{
     errors::Error,
-    markets::{MarketStateManager, MarketValidator},
+    markets::{MarketStateManager},
     types::Market,
     voting::{VotingUtils, DISPUTE_EXTENSION_HOURS, MIN_DISPUTE_STAKE},
 };
