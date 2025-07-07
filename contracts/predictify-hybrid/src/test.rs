@@ -52,6 +52,9 @@ impl<'a> PredictifyTest<'a> {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
 
+        // Mock all authentication before contract initialization
+        env.mock_all_auths();
+
         // Initialize contract
         let contract_id = env.register_contract(None, PredictifyHybrid);
         let client = PredictifyHybridClient::new(&env, &contract_id);
