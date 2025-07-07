@@ -52,6 +52,10 @@ use utils::{TimeUtils, StringUtils, NumericUtils, ValidationUtils, ConversionUti
 pub mod events;
 use events::{EventEmitter, EventLogger, EventValidator, EventHelpers, EventTestingUtils, EventDocumentation};
 
+// Admin management module
+pub mod admin;
+use admin::{AdminInitializer, AdminAccessControl, AdminFunctions, AdminRoleManager, AdminUtils};
+
 pub mod resolution;
 
 pub mod validation;
@@ -72,9 +76,10 @@ pub struct PredictifyHybrid;
 #[contractimpl]
 impl PredictifyHybrid {
     pub fn initialize(env: Env, admin: Address) {
-        env.storage()
-            .persistent()
-            .set(&Symbol::new(&env, "Admin"), &admin);
+        match AdminInitializer::initialize(&env, &admin) {
+            Ok(_) => (), // Success
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
     // Create a market using the markets module
@@ -147,7 +152,7 @@ impl PredictifyHybrid {
 
     // Update fee configuration (admin only)
     pub fn update_fee_config(env: Env, admin: Address, new_config: fees::FeeConfig) -> fees::FeeConfig {
-        match FeeManager::update_fee_config(&env, admin, new_config) {
+        match AdminFunctions::update_fee_config(&env, &admin, &new_config) {
             Ok(config) => config,
             Err(e) => panic_with_error!(env, e),
         }
@@ -171,7 +176,7 @@ impl PredictifyHybrid {
 
     // Finalize market after disputes
     pub fn finalize_market(env: Env, admin: Address, market_id: Symbol, outcome: String) {
-        match resolution::MarketResolutionManager::finalize_market(&env, &admin, &market_id, &outcome) {
+        match AdminFunctions::finalize_market(&env, &admin, &market_id, &outcome) {
             Ok(_) => (), // Success
             Err(e) => panic_with_error!(env, e),
         }
@@ -362,20 +367,10 @@ impl PredictifyHybrid {
 
     // Clean up market storage
     pub fn close_market(env: Env, admin: Address, market_id: Symbol) {
-        admin.require_auth();
-
-        // Verify admin
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .expect("Admin not set");
-
-        // Use error helper for admin validation
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        // Remove market from storage
-        MarketStateManager::remove_market(&env, &market_id);
+        match AdminFunctions::close_market(&env, &admin, &market_id) {
+            Ok(_) => (), // Success
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
     // Helper function to create a market with Reflector oracle
@@ -466,25 +461,7 @@ impl PredictifyHybrid {
         additional_days: u32,
         reason: String,
     ) {
-        admin.require_auth();
-
-        // Verify admin
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .expect("Admin not set");
-
-        // Use error helper for admin validation
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        match ExtensionManager::extend_market_duration(
-            &env,
-            admin,
-            market_id,
-            additional_days,
-            reason,
-        ) {
+        match AdminFunctions::extend_market_duration(&env, &admin, &market_id, additional_days, &reason) {
             Ok(_) => (), // Success
             Err(e) => panic_with_error!(env, e),
         }
@@ -747,22 +724,8 @@ impl PredictifyHybrid {
 
     /// Initialize contract with configuration
     pub fn initialize_with_config(env: Env, admin: Address, environment: Environment) {
-        // Set admin
-        env.storage()
-            .persistent()
-            .set(&Symbol::new(&env, "Admin"), &admin);
-
-        // Initialize configuration based on environment
-        let config = match environment {
-            Environment::Development => ConfigManager::get_development_config(&env),
-            Environment::Testnet => ConfigManager::get_testnet_config(&env),
-            Environment::Mainnet => ConfigManager::get_mainnet_config(&env),
-            Environment::Custom => ConfigManager::get_development_config(&env), // Default to development for custom
-        };
-
-        // Store configuration
-        match ConfigManager::store_config(&env, &config) {
-            Ok(_) => (),
+        match AdminInitializer::initialize_with_config(&env, &admin, &environment) {
+            Ok(_) => (), // Success
             Err(e) => panic_with_error!(env, e),
         }
     }
@@ -776,42 +739,16 @@ impl PredictifyHybrid {
     }
 
     /// Update contract configuration (admin only)
-    pub fn update_contract_config(env: Env, admin: Address, new_config: ContractConfig) -> ContractConfig {
-        // Verify admin permissions
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .unwrap_or_else(|| panic!("Admin not set"));
-
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        // Validate new configuration
-        match ConfigValidator::validate_contract_config(&new_config) {
-            Ok(_) => (),
-            Err(e) => panic_with_error!(env, e),
-        }
-
-        // Store updated configuration
-        match ConfigManager::update_config(&env, &new_config) {
-            Ok(_) => new_config,
-            Err(e) => panic_with_error!(env, e),
+    pub fn update_contract_config(env: Env, admin: Address, new_config: ContractConfig) -> Result<(), Error> {
+        match AdminFunctions::update_contract_config(&env, &admin, &new_config) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 
     /// Reset configuration to defaults
     pub fn reset_config_to_defaults(env: Env, admin: Address) -> ContractConfig {
-        // Verify admin permissions
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .unwrap_or_else(|| panic!("Admin not set"));
-
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        // Reset to defaults
-        match ConfigManager::reset_to_defaults(&env) {
+        match AdminFunctions::reset_config_to_defaults(&env, &admin) {
             Ok(config) => config,
             Err(e) => panic_with_error!(env, e),
         }
