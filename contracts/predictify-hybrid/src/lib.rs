@@ -293,6 +293,8 @@ impl PredictifyHybrid {
         let state = resolution::ResolutionUtils::get_resolution_state(&env, &market);
         let (eligible, reason) = resolution::ResolutionUtils::get_resolution_eligibility(&env, &market);
 
+        // Set winning outcome
+        MarketStateManager::set_winning_outcome(&mut market, final_result.clone(), Some(&market_id));
         if !eligible {
             validation.is_valid = false;
             validation.errors.push_back(reason);
