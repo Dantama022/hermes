@@ -52,6 +52,9 @@ impl<'a> PredictifyTest<'a> {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
 
+        // Mock all authentication before contract initialization
+        env.mock_all_auths();
+
         // Initialize contract
         let contract_id = env.register_contract(None, PredictifyHybrid);
         let client = PredictifyHybridClient::new(&env, &contract_id);
@@ -137,6 +140,7 @@ fn test_create_market_successful() {
     ];
 
     //Create market
+    test.env.mock_all_auths();
     client.create_market(
         &test.admin,
         &String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"),
@@ -258,6 +262,7 @@ fn test_successful_vote() {
     ];
 
     //Create market
+    test.env.mock_all_auths();
     client.create_market(
         &test.admin,
         &String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"),
@@ -328,6 +333,7 @@ fn test_vote_on_closed_market() {
     ];
 
     //Create market
+    test.env.mock_all_auths();
     client.create_market(
         &test.admin,
         &String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"),
@@ -388,6 +394,7 @@ fn test_vote_with_invalid_outcome() {
     ];
 
     //Create market
+    test.env.mock_all_auths();
     client.create_market(
         &test.admin,
         &String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"),
