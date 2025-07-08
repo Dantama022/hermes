@@ -33,18 +33,11 @@ impl MarketCreator {
         let end_time = MarketUtils::calculate_end_time(_env, duration_days);
 
         // Create market instance
-        let market = Market::new(
-            _env,
-            admin.clone(),
-            question,
-            outcomes,
-            end_time,
-            oracle_config,
-        );
-
-        // Market creation fee is now handled by the fees module
-        // FeeManager::process_creation_fee(_env, &admin)?;
-
+        let market = Market::new(env, admin.clone(), question, outcomes, end_time, oracle_config, MarketState::Active);
+        
+        // Process market creation fee
+        MarketUtils::process_creation_fee(env, &admin)?;
+        
         // Store market
         _env.storage().persistent().set(&market_id, &market);
 
@@ -193,25 +186,49 @@ impl MarketStateManager {
     }
 
     /// Remove market from storage
-    pub fn remove_market(_env: &Env, market_id: &Symbol) {
-        _env.storage().persistent().remove(market_id);
+    pub fn remove_market(env: &Env, market_id: &Symbol) {
+        let mut market = match Self::get_market(env, market_id) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        if market.state != MarketState::Closed {
+            MarketStateLogic::validate_state_transition(market.state, MarketState::Closed).unwrap();
+            let old_state = market.state;
+            market.state = MarketState::Closed;
+            MarketStateLogic::emit_state_change_event(env, market_id, old_state, market.state);
+            Self::update_market(env, market_id, &market);
+        }
+        env.storage().persistent().remove(market_id);
     }
 
     /// Add vote to market
-    pub fn add_vote(market: &mut Market, user: Address, outcome: String, stake: i128) {
+    pub fn add_vote(market: &mut Market, user: Address, outcome: String, stake: i128, market_id: Option<&Symbol>) {
+        MarketStateLogic::check_function_access_for_state("vote", market.state).unwrap();
         market.votes.set(user.clone(), outcome);
         market.stakes.set(user.clone(), stake);
         market.total_staked += stake;
+        // No state change for voting
     }
 
     /// Add dispute stake to market
-    pub fn add_dispute_stake(market: &mut Market, user: Address, stake: i128) {
+    pub fn add_dispute_stake(market: &mut Market, user: Address, stake: i128, market_id: Option<&Symbol>) {
+        MarketStateLogic::check_function_access_for_state("dispute", market.state).unwrap();
         let existing_stake = market.dispute_stakes.get(user.clone()).unwrap_or(0);
         market.dispute_stakes.set(user, existing_stake + stake);
+        // State transition: Ended -> Disputed
+        if market.state == MarketState::Ended {
+            MarketStateLogic::validate_state_transition(market.state, MarketState::Disputed).unwrap();
+            let old_state = market.state;
+            market.state = MarketState::Disputed;
+            let env = &market.votes.env();
+            let owned_event_id = market_id.cloned().unwrap_or_else(|| Symbol::new(env, "unknown_market_id"));
+            MarketStateLogic::emit_state_change_event(env, &owned_event_id, old_state, market.state);
+        }
     }
 
     /// Mark user as claimed
-    pub fn mark_claimed(market: &mut Market, user: Address) {
+    pub fn mark_claimed(market: &mut Market, user: Address, _market_id: Option<&Symbol>) {
+        MarketStateLogic::check_function_access_for_state("claim", market.state).unwrap();
         market.claimed.set(user, true);
     }
 
@@ -221,12 +238,32 @@ impl MarketStateManager {
     }
 
     /// Set winning outcome
-    pub fn set_winning_outcome(market: &mut Market, outcome: String) {
+    pub fn set_winning_outcome(market: &mut Market, outcome: String, market_id: Option<&Symbol>) {
+        MarketStateLogic::check_function_access_for_state("resolve", market.state).unwrap();
+        let old_state = market.state;
         market.winning_outcome = Some(outcome);
+        // State transition: Ended/Disputed -> Resolved
+        if market.state == MarketState::Ended || market.state == MarketState::Disputed {
+            MarketStateLogic::validate_state_transition(market.state, MarketState::Resolved).unwrap();
+            market.state = MarketState::Resolved;
+            let env = &market.votes.env();
+            let owned_event_id = market_id.cloned().unwrap_or_else(|| Symbol::new(env, "unknown_market_id"));
+            MarketStateLogic::emit_state_change_event(env, &owned_event_id, old_state, market.state);
+        }
     }
 
     /// Mark fees as collected
-    pub fn mark_fees_collected(market: &mut Market) {
+    pub fn mark_fees_collected(market: &mut Market, market_id: Option<&Symbol>) {
+        MarketStateLogic::check_function_access_for_state("close", market.state).unwrap();
+        let old_state = market.state;
+        // State transition: Resolved -> Closed
+        if market.state == MarketState::Resolved {
+            MarketStateLogic::validate_state_transition(market.state, MarketState::Closed).unwrap();
+            market.state = MarketState::Closed;
+            let env = &market.votes.env();
+            let owned_event_id = market_id.cloned().unwrap_or_else(|| Symbol::new(env, "unknown_market_id"));
+            MarketStateLogic::emit_state_change_event(env, &owned_event_id, old_state, market.state);
+        }
         market.fee_collected = true;
     }
 
@@ -527,8 +564,9 @@ impl MarketTestHelpers {
         token_client.transfer(&user, &_env.current_contract_address(), &stake);
 
         // Add vote
-        MarketStateManager::add_vote(&mut market, user, outcome, stake);
-        MarketStateManager::update_market(_env, market_id, &market);
+        MarketStateManager::add_vote(&mut market, user, outcome, stake, None);
+        MarketStateManager::update_market(env, market_id, &market);
+
 
         Ok(())
     }
@@ -554,10 +592,105 @@ impl MarketTestHelpers {
             MarketUtils::determine_final_result(_env, &oracle_result, &community_consensus);
 
         // Set winning outcome
-        MarketStateManager::set_winning_outcome(&mut market, final_result.clone());
-        MarketStateManager::update_market(_env, market_id, &market);
+        MarketStateManager::set_winning_outcome(&mut market, final_result.clone(), None);
+        MarketStateManager::update_market(env, market_id, &market);
 
         Ok(final_result)
+    }
+}
+
+// ===== MARKET STATE LOGIC =====
+
+pub struct MarketStateLogic;
+
+impl MarketStateLogic {
+    /// Validate allowed state transitions
+    pub fn validate_state_transition(from: MarketState, to: MarketState) -> Result<(), Error> {
+        use MarketState::*;
+        let allowed = match from {
+            Active => matches!(to, Ended | Cancelled | Closed | Disputed),
+            Ended => matches!(to, Resolved | Disputed | Closed | Cancelled),
+            Disputed => matches!(to, Resolved | Closed | Cancelled),
+            Resolved => matches!(to, Closed),
+            Closed => false,
+            Cancelled => false,
+        };
+        if allowed {
+            Ok(())
+        } else {
+            Err(Error::InvalidState)
+        }
+    }
+
+    /// Check if a function is allowed in the given state
+    pub fn check_function_access_for_state(function: &str, state: MarketState) -> Result<(), Error> {
+        use MarketState::*;
+        let allowed = match function {
+            "vote" => matches!(state, Active),
+            "dispute" => matches!(state, Ended),
+            "resolve" => matches!(state, Ended | Disputed),
+            "claim" => matches!(state, Resolved),
+            "close" => matches!(state, Resolved | Cancelled | Closed),
+            _ => true, // By default allow
+        };
+        if allowed {
+            Ok(())
+        } else {
+            Err(Error::MarketClosed)
+        }
+    }
+
+    /// Emit a state change event (placeholder: use env.events().publish)
+    pub fn emit_state_change_event(env: &Env, market_id: &Symbol, old_state: MarketState, new_state: MarketState) {
+        env.events().publish(("market_state_change", market_id), (old_state, new_state));
+    }
+
+    /// Validate that the market's state is consistent with its data
+    pub fn validate_market_state_consistency(env: &Env, market: &Market) -> Result<(), Error> {
+        use MarketState::*;
+        let now = env.ledger().timestamp();
+        match market.state {
+            Active => {
+                if market.end_time <= now {
+                    return Err(Error::InvalidState);
+                }
+                if market.winning_outcome.is_some() {
+                    return Err(Error::InvalidState);
+                }
+            }
+            Ended => {
+                if market.end_time > now {
+                    return Err(Error::InvalidState);
+                }
+                if market.winning_outcome.is_some() {
+                    return Err(Error::InvalidState);
+                }
+            }
+            Disputed => {
+                if market.dispute_stakes.is_empty() {
+                    return Err(Error::InvalidState);
+                }
+            }
+            Resolved => {
+                if market.winning_outcome.is_none() {
+                    return Err(Error::InvalidState);
+                }
+            }
+            Closed | Cancelled => {}
+        }
+        Ok(())
+    }
+
+    /// Get the current state of a market
+    pub fn get_market_state(env: &Env, market_id: &Symbol) -> Result<MarketState, Error> {
+        let market = MarketStateManager::get_market(env, market_id)?;
+        Ok(market.state)
+    }
+
+    /// Check if a market can transition to a target state
+    pub fn can_transition_to_state(env: &Env, market_id: &Symbol, target_state: MarketState) -> Result<bool, Error> {
+        let market = MarketStateManager::get_market(env, market_id)?;
+        Ok(MarketStateLogic::validate_state_transition(market.state, target_state).is_ok())
     }
 }
 
@@ -660,6 +793,7 @@ mod tests {
                 25_000_00,
                 String::from_str(&env, "gt"),
             ),
+            MarketState::Active,
         );
 
         // Test market stats

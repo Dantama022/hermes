@@ -291,6 +291,8 @@ impl PredictifyHybrid {
         let state = resolution::ResolutionUtils::get_resolution_state(&env, &market);
         let (eligible, reason) = resolution::ResolutionUtils::get_resolution_eligibility(&env, &market);
 
+        // Set winning outcome
+        MarketStateManager::set_winning_outcome(&mut market, final_result.clone(), Some(&market_id));
         if !eligible {
             validation.is_valid = false;
             validation.errors.push_back(reason);
@@ -805,8 +807,8 @@ impl PredictifyHybrid {
     // ===== UTILITY-BASED METHODS =====
 
     /// Format duration in human-readable format
-    pub fn format_duration(seconds: u64) -> String {
-        TimeUtils::format_duration(seconds)
+    pub fn format_duration(env: Env, seconds: u64) -> String {
+        TimeUtils::format_duration(&env, seconds)
     }
 
     /// Calculate percentage with custom denominator
@@ -820,13 +822,12 @@ impl PredictifyHybrid {
     }
 
     /// Sanitize string
-    pub fn sanitize_string(s: String) -> String {
-        StringUtils::sanitize_string(&s)
+    pub fn sanitize_string(env: Env, s: String) -> String {
+        StringUtils::sanitize_string(&env, &s)
     }
 
     /// Convert number to string
-    pub fn number_to_string(value: i128) -> String {
-        let env = Env::default();
+    pub fn number_to_string(env: Env, value: i128) -> String {
         NumericUtils::i128_to_string(&env, &value)
     }
 
@@ -836,8 +837,7 @@ impl PredictifyHybrid {
     }
 
     /// Generate unique ID
-    pub fn generate_unique_id(prefix: String) -> String {
-        let env = Env::default();
+    pub fn generate_unique_id(env: Env, prefix: String) -> String {
         CommonUtils::generate_unique_id(&env, &prefix)
     }
 
@@ -897,13 +897,12 @@ impl PredictifyHybrid {
     }
 
     /// Validate future timestamp
-    pub fn validate_future_timestamp(timestamp: u64) -> bool {
-        ValidationUtils::validate_future_timestamp(&timestamp)
+    pub fn validate_future_timestamp(env: Env, timestamp: u64) -> bool {
+        ValidationUtils::validate_future_timestamp(&env, &timestamp)
     }
 
     /// Get time utilities information
-    pub fn get_time_utilities() -> String {
-        let env = Env::default();
+    pub fn get_time_utilities(env: Env) -> String {
         let current_time = env.ledger().timestamp();
         let mut s = alloc::string::String::new();
         s.push_str("Current time: ");
@@ -961,18 +960,18 @@ impl PredictifyHybrid {
     }
 
     /// Get event documentation
-    pub fn get_event_documentation(_env: Env) -> Map<String, String> {
-        EventDocumentation::get_event_type_docs()
+    pub fn get_event_documentation(env: Env) -> Map<String, String> {
+        EventDocumentation::get_event_type_docs(&env)
     }
 
     /// Get event usage examples
-    pub fn get_event_usage_examples(_env: Env) -> Map<String, String> {
-        EventDocumentation::get_usage_examples()
+    pub fn get_event_usage_examples(env: Env) -> Map<String, String> {
+        EventDocumentation::get_usage_examples(&env)
     }
 
     /// Get event system overview
-    pub fn get_event_system_overview() -> String {
-        EventDocumentation::get_overview()
+    pub fn get_event_system_overview(env: Env) -> String {
+        EventDocumentation::get_overview(&env)
     }
 
     /// Create test event
@@ -1054,8 +1053,8 @@ impl PredictifyHybrid {
     }
 
     /// Format event timestamp
-    pub fn format_event_timestamp(timestamp: u64) -> String {
-        EventHelpers::format_timestamp(timestamp)
+    pub fn format_event_timestamp(env: Env, timestamp: u64) -> String {
+        EventHelpers::format_timestamp(&env, timestamp)
     }
 
     /// Create event context

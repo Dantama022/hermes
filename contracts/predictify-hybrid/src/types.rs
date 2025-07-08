@@ -168,6 +168,8 @@ pub struct Market {
     pub winning_outcome: Option<String>,
     /// Whether fees have been collected
     pub fee_collected: bool,
+    /// Explicit market state
+    pub state: MarketState,
     /// Market extension history
     pub extension_history: Vec<MarketExtension>,
     /// Total extension days applied
@@ -226,6 +228,7 @@ impl MarketExtension {
 
         Ok(())
     }
+
 }
 
 impl Market {
@@ -237,6 +240,7 @@ impl Market {
         outcomes: Vec<String>,
         end_time: u64,
         oracle_config: OracleConfig,
+        state: MarketState,
     ) -> Self {
         Self {
             admin,
@@ -252,9 +256,11 @@ impl Market {
             dispute_stakes: Map::new(env),
             winning_outcome: None,
             fee_collected: false,
+            state,
             extension_history: vec![env],
             total_extension_days: 0,
             max_extension_days: 30, // Default maximum extension days
+
         }
     }
 
@@ -687,6 +693,7 @@ impl VoteParams {
 // ===== UTILITY TYPES =====
 
 /// Market state enumeration
+#[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MarketState {
     /// Market is active and accepting votes
@@ -695,20 +702,18 @@ pub enum MarketState {
     Ended,
     /// Market has been resolved
     Resolved,
+    /// Market is in dispute
+    Disputed,
     /// Market has been closed
     Closed,
+    /// Market has been cancelled
+    Cancelled,
 }
 
 impl MarketState {
-    /// Get state from market
+    /// Get state from market (legacy, for migration)
     pub fn from_market(market: &Market, current_time: u64) -> Self {
-        if market.is_resolved() {
-            MarketState::Resolved
-        } else if market.has_ended(current_time) {
-            MarketState::Ended
-        } else {
-            MarketState::Active
-        }
+        market.state
     }
 
     /// Check if market is active
@@ -718,10 +723,7 @@ impl MarketState {
 
     /// Check if market has ended
     pub fn has_ended(&self) -> bool {
-        matches!(
-            self,
-            MarketState::Ended | MarketState::Resolved | MarketState::Closed
-        )
+        matches!(self, MarketState::Ended | MarketState::Resolved | MarketState::Closed | MarketState::Cancelled)
     }
 
     /// Check if market is resolved
@@ -893,6 +895,7 @@ mod tests {
             outcomes,
             env.ledger().timestamp() + 86400,
             oracle_config,
+            MarketState::Active,
         );
 
         assert!(market.is_active(env.ledger().timestamp()));
@@ -933,6 +936,7 @@ mod tests {
             outcomes,
             env.ledger().timestamp() + 86400,
             oracle_config,
+            MarketState::Active,
         );
 
         let state = MarketState::from_market(&market, env.ledger().timestamp());

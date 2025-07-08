@@ -2,6 +2,7 @@ use crate::{
     errors::Error,
     markets::{MarketStateManager, MarketValidator, MarketUtils, MarketAnalytics},
     types::Market,
+    types::{OracleConfig, OracleProvider},
 };
 use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
 
@@ -123,9 +124,9 @@ impl VotingManager {
         // Process stake transfer
         VotingUtils::transfer_stake(env, &user, stake)?;
 
-        // Add vote to market
-        MarketStateManager::add_vote(&mut _market, user, outcome, stake);
-        MarketStateManager::update_market(env, &market_id, &_market);
+        // Add vote to market (pass market_id for event emission)
+        MarketStateManager::add_vote(&mut market, user, outcome, stake, Some(&market_id));
+        MarketStateManager::update_market(env, &market_id, &market);
 
         Ok(())
     }
@@ -150,10 +151,11 @@ impl VotingManager {
         // Process stake transfer
         VotingUtils::transfer_stake(env, &user, stake)?;
 
-        // Add dispute stake and extend market
-        MarketStateManager::add_dispute_stake(&mut _market, user, stake);
-        MarketStateManager::extend_for_dispute(&mut _market, env, DISPUTE_EXTENSION_HOURS.into());
-        MarketStateManager::update_market(env, &market_id, &_market);
+        // Add dispute stake and extend market (pass market_id for event emission)
+        MarketStateManager::add_dispute_stake(&mut market, user, stake, Some(&market_id));
+        MarketStateManager::extend_for_dispute(&mut market, env, DISPUTE_EXTENSION_HOURS.into());
+        MarketStateManager::update_market(env, &market_id, &market);
+
 
         Ok(())
     }
@@ -176,8 +178,8 @@ impl VotingManager {
         }
 
         // Mark as claimed
-        MarketStateManager::mark_claimed(&mut _market, user);
-        MarketStateManager::update_market(env, &market_id, &_market);
+        MarketStateManager::mark_claimed(&mut market, user, Some(&market_id));
+        MarketStateManager::update_market(env, &market_id, &market);
 
         Ok(payout)
     }
@@ -263,8 +265,12 @@ impl VotingManager {
             &admin,
         )?;
 
+        // Mark fees as collected
+        MarketStateManager::mark_fees_collected(&mut market, Some(&market_id));
+        MarketStateManager::update_market(env, &market_id, &market);
         Ok(new_threshold_data)
     }
+
 
     /// Get threshold history for a market
     pub fn get_threshold_history(env: &Env, market_id: Symbol) -> Result<Vec<ThresholdHistoryEntry>, Error> {
@@ -897,6 +903,7 @@ mod tests {
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            crate::types::MarketState::Active
         );
         market.total_staked = 10000;
 
@@ -923,6 +930,7 @@ mod tests {
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            crate::types::MarketState::Active
         );
 
         // Add some test votes
@@ -955,6 +963,7 @@ mod tests {
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            crate::types::MarketState::Active
         );
 
         let user = Address::generate(&env);
@@ -980,3 +989,4 @@ mod tests {
         assert!(testing::validate_voting_stats(&stats).is_ok());
     }
 }
+
