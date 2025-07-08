@@ -95,6 +95,11 @@ impl TimeUtils {
     pub fn is_deadline_passed(current_time: u64, deadline: u64) -> bool {
         current_time >= deadline
     }
+
+    /// Validate duration (days) is within acceptable range
+    pub fn validate_duration(days: &u32) -> bool {
+        *days > 0 && *days <= crate::config::MAX_MARKET_DURATION_DAYS
+    }
 }
 
 // ===== STRING UTILITIES =====
@@ -371,7 +376,7 @@ impl ConversionUtils {
     }
 
     /// Convert string to address
-    pub fn string_to_address(env: &Env, s: &String) -> Address {
+    pub fn string_to_address(_env: &Env, s: &String) -> Address {
         Address::from_string(s)
     }
 

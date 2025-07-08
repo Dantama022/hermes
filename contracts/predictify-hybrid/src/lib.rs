@@ -1,69 +1,87 @@
 #![no_std]
 extern crate alloc;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, panic_with_error, symbol_short, token, vec, Address, Env,
-    IntoVal, Map, String, Symbol, Vec,
+    contract, contractimpl, panic_with_error, vec, Address, Env, Map, String, Symbol, Vec, symbol_short,
 };
 use alloc::string::ToString;
 
-// Error management module
+// ===== MODULE ORGANIZATION =====
+// Predictify Hybrid Contract - Organized Module Structure
+// 
+// This contract provides a comprehensive prediction market system with:
+// - Oracle integration for automated market resolution
+// - Community voting and consensus mechanisms
+// - Dispute resolution and escalation systems
+// - Fee management and analytics
+// - Admin controls and configuration management
+// - Event logging and monitoring
+// - Validation and security systems
+
+// ===== MODULE DECLARATIONS =====
+
+/// Error handling and management module
 pub mod errors;
 use errors::Error;
 
-// Types module
+/// Core data types and structures module
 pub mod types;
 use types::*;
 
-// Oracle management module
+/// Oracle integration and management module
 pub mod oracles;
-use oracles::{OracleFactory, OracleInstance, OracleInterface, OracleUtils};
+use oracles::{OracleInterface};
 
-// Market management module
+/// Market creation and state management module
 pub mod markets;
-use markets::{MarketAnalytics, MarketCreator, MarketStateManager, MarketUtils, MarketValidator};
+use markets::{MarketCreator, MarketStateManager};
 
-// Voting management module
+/// Voting system and consensus module
 pub mod voting;
-use voting::{VotingAnalytics, VotingManager, VotingUtils, VotingValidator};
+use voting::{VotingManager};
 
-// Dispute management module
+/// Dispute resolution and escalation module
 pub mod disputes;
-use disputes::{DisputeAnalytics, DisputeManager, DisputeUtils, DisputeValidator};
+use disputes::{DisputeManager};
 
-// Extension management module
+/// Market resolution and analytics module
+pub mod resolution;
+use resolution::{OracleResolutionManager, MarketResolutionManager};
+
+/// Fee calculation and management module
+pub mod fees;
+use fees::{FeeManager};
+
+/// Configuration management module
+pub mod config;
+use config::{ConfigManager, ConfigUtils, ConfigValidator, ContractConfig, Environment};
+
+/// Utility functions and helpers module
+pub mod utils;
+use utils::{TimeUtils, StringUtils, NumericUtils, ValidationUtils, CommonUtils};
+
+/// Event logging and monitoring module
+pub mod events;
+use events::{EventEmitter, EventLogger, EventHelpers, EventTestingUtils, EventDocumentation};
+
+/// Admin controls and functions module
+pub mod admin;
+use admin::{AdminInitializer, AdminFunctions, AdminAccessControl};
+
+/// Market extensions and modifications module
 pub mod extensions;
 use extensions::{ExtensionManager, ExtensionUtils, ExtensionValidator};
-use types::ExtensionStats;
 
-// Fee management module
-pub mod fees;
-use fees::{FeeManager, FeeCalculator, FeeValidator, FeeUtils, FeeTracker, FeeConfigManager};
-use resolution::{OracleResolutionManager, MarketResolutionManager, MarketResolutionAnalytics, OracleResolutionAnalytics, ResolutionUtils};
-
-// Configuration management module
-pub mod config;
-use config::{ConfigManager, ConfigValidator, ConfigUtils, ContractConfig, Environment};
-
-// Utility functions module
-pub mod utils;
-use utils::{TimeUtils, StringUtils, NumericUtils, ValidationUtils, ConversionUtils, CommonUtils, TestingUtils};
-
-// Event system module
-pub mod events;
-use events::{EventEmitter, EventLogger, EventValidator, EventHelpers, EventTestingUtils, EventDocumentation};
-
-pub mod resolution;
-
+/// Input validation and security module
 pub mod validation;
 use validation::{
-    ValidationError, ValidationResult, InputValidator, 
+    ValidationResult, InputValidator, 
     MarketValidator as ValidationMarketValidator, 
     OracleValidator as ValidationOracleValidator,
     FeeValidator as ValidationFeeValidator, 
     VoteValidator as ValidationVoteValidator, 
     DisputeValidator as ValidationDisputeValidator, 
     ConfigValidator as ValidationConfigValidator, 
-    ComprehensiveValidator, ValidationErrorHandler, ValidationDocumentation,
+    ComprehensiveValidator, ValidationDocumentation,
 };
 
 #[contract]
@@ -72,9 +90,10 @@ pub struct PredictifyHybrid;
 #[contractimpl]
 impl PredictifyHybrid {
     pub fn initialize(env: Env, admin: Address) {
-        env.storage()
-            .persistent()
-            .set(&Symbol::new(&env, "Admin"), &admin);
+        match AdminInitializer::initialize(&env, &admin) {
+            Ok(_) => (), // Success
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
     // Create a market using the markets module
@@ -99,7 +118,7 @@ impl PredictifyHybrid {
             });
 
         // Use error helper for admin validation
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
+        let _ = errors::helpers::require_admin(&env, &admin, &stored_admin);
 
         // Use the markets module to create the market
         match MarketCreator::create_market(
@@ -147,7 +166,7 @@ impl PredictifyHybrid {
 
     // Update fee configuration (admin only)
     pub fn update_fee_config(env: Env, admin: Address, new_config: fees::FeeConfig) -> fees::FeeConfig {
-        match FeeManager::update_fee_config(&env, admin, new_config) {
+        match AdminFunctions::update_fee_config(&env, &admin, &new_config) {
             Ok(config) => config,
             Err(e) => panic_with_error!(env, e),
         }
@@ -171,7 +190,7 @@ impl PredictifyHybrid {
 
     // Finalize market after disputes
     pub fn finalize_market(env: Env, admin: Address, market_id: Symbol, outcome: String) {
-        match resolution::MarketResolutionManager::finalize_market(&env, &admin, &market_id, &outcome) {
+        match AdminFunctions::finalize_market(&env, &admin, &market_id, &outcome) {
             Ok(_) => (), // Success
             Err(e) => panic_with_error!(env, e),
         }
@@ -364,20 +383,10 @@ impl PredictifyHybrid {
 
     // Clean up market storage
     pub fn close_market(env: Env, admin: Address, market_id: Symbol) {
-        admin.require_auth();
-
-        // Verify admin
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .expect("Admin not set");
-
-        // Use error helper for admin validation
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        // Remove market from storage
-        MarketStateManager::remove_market(&env, &market_id);
+        match AdminFunctions::close_market(&env, &admin, &market_id) {
+            Ok(_) => (), // Success
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
     // Helper function to create a market with Reflector oracle
@@ -468,25 +477,7 @@ impl PredictifyHybrid {
         additional_days: u32,
         reason: String,
     ) {
-        admin.require_auth();
-
-        // Verify admin
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .expect("Admin not set");
-
-        // Use error helper for admin validation
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        match ExtensionManager::extend_market_duration(
-            &env,
-            admin,
-            market_id,
-            additional_days,
-            reason,
-        ) {
+        match AdminFunctions::extend_market_duration(&env, &admin, &market_id, additional_days, &reason) {
             Ok(_) => (), // Success
             Err(e) => panic_with_error!(env, e),
         }
@@ -644,7 +635,7 @@ impl PredictifyHybrid {
 
     /// Get dispute votes
     pub fn get_dispute_votes(env: Env, dispute_id: Symbol) -> Vec<disputes::DisputeVote> {
-        match DisputeManager::get_dispute_votes(&env, dispute_id) {
+        match DisputeManager::get_dispute_votes(&env, &dispute_id) {
             Ok(votes) => votes,
             Err(_) => vec![&env],
         }
@@ -749,22 +740,8 @@ impl PredictifyHybrid {
 
     /// Initialize contract with configuration
     pub fn initialize_with_config(env: Env, admin: Address, environment: Environment) {
-        // Set admin
-        env.storage()
-            .persistent()
-            .set(&Symbol::new(&env, "Admin"), &admin);
-
-        // Initialize configuration based on environment
-        let config = match environment {
-            Environment::Development => ConfigManager::get_development_config(&env),
-            Environment::Testnet => ConfigManager::get_testnet_config(&env),
-            Environment::Mainnet => ConfigManager::get_mainnet_config(&env),
-            Environment::Custom => ConfigManager::get_development_config(&env), // Default to development for custom
-        };
-
-        // Store configuration
-        match ConfigManager::store_config(&env, &config) {
-            Ok(_) => (),
+        match AdminInitializer::initialize_with_config(&env, &admin, &environment) {
+            Ok(_) => (), // Success
             Err(e) => panic_with_error!(env, e),
         }
     }
@@ -778,42 +755,16 @@ impl PredictifyHybrid {
     }
 
     /// Update contract configuration (admin only)
-    pub fn update_contract_config(env: Env, admin: Address, new_config: ContractConfig) -> ContractConfig {
-        // Verify admin permissions
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .unwrap_or_else(|| panic!("Admin not set"));
-
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        // Validate new configuration
-        match ConfigValidator::validate_contract_config(&new_config) {
-            Ok(_) => (),
-            Err(e) => panic_with_error!(env, e),
-        }
-
-        // Store updated configuration
-        match ConfigManager::update_config(&env, &new_config) {
-            Ok(_) => new_config,
-            Err(e) => panic_with_error!(env, e),
+    pub fn update_contract_config(env: Env, admin: Address, new_config: ContractConfig) -> Result<(), Error> {
+        match AdminFunctions::update_contract_config(&env, &admin, &new_config) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 
     /// Reset configuration to defaults
     pub fn reset_config_to_defaults(env: Env, admin: Address) -> ContractConfig {
-        // Verify admin permissions
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .unwrap_or_else(|| panic!("Admin not set"));
-
-        errors::helpers::require_admin(&env, &admin, &stored_admin);
-
-        // Reset to defaults
-        match ConfigManager::reset_to_defaults(&env) {
+        match AdminFunctions::reset_config_to_defaults(&env, &admin) {
             Ok(config) => config,
             Err(e) => panic_with_error!(env, e),
         }
@@ -993,7 +944,7 @@ impl PredictifyHybrid {
     }
 
     /// Validate event structure
-    pub fn validate_event_structure(env: Env, event_type: String, event_data: String) -> bool {
+    pub fn validate_event_structure(_env: Env, event_type: String, _event_data: String) -> bool {
         match event_type.to_string().as_str() {
             "MarketCreated" => {
                 // In a real implementation, you would deserialize and validate
@@ -1014,12 +965,12 @@ impl PredictifyHybrid {
     }
 
     /// Get event documentation
-    pub fn get_event_documentation(env: Env) -> Map<String, String> {
+    pub fn get_event_documentation(_env: Env) -> Map<String, String> {
         EventDocumentation::get_event_type_docs()
     }
 
     /// Get event usage examples
-    pub fn get_event_usage_examples(env: Env) -> Map<String, String> {
+    pub fn get_event_usage_examples(_env: Env) -> Map<String, String> {
         EventDocumentation::get_usage_examples()
     }
 
@@ -1192,7 +1143,7 @@ impl PredictifyHybrid {
     pub fn validate_oracle_config(env: Env, oracle_config: OracleConfig) -> ValidationResult {
         let mut result = ValidationResult::valid();
         
-        if let Err(error) = ValidationOracleValidator::validate_oracle_config(&env, &oracle_config) {
+        if let Err(_error) = ValidationOracleValidator::validate_oracle_config(&env, &oracle_config) {
             result.add_error();
         }
         

@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 
 use soroban_sdk::{
-    contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec,
+    contracttype, vec, Address, Env, Map, String, Symbol, Vec,
 };
 use crate::{
     errors::Error,
