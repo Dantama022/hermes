@@ -29,7 +29,6 @@ use types::*;
 
 /// Oracle integration and management module
 pub mod oracles;
-use oracles::{OracleInterface};
 
 /// Market creation and state management module
 pub mod markets;
@@ -61,11 +60,11 @@ use utils::{TimeUtils, StringUtils, NumericUtils, ValidationUtils, CommonUtils};
 
 /// Event logging and monitoring module
 pub mod events;
-use events::{EventEmitter, EventLogger, EventHelpers, EventTestingUtils, EventDocumentation};
+use events::{EventLogger, EventHelpers, EventTestingUtils, EventDocumentation};
 
 /// Admin controls and functions module
 pub mod admin;
-use admin::{AdminInitializer, AdminFunctions, AdminAccessControl};
+use admin::{AdminInitializer, AdminFunctions};
 
 /// Market extensions and modifications module
 pub mod extensions;
@@ -80,7 +79,6 @@ use validation::{
     FeeValidator as ValidationFeeValidator, 
     VoteValidator as ValidationVoteValidator, 
     DisputeValidator as ValidationDisputeValidator, 
-    ConfigValidator as ValidationConfigValidator, 
     ComprehensiveValidator, ValidationDocumentation,
 };
 

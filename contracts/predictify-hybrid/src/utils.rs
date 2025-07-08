@@ -2,6 +2,7 @@ extern crate alloc;
 
 use soroban_sdk::{Address, Env, Map, String, Symbol, Vec};
 use alloc::string::ToString;
+use core::str;
 
 use crate::errors::Error;
 
@@ -108,93 +109,106 @@ pub struct StringUtils;
 
 impl StringUtils {
     /// Convert string to uppercase
-    pub fn to_uppercase(env: &Env, s: &String) -> String {
-        // For now, return the original string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        s.clone()
+    pub fn to_uppercase(s: &String) -> String {
+        let env = Env::default();
+        let rust_string = s.to_string();
+        let result = rust_string.to_uppercase();
+        String::from_str(&env, &result)
     }
 
     /// Convert string to lowercase
-    pub fn to_lowercase(env: &Env, s: &String) -> String {
-        // For now, return the original string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        s.clone()
+    pub fn to_lowercase(s: &String) -> String {
+        let env = Env::default();
+        let rust_string = s.to_string();
+        let result = rust_string.to_lowercase();
+        String::from_str(&env, &result)
     }
 
     /// Trim whitespace from string
-    pub fn trim(env: &Env, s: &String) -> String {
-        // For now, return the original string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        s.clone()
+    pub fn trim(s: &String) -> String {
+        let env = Env::default();
+        let rust_string = s.to_string();
+        let trimmed = rust_string.trim();
+        String::from_str(&env, trimmed)
     }
 
     /// Truncate string to specified length
-    pub fn truncate(env: &Env, s: &String, max_length: u32) -> String {
-        // For now, return the original string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        s.clone()
+    pub fn truncate(s: &String, max_length: u32) -> String {
+        let env = Env::default();
+        let rust_string = s.to_string();
+        let max_len = max_length as usize;
+        let truncated: alloc::string::String = rust_string.chars().take(max_len).collect();
+        String::from_str(&env, &truncated)
     }
 
     /// Split string by delimiter
-    pub fn split(env: &Env, s: &String, delimiter: &str) -> Vec<String> {
-        // For now, return a vector with the original string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        let mut result = Vec::new(env);
-        result.push_back(s.clone());
+    pub fn split(s: &String, delimiter: &str) -> Vec<String> {
+        let env = Env::default();
+        let rust_string = s.to_string();
+        let parts = rust_string.split(delimiter);
+        let mut result = Vec::new(&env);
+        for part in parts {
+            result.push_back(String::from_str(&env, part));
+        }
         result
     }
 
     /// Join strings with delimiter
-    pub fn join(env: &Env, strings: &Vec<String>, delimiter: &str) -> String {
-        // For now, return the first string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        if strings.len() > 0 {
-            strings.get_unchecked(0).clone()
-        } else {
-            String::from_str(env, "")
+    pub fn join(strings: &Vec<String>, delimiter: &str) -> String {
+        let env = Env::default();
+        let mut result = alloc::string::String::new();
+        for (i, s) in strings.iter().enumerate() {
+            if i > 0 {
+                result.push_str(delimiter);
+            }
+            let rust_string = s.to_string();
+            result.push_str(&rust_string);
         }
     }
 
     /// Check if string contains substring
     pub fn contains(s: &String, substring: &str) -> bool {
-        // For now, return false since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        false
+        let rust_string = s.to_string();
+        rust_string.contains(substring)
     }
 
     /// Check if string starts with prefix
     pub fn starts_with(s: &String, prefix: &str) -> bool {
-        // For now, return false since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        false
+        let rust_string = s.to_string();
+        rust_string.starts_with(prefix)
     }
 
     /// Check if string ends with suffix
     pub fn ends_with(s: &String, suffix: &str) -> bool {
-        // For now, return false since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        false
+        let rust_string = s.to_string();
+        rust_string.ends_with(suffix)
     }
 
     /// Replace substring in string
-    pub fn replace(env: &Env, s: &String, old: &str, new: &str) -> String {
-        // For now, return the original string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        s.clone()
+    pub fn replace(s: &String, old: &str, new: &str) -> String {
+        let env = Env::default();
+        let rust_string = s.to_string();
+        let replaced = rust_string.replace(old, new);
+        String::from_str(&env, &replaced)
     }
 
     /// Validate string length
     pub fn validate_string_length(s: &String, min_length: u32, max_length: u32) -> Result<(), Error> {
-        // For now, return Ok since we can't easily get the length of Soroban String
-        // This is a limitation of the current Soroban SDK
-        Ok(())
+        let rust_string = s.to_string();
+        let len = rust_string.len() as u32;
+        if len < min_length || len > max_length {
+            Err(Error::InvalidInput)
+        } else {
+            Ok(())
+        }
     }
 
-    /// Sanitize string by removing special characters
-    pub fn sanitize_string(env: &Env, s: &String) -> String {
-        // For now, return the original string since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        s.clone()
+    /// Sanitize string (remove special characters)
+    pub fn sanitize_string(s: &String) -> String {
+        let env = Env::default();
+        let rust_string = s.to_string();
+        let sanitized: alloc::string::String = rust_string.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect();
+        String::from_str(&env, &sanitized)
     }
 
     /// Generate random string
@@ -294,9 +308,8 @@ impl NumericUtils {
 
     /// Convert string to number
     pub fn string_to_i128(s: &String) -> i128 {
-        // For now, return 0 since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        0
+        let rust_string = s.to_string();
+        rust_string.parse::<i128>().unwrap_or(0)
     }
 }
 
@@ -330,16 +343,14 @@ impl ValidationUtils {
 
     /// Validate email format (basic)
     pub fn validate_email(email: &String) -> bool {
-        // For now, return true since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        true
+        let rust_string = email.to_string();
+        rust_string.contains("@") && rust_string.contains(".")
     }
 
     /// Validate URL format (basic)
     pub fn validate_url(url: &String) -> bool {
-        // For now, return true since we can't easily convert Soroban String
-        // This is a limitation of the current Soroban SDK
-        true
+        let rust_string = url.to_string();
+        rust_string.starts_with("http://") || rust_string.starts_with("https://")
     }
 }
 
