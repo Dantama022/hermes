@@ -837,7 +837,7 @@ impl DisputeUtils {
 
     pub fn emit_dispute_vote_event(
         env: &Env,
-        dispute_id: &Symbol,
+        _dispute_id: &Symbol,
         user: &Address,
         vote: bool,
         stake: i128,
@@ -854,7 +854,7 @@ impl DisputeUtils {
 
     pub fn emit_fee_distribution_event(
         env: &Env,
-        dispute_id: &Symbol,
+        _dispute_id: &Symbol,
         distribution: &DisputeFeeDistribution,
     ) {
 
@@ -867,7 +867,7 @@ impl DisputeUtils {
     /// Emit dispute escalation event
     pub fn emit_dispute_escalation_event(
         env: &Env,
-        dispute_id: &Symbol,
+        _dispute_id: &Symbol,
         user: &Address,
         escalation: &DisputeEscalation,
     ) {
