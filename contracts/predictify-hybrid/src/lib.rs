@@ -1,5 +1,6 @@
 #![no_std]
 
+
 // Module declarations - all modules enabled
 mod config;
 mod disputes;
@@ -21,6 +22,7 @@ pub use types::*;
 
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, Address, Env, Map, String, Symbol, Vec,
+
 };
 
 #[contract]
@@ -32,9 +34,10 @@ const FEE_PERCENTAGE: i128 = 2; // 2% fee for the platform
 #[contractimpl]
 impl PredictifyHybrid {
     pub fn initialize(env: Env, admin: Address) {
-        env.storage()
-            .persistent()
-            .set(&Symbol::new(&env, "Admin"), &admin);
+        match AdminInitializer::initialize(&env, &admin) {
+            Ok(_) => (), // Success
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
     // Create a market
@@ -58,8 +61,10 @@ impl PredictifyHybrid {
                 panic!("Admin not set");
             });
 
+
         if admin != stored_admin {
             panic_with_error!(env, Error::Unauthorized);
+
         }
 
         // Validate inputs
@@ -84,9 +89,11 @@ impl PredictifyHybrid {
         let duration_seconds: u64 = (duration_days as u64) * seconds_per_day;
         let end_time: u64 = env.ledger().timestamp() + duration_seconds;
 
+
         // Create a new market
         let market = Market {
             admin: admin.clone(),
+
             question,
             outcomes,
             end_time,
@@ -110,6 +117,7 @@ impl PredictifyHybrid {
         market_id
     }
 
+
     // Allows users to vote on a market outcome by staking tokens
     pub fn vote(env: Env, user: Address, market_id: Symbol, outcome: String, stake: i128) {
         user.require_auth();
@@ -121,6 +129,7 @@ impl PredictifyHybrid {
             .unwrap_or_else(|| {
                 panic_with_error!(env, Error::MarketNotFound);
             });
+
 
         // Check if the market is still active
         if env.ledger().timestamp() >= market.end_time {
@@ -185,7 +194,9 @@ impl PredictifyHybrid {
                 if &outcome == winning_outcome {
                     winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
                 }
+
             }
+
 
             if winning_total > 0 {
                 let user_share = (user_stake * (PERCENTAGE_DENOMINATOR - FEE_PERCENTAGE))
@@ -212,6 +223,7 @@ impl PredictifyHybrid {
     pub fn resolve_market_manual(env: Env, admin: Address, market_id: Symbol, winning_outcome: String) {
         admin.require_auth();
 
+
         // Verify admin
         let stored_admin: Address = env
             .storage()
@@ -223,7 +235,9 @@ impl PredictifyHybrid {
 
         if admin != stored_admin {
             panic_with_error!(env, Error::Unauthorized);
+
         }
+
 
         let mut market: Market = env
             .storage()
@@ -238,11 +252,14 @@ impl PredictifyHybrid {
             panic_with_error!(env, Error::MarketClosed);
         }
 
+
         // Validate winning outcome
         let outcome_exists = market.outcomes.iter().any(|o| o == winning_outcome);
         if !outcome_exists {
             panic_with_error!(env, Error::InvalidOutcome);
         }
+
+
 
         // Set winning outcome
         market.winning_outcome = Some(winning_outcome);
@@ -264,10 +281,12 @@ impl PredictifyHybrid {
             return Err(Error::MarketAlreadyResolved);
         }
         
+
         // Check if market has ended
         let current_time = env.ledger().timestamp();
         if current_time < market.end_time {
             return Err(Error::MarketClosed);
+
         }
         
         // Get oracle result using the resolution module

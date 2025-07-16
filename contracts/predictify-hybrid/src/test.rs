@@ -18,6 +18,8 @@
 #![cfg(test)]
 
 use super::*;
+
+
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
     token::{self, StellarAssetClient},
@@ -63,6 +65,9 @@ impl PredictifyTest {
         // Setup admin and user
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
+
+        // Mock all authentication before contract initialization
+        env.mock_all_auths();
 
         // Initialize contract
         let contract_id = env.register(PredictifyHybrid, ());
@@ -137,6 +142,9 @@ fn test_create_market_successful() {
         String::from_str(&test.env, "yes"),
         String::from_str(&test.env, "no"),
     ];
+
+
+    //Create market
 
     client.create_market(
         &test.admin,
@@ -247,6 +255,8 @@ fn test_successful_vote() {
     test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
+
+
     test.env.mock_all_auths();
     client.vote(
         &test.user,
@@ -274,7 +284,9 @@ fn test_vote_on_closed_market() {
     test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
+
     // Get market end time and advance past it
+
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -309,6 +321,8 @@ fn test_vote_with_invalid_outcome() {
     let test = PredictifyTest::setup();
     test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+
 
     test.env.mock_all_auths();
     client.vote(
@@ -353,3 +367,4 @@ fn test_authentication_required() {
         &1_0000000,
     );
 }
+

@@ -2,8 +2,9 @@
 
 use crate::{
     errors::Error,
+
     markets::MarketStateManager,
-    types::Market,
+
     voting::{VotingUtils, DISPUTE_EXTENSION_HOURS, MIN_DISPUTE_STAKE},
 };
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Map, String, Symbol, Vec};
@@ -347,8 +348,8 @@ impl DisputeManager {
     }
 
     /// Get dispute votes
-    pub fn get_dispute_votes(env: &Env, dispute_id: Symbol) -> Result<Vec<DisputeVote>, Error> {
-        DisputeUtils::get_dispute_votes(env, &dispute_id)
+    pub fn get_dispute_votes(env: &Env, _dispute_id: &Symbol) -> Result<Vec<DisputeVote>, Error> {
+        DisputeUtils::get_dispute_votes(env, _dispute_id)
     }
 
     /// Validate dispute resolution conditions
@@ -458,7 +459,7 @@ impl DisputeValidator {
     /// Validate dispute voting conditions
     pub fn validate_dispute_voting_conditions(
         env: &Env,
-        market_id: &Symbol,
+        _market_id: &Symbol,
         dispute_id: &Symbol,
     ) -> Result<(), Error> {
         // Check if dispute exists and is active
@@ -700,7 +701,7 @@ impl DisputeUtils {
     }
 
     /// Get dispute voting data
-    pub fn get_dispute_voting(env: &Env, dispute_id: &Symbol) -> Result<DisputeVoting, Error> {
+    pub fn get_dispute_voting(env: &Env, _dispute_id: &Symbol) -> Result<DisputeVoting, Error> {
         let key = symbol_short!("dispute_v");
         env.storage()
             .persistent()
@@ -709,34 +710,31 @@ impl DisputeUtils {
     }
 
     /// Store dispute voting data
+
     pub fn store_dispute_voting(
         env: &Env,
         dispute_id: &Symbol,
         voting: &DisputeVoting,
     ) -> Result<(), Error> {
-        let key = symbol_short!("dispute_v");
-        env.storage().persistent().set(&key, voting);
-        Ok(())
+
     }
 
     /// Store dispute vote
+
     pub fn store_dispute_vote(
         env: &Env,
         dispute_id: &Symbol,
         vote: &DisputeVote,
     ) -> Result<(), Error> {
-        let key = symbol_short!("vote");
-        env.storage().persistent().set(&key, vote);
-        Ok(())
+
     }
 
     /// Get dispute votes
-    pub fn get_dispute_votes(env: &Env, dispute_id: &Symbol) -> Result<Vec<DisputeVote>, Error> {
+    pub fn get_dispute_votes(env: &Env, _dispute_id: &Symbol) -> Result<Vec<DisputeVote>, Error> {
         // This is a simplified implementation - in a real system you'd need to track all votes
+
         let mut votes = Vec::new(env);
 
-        // For now, return empty vector - in practice you'd iterate through stored votes
-        Ok(votes)
     }
 
     /// Calculate stake-weighted outcome
@@ -783,7 +781,7 @@ impl DisputeUtils {
     /// Store dispute fee distribution
     pub fn store_dispute_fee_distribution(
         env: &Env,
-        dispute_id: &Symbol,
+        _dispute_id: &Symbol,
         distribution: &DisputeFeeDistribution,
     ) -> Result<(), Error> {
         let key = symbol_short!("dispute_f");
@@ -815,7 +813,7 @@ impl DisputeUtils {
     /// Store dispute escalation
     pub fn store_dispute_escalation(
         env: &Env,
-        dispute_id: &Symbol,
+        _dispute_id: &Symbol,
         escalation: &DisputeEscalation,
     ) -> Result<(), Error> {
         let key = symbol_short!("dispute_e");
@@ -824,12 +822,13 @@ impl DisputeUtils {
     }
 
     /// Get dispute escalation
-    pub fn get_dispute_escalation(env: &Env, dispute_id: &Symbol) -> Option<DisputeEscalation> {
+    pub fn get_dispute_escalation(env: &Env, _dispute_id: &Symbol) -> Option<DisputeEscalation> {
         let key = symbol_short!("dispute_e");
         env.storage().persistent().get(&key)
     }
 
     /// Emit dispute vote event
+
     pub fn emit_dispute_vote_event(
         env: &Env,
         dispute_id: &Symbol,
@@ -837,6 +836,7 @@ impl DisputeUtils {
         vote: bool,
         stake: i128,
     ) {
+
         // In a real implementation, this would emit an event
         // For now, we'll just store it in persistent storage
         let event_key = symbol_short!("vote_evt");
@@ -845,11 +845,13 @@ impl DisputeUtils {
     }
 
     /// Emit fee distribution event
+
     pub fn emit_fee_distribution_event(
         env: &Env,
         dispute_id: &Symbol,
         distribution: &DisputeFeeDistribution,
     ) {
+
         // In a real implementation, this would emit an event
         // For now, we'll just store it in persistent storage
         let event_key = symbol_short!("fee_event");
@@ -859,7 +861,7 @@ impl DisputeUtils {
     /// Emit dispute escalation event
     pub fn emit_dispute_escalation_event(
         env: &Env,
-        dispute_id: &Symbol,
+        _dispute_id: &Symbol,
         user: &Address,
         escalation: &DisputeEscalation,
     ) {
@@ -1007,7 +1009,6 @@ impl DisputeAnalytics {
 #[cfg(test)]
 pub mod testing {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
 
     /// Create a test dispute
     pub fn create_test_dispute(
@@ -1105,6 +1106,7 @@ mod tests {
                 2500000,
                 String::from_str(env, "gt"),
             ),
+            crate::types::MarketState::Active,
         )
     }
 
