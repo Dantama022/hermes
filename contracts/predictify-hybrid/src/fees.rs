@@ -511,7 +511,7 @@ impl FeeTracker {
 
     /// Record creation fee
 
-    pub fn record_creation_fee(env: &Env, admin: &Address, amount: i128) -> Result<(), Error> {
+    pub fn record_creation_fee(env: &Env, _admin: &Address, amount: i128) -> Result<(), Error> {
 
         // Record creation fee in analytics
         let creation_key = symbol_short!("creat_fee");

@@ -1,9 +1,9 @@
-use soroban_sdk::{contracttype, vec, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 
 use crate::errors::Error;
 
 use crate::markets::{
-    CommunityConsensus, MarketAnalytics, MarketStateManager, MarketUtils, MarketValidator,
+    CommunityConsensus, MarketAnalytics, MarketStateManager, MarketUtils,
 };
 
 use crate::oracles::{OracleFactory, OracleUtils};
@@ -169,7 +169,7 @@ impl OracleResolutionManager {
 
     /// Validate oracle resolution
     pub fn validate_oracle_resolution(
-        _env: &Env,
+        env: &Env,
         resolution: &OracleResolution,
     ) -> Result<(), Error> {
         // Validate price is positive
@@ -337,7 +337,7 @@ impl OracleResolutionValidator {
 
     /// Validate oracle resolution
     pub fn validate_oracle_resolution(
-        _env: &Env,
+        env: &Env,
         resolution: &OracleResolution,
     ) -> Result<(), Error> {
         // Validate price is positive
@@ -401,7 +401,7 @@ impl MarketResolutionValidator {
 
     /// Validate outcome
     pub fn validate_outcome(
-        _env: &Env,
+        env: &Env,
         outcome: &String,
         valid_outcomes: &Vec<String>,
     ) -> Result<(), Error> {
@@ -514,7 +514,7 @@ impl MarketResolutionAnalytics {
 
     /// Update resolution analytics
     pub fn update_resolution_analytics(
-        _env: &Env,
+        env: &Env,
         _resolution: &MarketResolution,
     ) -> Result<(), Error> {
         // For now, do nothing since we don't store complex types
@@ -577,7 +577,7 @@ impl ResolutionUtils {
 
     /// Validate resolution parameters
     pub fn validate_resolution_parameters(
-        _env: &Env,
+        env: &Env,
         market: &Market,
         outcome: &String,
     ) -> Result<(), Error> {

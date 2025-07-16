@@ -9,7 +9,7 @@ use crate::{
     types::{Market, OracleConfig, OracleProvider},
 };
 use alloc::string::ToString;
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contracttype, vec, Address, Env, Map, String, Symbol, Vec};
 
 // ===== VALIDATION ERROR TYPES =====
 
