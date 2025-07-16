@@ -6,7 +6,7 @@ use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 
 /// Market state enumeration
 #[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MarketState {
     /// Market is active and accepting votes
     Active,
@@ -95,9 +95,9 @@ impl OracleConfig {
         }
 
         // Validate comparison operator
-        if self.comparison != String::from_str(_env, "gt")
-            && self.comparison != String::from_str(_env, "lt")
-            && self.comparison != String::from_str(_env, "eq")
+        if self.comparison != String::from_str(env, "gt")
+            && self.comparison != String::from_str(env, "lt")
+            && self.comparison != String::from_str(env, "eq")
         {
             return Err(crate::Error::InvalidComparison);
         }

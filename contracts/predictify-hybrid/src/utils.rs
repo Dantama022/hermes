@@ -165,6 +165,7 @@ impl StringUtils {
             let rust_string = s.to_string();
             result.push_str(&rust_string);
         }
+        String::from_str(&env, &result)
     }
 
     /// Check if string contains substring

@@ -573,21 +573,21 @@ impl MarketTestHelpers {
 
     /// Add test vote to market
     pub fn add_test_vote(
-        _env: &Env,
+        env: &Env,
         market_id: &Symbol,
         user: Address,
         outcome: String,
         stake: i128,
     ) -> Result<(), Error> {
-        let mut market = MarketStateManager::get_market(_env, market_id)?;
+        let mut market = MarketStateManager::get_market(env, market_id)?;
 
-        MarketValidator::validate_market_for_voting(_env, &market)?;
-        MarketValidator::validate_outcome(_env, &outcome, &market.outcomes)?;
+        MarketValidator::validate_market_for_voting(env, &market)?;
+        MarketValidator::validate_outcome(env, &outcome, &market.outcomes)?;
         MarketValidator::validate_stake(stake, 1_000_000)?; // 0.1 XLM minimum
 
         // Transfer stake
-        let token_client = MarketUtils::get_token_client(_env)?;
-        token_client.transfer(&user, &_env.current_contract_address(), &stake);
+        let token_client = MarketUtils::get_token_client(env)?;
+        token_client.transfer(&user, &env.current_contract_address(), &stake);
 
         // Add vote
         MarketStateManager::add_vote(&mut market, user, outcome, stake, None);
@@ -599,13 +599,13 @@ impl MarketTestHelpers {
 
     /// Simulate market resolution
     pub fn simulate_market_resolution(
-        _env: &Env,
+        env: &Env,
         market_id: &Symbol,
         oracle_result: String,
     ) -> Result<String, Error> {
-        let mut market = MarketStateManager::get_market(_env, market_id)?;
+        let mut market = MarketStateManager::get_market(env, market_id)?;
 
-        MarketValidator::validate_market_for_resolution(_env, &market)?;
+        MarketValidator::validate_market_for_resolution(env, &market)?;
 
         // Set oracle result
         MarketStateManager::set_oracle_result(&mut market, oracle_result.clone());
@@ -615,7 +615,7 @@ impl MarketTestHelpers {
 
         // Determine final result
         let final_result =
-            MarketUtils::determine_final_result(_env, &oracle_result, &community_consensus);
+            MarketUtils::determine_final_result(env, &oracle_result, &community_consensus);
 
         // Set winning outcome
         MarketStateManager::set_winning_outcome(&mut market, final_result.clone(), None);

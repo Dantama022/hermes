@@ -119,11 +119,11 @@ impl VotingManager {
         user.require_auth();
 
         // Get and validate market
-        let mut _market = MarketStateManager::get_market(env, &market_id)?;
-        VotingValidator::validate_market_for_voting(env, &_market)?;
+        let mut market = MarketStateManager::get_market(env, &market_id)?;
+        VotingValidator::validate_market_for_voting(env, &market)?;
 
         // Validate vote parameters
-        VotingValidator::validate_vote_parameters(env, &outcome, &_market.outcomes, stake)?;
+        VotingValidator::validate_vote_parameters(env, &outcome, &market.outcomes, stake)?;
 
         // Process stake transfer
         VotingUtils::transfer_stake(env, &user, stake)?;
@@ -146,8 +146,8 @@ impl VotingManager {
         user.require_auth();
 
         // Get and validate market
-        let mut _market = MarketStateManager::get_market(env, &market_id)?;
-        VotingValidator::validate_market_for_dispute(env, &_market)?;
+        let mut market = MarketStateManager::get_market(env, &market_id)?;
+        VotingValidator::validate_market_for_dispute(env, &market)?;
 
         // Validate dispute stake
         VotingValidator::validate_dispute_stake(stake)?;
@@ -170,11 +170,11 @@ impl VotingManager {
         user.require_auth();
 
         // Get and validate market
-        let mut _market = MarketStateManager::get_market(env, &market_id)?;
-        VotingValidator::validate_market_for_claim(env, &_market, &user)?;
+        let mut market = MarketStateManager::get_market(env, &market_id)?;
+        VotingValidator::validate_market_for_claim(env, &market, &user)?;
 
         // Calculate and process payout
-        let payout = VotingUtils::calculate_user_payout(env, &_market, &user)?;
+        let payout = VotingUtils::calculate_user_payout(env, &market, &user)?;
 
         // Transfer winnings if any
         if payout > 0 {
@@ -272,6 +272,9 @@ impl VotingManager {
             &admin,
         )?;
 
+        // Get market for updating
+        let mut market = MarketStateManager::get_market(env, &market_id)?;
+        
         // Mark fees as collected
         MarketStateManager::mark_fees_collected(&mut market, Some(&market_id));
         MarketStateManager::update_market(env, &market_id, &market);
@@ -337,7 +340,7 @@ impl ThresholdUtils {
 
 
         // For large markets, increase threshold
-        if _market.total_staked > LARGE_MARKET_THRESHOLD {
+        if market.total_staked > LARGE_MARKET_THRESHOLD {
             // Increase by 50% for large markets
             Ok((base_threshold * 150) / 100)
         } else {

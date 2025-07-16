@@ -586,6 +586,7 @@ impl EventEmitter {
                 Environment::Development => "Development",
                 Environment::Testnet => "Testnet",
                 Environment::Mainnet => "Mainnet",
+                Environment::Custom => "Custom",
             }),
             timestamp: env.ledger().timestamp(),
         };

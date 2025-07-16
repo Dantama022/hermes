@@ -88,6 +88,8 @@ pub enum Error {
     MarketExtensionNotAllowed = 418,
     /// Extension fee insufficient
     ExtensionFeeInsufficient = 419,
+    /// Admin address is not set (initialization missing)
+    AdminNotSet = 420,
 }
 
 impl Error {
@@ -131,6 +133,7 @@ impl Error {
             Error::ExtensionDaysExceeded => "Extension days exceeded",
             Error::MarketExtensionNotAllowed => "Market extension not allowed",
             Error::ExtensionFeeInsufficient => "Extension fee insufficient",
+            Error::AdminNotSet => "Admin address is not set (initialization missing)",
         }
     }
 
@@ -174,6 +177,7 @@ impl Error {
             Error::ExtensionDaysExceeded => "EXTENSION_DAYS_EXCEEDED",
             Error::MarketExtensionNotAllowed => "MARKET_EXTENSION_NOT_ALLOWED",
             Error::ExtensionFeeInsufficient => "EXTENSION_FEE_INSUFFICIENT",
+            Error::AdminNotSet => "ADMIN_NOT_SET",
         }
     }
 }
