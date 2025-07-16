@@ -2,6 +2,26 @@
 
 use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 
+// ===== MARKET STATE =====
+
+/// Market state enumeration
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MarketState {
+    /// Market is active and accepting votes
+    Active,
+    /// Market has ended, waiting for resolution
+    Ended,
+    /// Market is under dispute
+    Disputed,
+    /// Market has been resolved
+    Resolved,
+    /// Market is closed
+    Closed,
+    /// Market has been cancelled
+    Cancelled,
+}
+
 // ===== ORACLE TYPES =====
 
 /// Oracle provider enumeration
@@ -66,16 +86,18 @@ impl OracleConfig {
     }
 
     /// Validate the oracle configuration
+
     pub fn validate(&self, env: &Env) -> Result<(), crate::Error> {
+
         // Validate threshold
         if self.threshold <= 0 {
             return Err(crate::Error::InvalidThreshold);
         }
 
         // Validate comparison operator
-        if self.comparison != String::from_str(env, "gt")
-            && self.comparison != String::from_str(env, "lt")
-            && self.comparison != String::from_str(env, "eq")
+        if self.comparison != String::from_str(_env, "gt")
+            && self.comparison != String::from_str(_env, "lt")
+            && self.comparison != String::from_str(_env, "eq")
         {
             return Err(crate::Error::InvalidComparison);
         }
@@ -121,12 +143,17 @@ pub struct Market {
     pub winning_outcome: Option<String>,
     /// Whether fees have been collected
     pub fee_collected: bool,
+    /// Current market state
+    pub state: MarketState,
+
     /// Total extension days
     pub total_extension_days: u32,
     /// Maximum extension days allowed
     pub max_extension_days: u32,
+
     /// Extension history
     pub extension_history: Vec<MarketExtension>,
+
 }
 
 impl Market {
@@ -138,6 +165,7 @@ impl Market {
         outcomes: Vec<String>,
         end_time: u64,
         oracle_config: OracleConfig,
+        state: MarketState,
     ) -> Self {
         Self {
             admin,
@@ -153,9 +181,12 @@ impl Market {
             dispute_stakes: Map::new(env),
             winning_outcome: None,
             fee_collected: false,
+            state,
+
             total_extension_days: 0,
             max_extension_days: 30, // Default maximum extension days
             extension_history: Vec::new(env),
+
         }
     }
 
@@ -225,6 +256,7 @@ pub enum ReflectorAsset {
     /// Other asset identified by symbol
     Other(Symbol),
 }
+
 
 /// Reflector price data structure
 #[contracttype]
@@ -332,6 +364,7 @@ impl MarketCreationParams {
     }
 }
 
+
 // ===== ADDITIONAL TYPES =====
 
 /// Community consensus data
@@ -346,4 +379,5 @@ pub struct CommunityConsensus {
     pub total_votes: u32,
     /// Percentage of votes for this outcome
     pub percentage: i128,
+
 }

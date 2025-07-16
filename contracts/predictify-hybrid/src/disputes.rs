@@ -347,8 +347,8 @@ impl DisputeManager {
     }
 
     /// Get dispute votes
-    pub fn get_dispute_votes(env: &Env, dispute_id: Symbol) -> Result<Vec<DisputeVote>, Error> {
-        DisputeUtils::get_dispute_votes(env, &dispute_id)
+    pub fn get_dispute_votes(env: &Env, dispute_id: &Symbol) -> Result<Vec<DisputeVote>, Error> {
+        DisputeUtils::get_dispute_votes(env, dispute_id)
     }
 
     /// Validate dispute resolution conditions
@@ -458,7 +458,7 @@ impl DisputeValidator {
     /// Validate dispute voting conditions
     pub fn validate_dispute_voting_conditions(
         env: &Env,
-        market_id: &Symbol,
+        _market_id: &Symbol,
         dispute_id: &Symbol,
     ) -> Result<(), Error> {
         // Check if dispute exists and is active
@@ -736,7 +736,7 @@ impl DisputeUtils {
         let votes = Vec::new(env);
         
         // Get the voting data to access stored votes
-        let voting_data = Self::get_dispute_voting(env, dispute_id)?;
+        let _voting_data = Self::get_dispute_voting(env, dispute_id)?;
         
         // In a real implementation, you would iterate through stored vote keys
         // For now, return empty vector as this would require tracking vote keys separately
@@ -834,6 +834,7 @@ impl DisputeUtils {
     }
 
     /// Emit dispute vote event
+
     pub fn emit_dispute_vote_event(
         env: &Env,
         dispute_id: &Symbol,
@@ -841,6 +842,7 @@ impl DisputeUtils {
         vote: bool,
         stake: i128,
     ) {
+
         // In a real implementation, this would emit an event
         // For now, we'll just store it in persistent storage
         let event_key = symbol_short!("vote_evt");
@@ -849,11 +851,13 @@ impl DisputeUtils {
     }
 
     /// Emit fee distribution event
+
     pub fn emit_fee_distribution_event(
         env: &Env,
         dispute_id: &Symbol,
         distribution: &DisputeFeeDistribution,
     ) {
+
         // In a real implementation, this would emit an event
         // For now, we'll just store it in persistent storage
         let event_key = symbol_short!("fee_event");
@@ -1011,7 +1015,6 @@ impl DisputeAnalytics {
 #[cfg(test)]
 pub mod testing {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
 
     /// Create a test dispute
     pub fn create_test_dispute(
@@ -1109,6 +1112,7 @@ mod tests {
                 2500000,
                 String::from_str(env, "gt"),
             ),
+            crate::types::MarketState::Active,
         )
     }
 
