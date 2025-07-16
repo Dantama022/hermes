@@ -2,6 +2,7 @@
 
 
 // Module declarations - all modules enabled
+mod admin;
 mod config;
 mod disputes;
 mod errors;
@@ -19,10 +20,10 @@ mod voting;
 // Re-export commonly used items
 pub use errors::Error;
 pub use types::*;
+use admin::AdminInitializer;
 
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token, Address, Env, Map, String, Symbol, Vec,
-
+    contract, contractimpl, panic_with_error, Address, Env, Map, String, Symbol, Vec,
 };
 
 #[contract]
@@ -93,7 +94,6 @@ impl PredictifyHybrid {
         // Create a new market
         let market = Market {
             admin: admin.clone(),
-
             question,
             outcomes,
             end_time,
@@ -106,6 +106,7 @@ impl PredictifyHybrid {
             claimed: Map::new(&env),
             winning_outcome: None,
             fee_collected: false,
+            state: MarketState::Active,
             total_extension_days: 0,
             max_extension_days: 30,
             extension_history: Vec::new(&env),
@@ -202,7 +203,7 @@ impl PredictifyHybrid {
                 let user_share = (user_stake * (PERCENTAGE_DENOMINATOR - FEE_PERCENTAGE))
                     / PERCENTAGE_DENOMINATOR;
                 let total_pool = market.total_staked;
-                let payout = (user_share * total_pool) / winning_total;
+                let _payout = (user_share * total_pool) / winning_total;
 
                 // In a real implementation, transfer tokens here
                 // For now, we just mark as claimed
