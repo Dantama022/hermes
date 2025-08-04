@@ -501,6 +501,10 @@ fn test_time_calculations() {
 fn test_market_creation_data() {
     let test = PredictifyTest::setup();
     let market_id = test.create_test_market();
+
+
+
+
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -556,6 +560,7 @@ fn test_voting_data_integrity() {
 fn test_oracle_configuration() {
     let test = PredictifyTest::setup();
     let market_id = test.create_test_market();
+
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()

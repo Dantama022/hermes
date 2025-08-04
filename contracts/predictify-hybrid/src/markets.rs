@@ -26,6 +26,68 @@ pub struct MarketCreator;
 
 impl MarketCreator {
     /// Create a new market with full configuration
+
+    /// Creates a new prediction market with comprehensive configuration options.
+    ///
+    /// This is the primary market creation function that supports all oracle types
+    /// and validates all input parameters before creating the market. The function
+    /// automatically generates a unique market ID, processes creation fees, and
+    /// stores the market in persistent storage.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - Address of the market administrator (must have sufficient balance for fees)
+    /// * `question` - The prediction question (1-500 characters, cannot be empty)
+    /// * `outcomes` - Vector of possible outcomes (minimum 2, maximum 10 outcomes)
+    /// * `duration_days` - Market duration in days (1-365 days)
+    /// * `oracle_config` - Oracle configuration specifying data source and resolution criteria
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Symbol)` - Unique market identifier for the created market
+    /// * `Err(Error)` - Creation failed due to validation or processing errors
+    ///
+    /// # Errors
+    ///
+    /// * `Error::InvalidQuestion` - Question is empty or exceeds character limits
+    /// * `Error::InvalidOutcomes` - Less than 2 outcomes or empty outcome strings
+    /// * `Error::InvalidDuration` - Duration is 0 or exceeds 365 days
+    /// * `Error::InsufficientBalance` - Admin lacks funds for creation fee
+    /// * `Error::InvalidOracleConfig` - Oracle configuration is malformed
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use soroban_sdk::{Env, Address, String, vec};
+    /// use crate::markets::MarketCreator;
+    /// use crate::types::{OracleConfig, OracleProvider};
+    ///
+    /// let env = Env::default();
+    /// let admin = Address::generate(&env);
+    /// let question = String::from_str(&env, "Will Bitcoin reach $100,000 by end of 2024?");
+    /// let outcomes = vec![
+    ///     &env,
+    ///     String::from_str(&env, "Yes"),
+    ///     String::from_str(&env, "No")
+    /// ];
+    /// let oracle_config = OracleConfig::new(
+    ///     OracleProvider::Pyth,
+    ///     String::from_str(&env, "BTC/USD"),
+    ///     100_000_00, // $100,000 with 2 decimal places
+    ///     String::from_str(&env, "gte")
+    /// );
+    ///
+    /// let market_id = MarketCreator::create_market(
+    ///     &env,
+    ///     admin,
+    ///     question,
+    ///     outcomes,
+    ///     90, // 90 days duration
+    ///     oracle_config
+    /// ).expect("Market creation should succeed");
+    /// ```
+
     pub fn create_market(
         env: &Env,
         admin: Address,
@@ -66,7 +128,63 @@ impl MarketCreator {
         Ok(market_id)
     }
 
+
     /// Create a market with Reflector oracle
+
+    /// Creates a prediction market using Reflector oracle as the data source.
+    ///
+    /// Reflector oracle provides real-time price feeds for various cryptocurrency
+    /// and traditional assets. This convenience method automatically configures
+    /// the oracle settings and delegates to the main create_market function.
+    ///
+    /// # Parameters
+    ///
+    /// * `_env` - The Soroban environment for blockchain operations
+    /// * `admin` - Address of the market administrator
+    /// * `question` - The prediction question (1-500 characters)
+    /// * `outcomes` - Vector of possible outcomes (minimum 2, maximum 10)
+    /// * `duration_days` - Market duration in days (1-365 days)
+    /// * `asset_symbol` - Reflector asset symbol (e.g., "BTC", "ETH", "XLM")
+    /// * `threshold` - Price threshold for comparison (in asset's base units)
+    /// * `comparison` - Comparison operator ("gt", "gte", "lt", "lte", "eq")
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Symbol)` - Unique market identifier for the created market
+    /// * `Err(Error)` - Creation failed due to validation or processing errors
+    ///
+    /// # Errors
+    ///
+    /// Same as `create_market`, plus:
+    /// * `Error::InvalidOracleConfig` - Invalid asset symbol or comparison operator
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use soroban_sdk::{Env, Address, String, vec};
+    /// use crate::markets::MarketCreator;
+    ///
+    /// let env = Env::default();
+    /// let admin = Address::generate(&env);
+    /// let question = String::from_str(&env, "Will XLM price exceed $1.00 this month?");
+    /// let outcomes = vec![
+    ///     &env,
+    ///     String::from_str(&env, "Yes"),
+    ///     String::from_str(&env, "No")
+    /// ];
+    ///
+    /// let market_id = MarketCreator::create_reflector_market(
+    ///     &env,
+    ///     admin,
+    ///     question,
+    ///     outcomes,
+    ///     30, // 30 days
+    ///     String::from_str(&env, "XLM"),
+    ///     1_00, // $1.00 with 2 decimal places
+    ///     String::from_str(&env, "gt")
+    /// ).expect("Reflector market creation should succeed");
+    /// ```
+
     pub fn create_reflector_market(
         _env: &Env,
         admin: Address,
@@ -762,7 +880,68 @@ impl MarketStateManager {
         // No state change for voting
     }
 
+
     /// Add dispute stake to market
+
+    /// Adds a user's dispute stake to challenge the market's oracle result.
+    ///
+    /// This function allows users to stake tokens to dispute the oracle's
+    /// resolution of a market. When dispute stakes are added, the market
+    /// may transition from `Ended` to `Disputed` state, triggering additional
+    /// resolution mechanisms.
+    ///
+    /// # Parameters
+    ///
+    /// * `market` - Mutable reference to the market being disputed
+    /// * `user` - Address of the user adding dispute stake
+    /// * `stake` - Amount staked for the dispute (in token base units)
+    /// * `market_id` - Optional market ID for event emission
+    ///
+    /// # State Requirements
+    ///
+    /// * Market must be in `Ended` state to initiate dispute
+    /// * Market must have an oracle result to dispute
+    ///
+    /// # State Transitions
+    ///
+    /// * `Ended` → `Disputed` when first dispute stake is added
+    ///
+    /// # Side Effects
+    ///
+    /// * Updates `market.dispute_stakes` mapping (accumulates existing stakes)
+    /// * May transition market state to `Disputed`
+    /// * Emits state change event if transition occurs
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use soroban_sdk::{Env, Address, Symbol};
+    /// use crate::markets::MarketStateManager;
+    /// use crate::types::MarketState;
+    ///
+    /// let env = Env::default();
+    /// let disputer = Address::generate(&env);
+    /// let market_id = Symbol::new(&env, "ended_market");
+    /// let mut market = MarketStateManager::get_market(&env, &market_id)?;
+    ///
+    /// // Ensure market is in Ended state
+    /// assert_eq!(market.state, MarketState::Ended);
+    ///
+    /// let dispute_stake = 10_000_000; // 1.0 XLM
+    ///
+    /// MarketStateManager::add_dispute_stake(
+    ///     &mut market,
+    ///     disputer,
+    ///     dispute_stake,
+    ///     Some(&market_id)
+    /// );
+    ///
+    /// // Market should now be in Disputed state
+    /// assert_eq!(market.state, MarketState::Disputed);
+    ///
+    /// MarketStateManager::update_market(&env, &market_id, &market);
+    /// ```
+
     pub fn add_dispute_stake(
         market: &mut Market,
         user: Address,
@@ -2325,7 +2504,57 @@ impl MarketStateLogic {
         }
     }
 
+
     /// Check if a function is allowed in the given state
+
+    /// Validates that a specific function can be executed in the given market state.
+    ///
+    /// This function enforces access control based on market state, ensuring
+    /// that operations are only performed when appropriate. It prevents actions
+    /// like voting on closed markets or claiming from unresolved markets.
+    ///
+    /// # Parameters
+    ///
+    /// * `function` - Name of the function to validate ("vote", "dispute", "resolve", "claim", "close")
+    /// * `state` - Current market state to check against
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Function is allowed in the current state
+    /// * `Err(Error)` - Function is not allowed in the current state
+    ///
+    /// # Errors
+    ///
+    /// * `Error::MarketClosed` - Function is not allowed in the current market state
+    ///
+    /// # Function Access Rules
+    ///
+    /// * **vote**: Only allowed in `Active` state
+    /// * **dispute**: Only allowed in `Ended` state
+    /// * **resolve**: Allowed in `Ended` or `Disputed` states
+    /// * **claim**: Only allowed in `Resolved` state
+    /// * **close**: Allowed in `Resolved`, `Cancelled`, or `Closed` states
+    /// * **other**: All other functions are allowed by default
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use crate::markets::MarketStateLogic;
+    /// use crate::types::MarketState;
+    ///
+    /// // Check if voting is allowed
+    /// match MarketStateLogic::check_function_access_for_state("vote", MarketState::Active) {
+    ///     Ok(()) => println!("Voting is allowed"),
+    ///     Err(_) => println!("Voting is not allowed"),
+    /// }
+    ///
+    /// // Check if claiming is allowed
+    /// assert!(MarketStateLogic::check_function_access_for_state(
+    ///     "claim",
+    ///     MarketState::Resolved
+    /// ).is_ok());
+    /// ```
+
     pub fn check_function_access_for_state(
         function: &str,
         state: MarketState,
