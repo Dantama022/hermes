@@ -3,9 +3,8 @@ extern crate alloc;
 // use alloc::string::ToString; // Removed to fix Display/ToString trait errors
 use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
 
-
-use crate::errors::Error;
 use crate::config::Environment;
+use crate::errors::Error;
 
 // Define AdminRole locally since it's not available in the crate root
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,7 +47,7 @@ pub enum AdminRole {
 /// # use predictify_hybrid::events::MarketCreatedEvent;
 /// # let env = Env::default();
 /// # let admin = Address::generate(&env);
-/// 
+///
 /// // Market creation event data
 /// let event = MarketCreatedEvent {
 ///     market_id: Symbol::new(&env, "btc_50k_2024"),
@@ -62,7 +61,7 @@ pub enum AdminRole {
 ///     end_time: 1735689600, // Dec 31, 2024
 ///     timestamp: env.ledger().timestamp(),
 /// };
-/// 
+///
 /// // Event provides complete market context
 /// println!("New market: {}", event.question.to_string());
 /// println!("Market ID: {}", event.market_id.to_string());
@@ -123,7 +122,7 @@ pub struct MarketCreatedEvent {
 /// # use predictify_hybrid::events::VoteCastEvent;
 /// # let env = Env::default();
 /// # let voter = Address::generate(&env);
-/// 
+///
 /// // Vote casting event data
 /// let event = VoteCastEvent {
 ///     market_id: Symbol::new(&env, "btc_50k_2024"),
@@ -132,7 +131,7 @@ pub struct MarketCreatedEvent {
 ///     stake: 10_000_000, // 1.0 XLM
 ///     timestamp: env.ledger().timestamp(),
 /// };
-/// 
+///
 /// // Event provides complete voting context
 /// println!("Vote cast by: {}", event.voter.to_string());
 /// println!("Market: {}", event.market_id.to_string());
@@ -198,7 +197,7 @@ pub struct VoteCastEvent {
 /// # use soroban_sdk::{Env, Symbol, String};
 /// # use predictify_hybrid::events::OracleResultEvent;
 /// # let env = Env::default();
-/// 
+///
 /// // Oracle result event for Bitcoin price market
 /// let event = OracleResultEvent {
 ///     market_id: Symbol::new(&env, "btc_50k_2024"),
@@ -210,7 +209,7 @@ pub struct VoteCastEvent {
 ///     comparison: String::from_str(&env, "gte"), // greater than or equal
 ///     timestamp: env.ledger().timestamp(),
 /// };
-/// 
+///
 /// // Event provides complete oracle context
 /// println!("Oracle result: {}", event.result.to_string());
 /// println!("Price fetched: ${}", event.price / 100000000);
@@ -283,7 +282,7 @@ pub struct OracleResultEvent {
 /// # use soroban_sdk::{Env, Symbol, String};
 /// # use predictify_hybrid::events::MarketResolvedEvent;
 /// # let env = Env::default();
-/// 
+///
 /// // Market resolution event for Bitcoin price market
 /// let event = MarketResolvedEvent {
 ///     market_id: Symbol::new(&env, "btc_50k_2024"),
@@ -294,13 +293,13 @@ pub struct OracleResultEvent {
 ///     confidence_score: 95, // 95% confidence
 ///     timestamp: env.ledger().timestamp(),
 /// };
-/// 
+///
 /// // Event provides complete resolution context
 /// println!("Market resolved: {}", event.market_id.to_string());
 /// println!("Final outcome: {}", event.final_outcome.to_string());
 /// println!("Resolution method: {}", event.resolution_method.to_string());
 /// println!("Confidence: {}%", event.confidence_score);
-/// 
+///
 /// // Check consensus alignment
 /// let consensus_aligned = event.oracle_result == event.community_consensus;
 /// println!("Oracle-Community alignment: {}", consensus_aligned);
@@ -370,22 +369,22 @@ pub struct MarketResolvedEvent {
 /// # use predictify_hybrid::events::DisputeCreatedEvent;
 /// # let env = Env::default();
 /// # let disputer = Address::generate(&env);
-/// 
+///
 /// // Dispute creation event
 /// let event = DisputeCreatedEvent {
 ///     market_id: Symbol::new(&env, "btc_50k_2024"),
 ///     disputer: disputer.clone(),
 ///     stake: 50_000_000, // 5.0 XLM dispute stake
-///     reason: Some(String::from_str(&env, 
+///     reason: Some(String::from_str(&env,
 ///         "Oracle price appears incorrect - multiple exchanges show different value")),
 ///     timestamp: env.ledger().timestamp(),
 /// };
-/// 
+///
 /// // Event provides complete dispute context
 /// println!("Dispute created by: {}", event.disputer.to_string());
 /// println!("Market disputed: {}", event.market_id.to_string());
 /// println!("Stake amount: {} XLM", event.stake / 10_000_000);
-/// 
+///
 /// if let Some(reason) = &event.reason {
 ///     println!("Dispute reason: {}", reason.to_string());
 /// }
@@ -453,7 +452,7 @@ pub struct DisputeCreatedEvent {
 /// # let winner1 = Address::generate(&env);
 /// # let winner2 = Address::generate(&env);
 /// # let loser1 = Address::generate(&env);
-/// 
+///
 /// // Dispute resolution event
 /// let event = DisputeResolvedEvent {
 ///     market_id: Symbol::new(&env, "btc_50k_2024"),
@@ -463,7 +462,7 @@ pub struct DisputeCreatedEvent {
 ///     fee_distribution: 25_000_000, // 2.5 XLM distributed to winners
 ///     timestamp: env.ledger().timestamp(),
 /// };
-/// 
+///
 /// // Event provides complete resolution context
 /// println!("Dispute resolved: {}", event.market_id.to_string());
 /// println!("Outcome: {}", event.outcome.to_string());
@@ -994,12 +993,7 @@ impl EventEmitter {
     }
 
     /// Emit admin action logged event
-    pub fn emit_admin_action_logged(
-        env: &Env,
-        admin: &Address,
-        action: &str,
-        success: &bool,
-    ) {
+    pub fn emit_admin_action_logged(env: &Env, admin: &Address, action: &str, success: &bool) {
         let event = AdminActionEvent {
             admin: admin.clone(),
             action: String::from_str(env, action),
@@ -1022,19 +1016,18 @@ impl EventEmitter {
     }
 
     /// Emit config initialized event
-    pub fn emit_config_initialized(
-        env: &Env,
-        admin: &Address,
-        environment: &Environment,
-    ) {
+    pub fn emit_config_initialized(env: &Env, admin: &Address, environment: &Environment) {
         let event = ConfigInitializedEvent {
             admin: admin.clone(),
-            environment: String::from_str(env, match environment {
-                Environment::Development => "Development",
-                Environment::Testnet => "Testnet",
-                Environment::Mainnet => "Mainnet",
-                Environment::Custom => "Custom",
-            }),
+            environment: String::from_str(
+                env,
+                match environment {
+                    Environment::Development => "Development",
+                    Environment::Testnet => "Testnet",
+                    Environment::Mainnet => "Mainnet",
+                    Environment::Custom => "Custom",
+                },
+            ),
             timestamp: env.ledger().timestamp(),
         };
 
@@ -1050,11 +1043,14 @@ impl EventEmitter {
     ) {
         let event = AdminRoleEvent {
             admin: admin.clone(),
-            role: String::from_str(env, match role {
-                AdminRole::Owner => "Owner",
-                AdminRole::Admin => "Admin", 
-                AdminRole::Moderator => "Moderator",
-            }),
+            role: String::from_str(
+                env,
+                match role {
+                    AdminRole::Owner => "Owner",
+                    AdminRole::Admin => "Admin",
+                    AdminRole::Moderator => "Moderator",
+                },
+            ),
             assigned_by: assigned_by.clone(),
             timestamp: env.ledger().timestamp(),
         };
@@ -1063,11 +1059,7 @@ impl EventEmitter {
     }
 
     /// Emit admin role deactivated event
-    pub fn emit_admin_role_deactivated(
-        env: &Env,
-        admin: &Address,
-        deactivated_by: &Address,
-    ) {
+    pub fn emit_admin_role_deactivated(env: &Env, admin: &Address, deactivated_by: &Address) {
         let event = AdminRoleEvent {
             admin: admin.clone(),
             role: String::from_str(env, "deactivated"),
@@ -1079,11 +1071,7 @@ impl EventEmitter {
     }
 
     /// Emit market closed event
-    pub fn emit_market_closed(
-        env: &Env,
-        market_id: &Symbol,
-        admin: &Address,
-    ) {
+    pub fn emit_market_closed(env: &Env, market_id: &Symbol, admin: &Address) {
         let event = MarketClosedEvent {
             market_id: market_id.clone(),
             admin: admin.clone(),
@@ -1094,12 +1082,7 @@ impl EventEmitter {
     }
 
     /// Emit market finalized event
-    pub fn emit_market_finalized(
-        env: &Env,
-        market_id: &Symbol,
-        admin: &Address,
-        outcome: &String,
-    ) {
+    pub fn emit_market_finalized(env: &Env, market_id: &Symbol, admin: &Address, outcome: &String) {
         let event = MarketFinalizedEvent {
             market_id: market_id.clone(),
             admin: admin.clone(),
@@ -1440,7 +1423,6 @@ impl EventValidator {
         // Remove empty check for Symbol since it doesn't have is_empty method
         // Market ID validation is handled by the Symbol type itself
 
-
         if event.additional_days == 0 {
             return Err(Error::InvalidInput);
         }
@@ -1498,7 +1480,6 @@ impl EventHelpers {
 
     /// Create event context string
     pub fn create_event_context(env: &Env, context_parts: &Vec<String>) -> String {
-
         let mut context = String::from_str(env, "");
         for (i, part) in context_parts.iter().enumerate() {
             if i > 0 {
@@ -1510,7 +1491,6 @@ impl EventHelpers {
             }
         }
         context
-
     }
 
     /// Validate event timestamp
@@ -1787,26 +1767,22 @@ impl EventDocumentation {
             String::from_str(env, "EventEmitter::emit_market_created(env, market_id, question, outcomes, admin, end_time)"),
         );
         examples.set(
-
             String::from_str(&env, "EmitVoteCast"),
             String::from_str(
                 &env,
                 "EventEmitter::emit_vote_cast(env, market_id, voter, outcome, stake)",
             ),
-
         );
         examples.set(
             String::from_str(env, "GetMarketEvents"),
             String::from_str(env, "EventLogger::get_market_events(env, market_id)"),
         );
         examples.set(
-
             String::from_str(&env, "ValidateEvent"),
             String::from_str(
                 &env,
                 "EventValidator::validate_market_created_event(&event)",
             ),
-
         );
 
         examples
