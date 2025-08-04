@@ -72,7 +72,7 @@ pub const MARKET_SIZE_LARGE: i128 = 10_000_000_000; // 1000 XLM
 /// # use soroban_sdk::Env;
 /// # use predictify_hybrid::fees::FeeConfig;
 /// # let env = Env::default();
-/// 
+///
 /// // Standard fee configuration
 /// let config = FeeConfig {
 ///     platform_fee_percentage: 200, // 2.00% (basis points)
@@ -82,12 +82,12 @@ pub const MARKET_SIZE_LARGE: i128 = 10_000_000_000; // 1000 XLM
 ///     collection_threshold: 100_000_000, // 10 XLM threshold
 ///     fees_enabled: true,
 /// };
-/// 
+///
 /// // Calculate platform fee for 50 XLM stake
 /// let stake_amount = 500_000_000; // 50 XLM
 /// let platform_fee = (stake_amount * config.platform_fee_percentage) / 10_000;
 /// println!("Platform fee: {} XLM", platform_fee / 10_000_000);
-/// 
+///
 /// // Check if fees are collectible
 /// if config.fees_enabled && stake_amount >= config.collection_threshold {
 ///     println!("Fees can be collected");
@@ -147,7 +147,7 @@ pub struct FeeConfig {
 /// # use soroban_sdk::Env;
 /// # use predictify_hybrid::fees::FeeTier;
 /// # let env = Env::default();
-/// 
+///
 /// let tier = FeeTier {
 ///     min_size: 0,
 ///     max_size: 100_000_000, // 10 XLM
@@ -187,7 +187,7 @@ pub struct FeeTier {
 /// # use soroban_sdk::Env;
 /// # use predictify_hybrid::fees::ActivityAdjustment;
 /// # let env = Env::default();
-/// 
+///
 /// let adjustment = ActivityAdjustment {
 ///     activity_level: 50,
 ///     fee_multiplier: 110, // 10% increase
@@ -225,7 +225,7 @@ pub struct ActivityAdjustment {
 /// # use soroban_sdk::Env;
 /// # use predictify_hybrid::fees::FeeCalculationFactors;
 /// # let env = Env::default();
-/// 
+///
 /// let factors = FeeCalculationFactors {
 ///     base_fee_percentage: 200, // 2%
 ///     size_multiplier: 110, // 10% increase
@@ -273,7 +273,7 @@ pub struct FeeCalculationFactors {
 /// # use soroban_sdk::Env;
 /// # use predictify_hybrid::fees::FeeHistory;
 /// # let env = Env::default();
-/// 
+///
 /// let history = FeeHistory {
 ///     market_id: Symbol::new(&env, "market_123"),
 ///     timestamp: env.ledger().timestamp(),
@@ -324,7 +324,7 @@ pub struct FeeHistory {
 /// # use predictify_hybrid::fees::FeeCollection;
 /// # let env = Env::default();
 /// # let admin = Address::generate(&env);
-/// 
+///
 /// // Fee collection record
 /// let collection = FeeCollection {
 ///     market_id: Symbol::new(&env, "btc_prediction"),
@@ -333,14 +333,14 @@ pub struct FeeHistory {
 ///     timestamp: env.ledger().timestamp(),
 ///     fee_percentage: 200, // 2% fee rate used
 /// };
-/// 
+///
 /// // Analyze collection details
 /// println!("Fee Collection Report");
 /// println!("Market: {}", collection.market_id.to_string());
 /// println!("Amount: {} XLM", collection.amount / 10_000_000);
 /// println!("Collected by: {}", collection.collected_by.to_string());
 /// println!("Fee rate: {}%", collection.fee_percentage as f64 / 100.0);
-/// 
+///
 /// // Calculate original stake from fee
 /// let original_stake = (collection.amount * 10_000) / collection.fee_percentage;
 /// println!("Original stake: {} XLM", original_stake / 10_000_000);
@@ -396,7 +396,7 @@ pub struct FeeCollection {
 /// # use soroban_sdk::{Env, Map, String, Vec};
 /// # use predictify_hybrid::fees::{FeeAnalytics, FeeCollection};
 /// # let env = Env::default();
-/// 
+///
 /// // Fee analytics example
 /// let analytics = FeeAnalytics {
 ///     total_fees_collected: 1_000_000_000, // 100 XLM total
@@ -405,27 +405,27 @@ pub struct FeeCollection {
 ///     collection_history: Vec::new(&env), // Historical records
 ///     fee_distribution: Map::new(&env), // Distribution by market size
 /// };
-/// 
+///
 /// // Display analytics summary
 /// println!("Fee System Analytics");
 /// println!("═══════════════════════════════════════");
-/// println!("Total fees collected: {} XLM", 
+/// println!("Total fees collected: {} XLM",
 ///     analytics.total_fees_collected / 10_000_000);
 /// println!("Markets with fees: {}", analytics.markets_with_fees);
-/// println!("Average per market: {} XLM", 
+/// println!("Average per market: {} XLM",
 ///     analytics.average_fee_per_market / 10_000_000);
-/// 
+///
 /// // Calculate fee collection rate
 /// if analytics.markets_with_fees > 0 {
 ///     let collection_efficiency = (analytics.markets_with_fees as f64 / 100.0) * 100.0;
 ///     println!("Collection efficiency: {:.1}%", collection_efficiency);
 /// }
-/// 
+///
 /// // Analyze fee distribution
 /// println!("Fee distribution by market category:");
 /// for (category, amount) in analytics.fee_distribution.iter() {
-///     println!("  {}: {} XLM", 
-///         category.to_string(), 
+///     println!("  {}: {} XLM",
+///         category.to_string(),
 ///         amount / 10_000_000);
 /// }
 /// ```
@@ -489,7 +489,7 @@ pub struct FeeAnalytics {
 /// # use soroban_sdk::{Env, String, Vec};
 /// # use predictify_hybrid::fees::{FeeValidationResult, FeeBreakdown};
 /// # let env = Env::default();
-/// 
+///
 /// // Fee validation result example
 /// let validation = FeeValidationResult {
 ///     is_valid: false,
@@ -507,7 +507,7 @@ pub struct FeeAnalytics {
 ///         user_payout_amount: 980_000_000, // 98 XLM
 ///     },
 /// };
-/// 
+///
 /// // Process validation results
 /// if validation.is_valid {
 ///     println!("Fee validation passed");
@@ -517,7 +517,7 @@ pub struct FeeAnalytics {
 ///     for error in validation.errors.iter() {
 ///         println!("  - {}", error.to_string());
 ///     }
-///     println!("Suggested amount: {} XLM", 
+///     println!("Suggested amount: {} XLM",
 ///         validation.suggested_amount / 10_000_000);
 /// }
 /// ```
@@ -575,7 +575,7 @@ pub struct FeeValidationResult {
 ///
 /// ```rust
 /// # use predictify_hybrid::fees::FeeBreakdown;
-/// 
+///
 /// // Fee breakdown for 100 XLM stake at 2% fee
 /// let breakdown = FeeBreakdown {
 ///     total_staked: 1_000_000_000, // 100 XLM total stake
@@ -584,7 +584,7 @@ pub struct FeeValidationResult {
 ///     platform_fee: 20_000_000, // 2 XLM platform fee
 ///     user_payout_amount: 980_000_000, // 98 XLM after fees
 /// };
-/// 
+///
 /// // Display breakdown to user
 /// println!("Fee Calculation Breakdown");
 /// println!("─────────────────────────────────────────");
@@ -593,11 +593,11 @@ pub struct FeeValidationResult {
 /// println!("Fee Amount: {} XLM", breakdown.fee_amount / 10_000_000);
 /// println!("Platform Fee: {} XLM", breakdown.platform_fee / 10_000_000);
 /// println!("User Payout: {} XLM", breakdown.user_payout_amount / 10_000_000);
-/// 
+///
 /// // Verify calculation accuracy
 /// let expected_fee = (breakdown.total_staked * breakdown.fee_percentage) / 10_000;
 /// assert_eq!(breakdown.fee_amount, expected_fee);
-/// 
+///
 /// let expected_payout = breakdown.total_staked - breakdown.fee_amount;
 /// assert_eq!(breakdown.user_payout_amount, expected_payout);
 /// ```
@@ -664,21 +664,21 @@ pub struct FeeBreakdown {
 /// # let env = Env::default();
 /// # let admin = Address::generate(&env);
 /// # let market_id = Symbol::new(&env, "btc_market");
-/// 
+///
 /// // Collect fees from a resolved market
 /// let collected_amount = FeeManager::collect_fees(
 ///     &env,
 ///     admin.clone(),
 ///     market_id.clone()
 /// ).unwrap();
-/// 
+///
 /// println!("Collected {} XLM in fees", collected_amount / 10_000_000);
-/// 
+///
 /// // Get fee analytics
 /// let analytics = FeeManager::get_fee_analytics(&env).unwrap();
-/// println!("Total platform fees: {} XLM", 
+/// println!("Total platform fees: {} XLM",
 ///     analytics.total_fees_collected / 10_000_000);
-/// 
+///
 /// // Validate market fees
 /// let validation = FeeManager::validate_market_fees(&env, &market_id).unwrap();
 /// if validation.is_valid {
@@ -837,8 +837,12 @@ impl FeeManager {
     /// Get fee history for a specific market
     pub fn get_fee_history(env: &Env, market_id: Symbol) -> Result<Vec<FeeHistory>, Error> {
         let history_key = Symbol::new(env, "fee_history");
-        
-        match env.storage().persistent().get::<Symbol, Vec<FeeHistory>>(&history_key) {
+
+        match env
+            .storage()
+            .persistent()
+            .get::<Symbol, Vec<FeeHistory>>(&history_key)
+        {
             Some(history) => Ok(history),
             None => Ok(Vec::new(env)),
         }
@@ -985,7 +989,11 @@ impl FeeCalculator {
     }
 
     /// Adjust fee by activity level
-    pub fn adjust_fee_by_activity(env: &Env, market_id: Symbol, activity_level: u32) -> Result<i128, Error> {
+    pub fn adjust_fee_by_activity(
+        env: &Env,
+        market_id: Symbol,
+        activity_level: u32,
+    ) -> Result<i128, Error> {
         let market = crate::markets::MarketStateManager::get_market(env, &market_id)?;
         let base_fee = Self::calculate_dynamic_fee(&market)?;
 
@@ -1037,12 +1045,15 @@ impl FeeCalculator {
     }
 
     /// Get fee calculation factors for a market
-    pub fn get_fee_calculation_factors(env: &Env, market_id: Symbol) -> Result<FeeCalculationFactors, Error> {
+    pub fn get_fee_calculation_factors(
+        env: &Env,
+        market_id: Symbol,
+    ) -> Result<FeeCalculationFactors, Error> {
         let market = crate::markets::MarketStateManager::get_market(env, &market_id)?;
-        
+
         // Get base fee tier
         let tier = Self::get_fee_tier_by_market_size(env, market.total_staked)?;
-        
+
         // Calculate activity level
         let vote_count = market.votes.len() as u32;
         let activity_level = if vote_count >= ACTIVITY_LEVEL_HIGH {
@@ -1061,19 +1072,19 @@ impl FeeCalculator {
         } else if tier.tier_name == String::from_str(env, "Medium") {
             100 // No change
         } else if tier.tier_name == String::from_str(env, "Small") {
-            95  // 5% decrease
+            95 // 5% decrease
         } else if tier.tier_name == String::from_str(env, "Micro") {
-            90  // 10% decrease
+            90 // 10% decrease
         } else {
             100
         };
 
         let activity_multiplier = if activity_level == String::from_str(env, "High") {
-            120    // 20% increase
+            120 // 20% increase
         } else if activity_level == String::from_str(env, "Medium") {
-            110   // 10% increase
+            110 // 10% increase
         } else if activity_level == String::from_str(env, "Low") {
-            105    // 5% increase
+            105 // 5% increase
         } else if activity_level == String::from_str(env, "Very Low") {
             100 // No change
         } else {
@@ -1083,7 +1094,9 @@ impl FeeCalculator {
         let complexity_factor = 100; // No complexity adjustment for now
 
         // Calculate final fee percentage
-        let final_fee_percentage = (tier.fee_percentage * size_multiplier * activity_multiplier * complexity_factor) / (100 * 100 * 100);
+        let final_fee_percentage =
+            (tier.fee_percentage * size_multiplier * activity_multiplier * complexity_factor)
+                / (100 * 100 * 100);
 
         // Ensure final fee is within limits
         let final_fee_percentage = if final_fee_percentage < MIN_FEE_PERCENTAGE {
@@ -1114,10 +1127,8 @@ pub struct FeeValidator;
 impl FeeValidator {
     /// Validate admin permissions
     pub fn validate_admin_permissions(env: &Env, admin: &Address) -> Result<(), Error> {
-        let stored_admin: Option<Address> = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(env, "Admin"));
+        let stored_admin: Option<Address> =
+            env.storage().persistent().get(&Symbol::new(env, "Admin"));
 
         match stored_admin {
             Some(stored_admin) => {
@@ -1331,7 +1342,6 @@ impl FeeTracker {
     /// Record creation fee
 
     pub fn record_creation_fee(env: &Env, _admin: &Address, amount: i128) -> Result<(), Error> {
-
         // Record creation fee in analytics
         let creation_key = symbol_short!("creat_fee");
         let current_total: i128 = env.storage().persistent().get(&creation_key).unwrap_or(0);
@@ -1572,7 +1582,7 @@ pub mod testing {
         FeeTier {
             min_size: 0,
             max_size: 100_000_000, // 10 XLM
-            fee_percentage: 150, // 1.5%
+            fee_percentage: 150,   // 1.5%
             tier_name: String::from_str(env, "Small"),
         }
     }
@@ -1589,10 +1599,10 @@ pub mod testing {
     /// Create test fee calculation factors
     pub fn create_test_fee_calculation_factors(env: &Env) -> FeeCalculationFactors {
         FeeCalculationFactors {
-            base_fee_percentage: 200, // 2%
-            size_multiplier: 100, // No change
-            activity_multiplier: 110, // 10% increase
-            complexity_factor: 100, // No change
+            base_fee_percentage: 200,  // 2%
+            size_multiplier: 100,      // No change
+            activity_multiplier: 110,  // 10% increase
+            complexity_factor: 100,    // No change
             final_fee_percentage: 220, // 2.2%
             market_size_tier: String::from_str(env, "Medium"),
             activity_level: String::from_str(env, "Medium"),
@@ -1773,17 +1783,17 @@ mod tests {
     #[test]
     fn test_dynamic_fee_tier_calculation() {
         let env = Env::default();
-        
+
         // Test small market tier
         let small_tier = FeeCalculator::get_fee_tier_by_market_size(&env, 50_000_000).unwrap();
         assert_eq!(small_tier.fee_percentage, 100); // 1.0%
         assert_eq!(small_tier.tier_name, String::from_str(&env, "Micro"));
-        
+
         // Test medium market tier
         let medium_tier = FeeCalculator::get_fee_tier_by_market_size(&env, 500_000_000).unwrap();
         assert_eq!(medium_tier.fee_percentage, 150); // 1.5%
         assert_eq!(medium_tier.tier_name, String::from_str(&env, "Small"));
-        
+
         // Test large market tier
         let large_tier = FeeCalculator::get_fee_tier_by_market_size(&env, 5_000_000_000).unwrap();
         assert_eq!(large_tier.fee_percentage, 200); // 2.0%
@@ -1793,7 +1803,7 @@ mod tests {
     #[test]
     fn test_fee_calculation_factors() {
         let env = Env::default();
-        
+
         // Test the structure creation
         let factors = testing::create_test_fee_calculation_factors(&env);
         assert_eq!(factors.base_fee_percentage, 200);
@@ -1806,10 +1816,13 @@ mod tests {
     fn test_fee_history_creation() {
         let env = Env::default();
         let market_id = Symbol::new(&env, "test_market");
-        
+
         let history = testing::create_test_fee_history(&env, market_id);
         assert_eq!(history.old_fee_percentage, 200);
         assert_eq!(history.new_fee_percentage, 220);
-        assert_eq!(history.reason, String::from_str(&env, "Activity level increased"));
+        assert_eq!(
+            history.reason,
+            String::from_str(&env, "Activity level increased")
+        );
     }
 }
