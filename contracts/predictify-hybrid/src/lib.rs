@@ -21,6 +21,7 @@ mod storage;
 mod types;
 mod utils;
 mod validation;
+mod validation_tests;
 mod voting;
 
 #[cfg(test)]
@@ -578,6 +579,9 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
     }
 
+
+
+
     /// Fetches oracle result for a market from external oracle contracts.
     ///
     /// This function retrieves prediction results from configured oracle sources
@@ -1031,6 +1035,8 @@ impl PredictifyHybrid {
             additional_days,
             reason,
         )
+
+
     }
 
     // ===== STORAGE OPTIMIZATION FUNCTIONS =====
@@ -1117,6 +1123,7 @@ impl PredictifyHybrid {
         };
         
         Ok(storage::StorageUtils::get_storage_recommendations(&market))
+
     }
 }
 

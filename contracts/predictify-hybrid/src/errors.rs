@@ -778,6 +778,8 @@ impl Error {
     }
 }
 
+
+
 // ===== TESTING MODULE =====
 
 #[cfg(test)]
@@ -873,3 +875,4 @@ mod tests {
         assert!(analytics.errors_by_severity.get(ErrorSeverity::Low).is_some());
     }
 }
+
