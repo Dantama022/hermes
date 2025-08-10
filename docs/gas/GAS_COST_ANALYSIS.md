@@ -76,7 +76,7 @@ env.storage().persistent().set(&market_id, &market);
 
 ### Analysis Template
 
-Fill per method after running benchmarks (see GAS_BENCHMARKING.md):
+Fill per method after running benchmarks (see ../gas/GAS_BENCHMARKING.md):
 
 - initialize
   - Reads: 0-1 (admin guard if re-init)

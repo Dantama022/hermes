@@ -54,5 +54,5 @@ Track optimized size and ensure below network limits.
 ### Reporting
 
 - Commit CSVs and a short summary per release under `benchmarks/`.
-- Update `GAS_COST_ANALYSIS.md` with highlights (e.g., hot paths, bytes drivers).
+- Update `../gas/GAS_COST_ANALYSIS.md` with highlights (e.g., hot paths, bytes drivers).
 
