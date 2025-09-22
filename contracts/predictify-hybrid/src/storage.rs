@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::{
-    contracttype, map, vec, Address, Env, Map, Symbol, Vec,
+    contracttype, Env, Symbol, Vec,
 };
 use crate::markets::{MarketStateManager, MarketStateLogic};
 
