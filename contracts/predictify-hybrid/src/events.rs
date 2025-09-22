@@ -877,7 +877,7 @@ pub struct CircuitBreakerEvent {
     /// Action taken by circuit breaker
     pub action: crate::circuit_breaker::BreakerAction,
     /// Condition that triggered the action (if automatic)
-    pub condition: Option<crate::circuit_breaker::BreakerCondition>,
+    pub condition: crate::circuit_breaker::BreakerCondition,
     /// Reason for the action
     pub reason: String,
     /// Event timestamp
