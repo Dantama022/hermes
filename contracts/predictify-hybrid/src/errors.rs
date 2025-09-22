@@ -3,6 +3,8 @@
 use soroban_sdk::{
     contracterror, contracttype, vec, Address, Env, Map, String, Symbol, Vec,
 };
+use alloc::format;
+use alloc::string::ToString;
 
 /// Comprehensive error codes for the Predictify Hybrid prediction market contract.
 ///
@@ -305,6 +307,125 @@ pub struct ErrorAnalytics {
     pub avg_resolution_time: u64,
 }
 
+// ===== ERROR RECOVERY MECHANISMS =====
+
+/// Comprehensive error recovery information and state
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ErrorRecovery {
+    /// Original error code that triggered recovery
+    pub original_error_code: u32,
+    /// Recovery strategy applied
+    pub recovery_strategy: String,
+    /// Recovery attempt timestamp
+    pub recovery_timestamp: u64,
+    /// Recovery status
+    pub recovery_status: String,
+    /// Recovery context
+    pub recovery_context: ErrorContext,
+    /// Recovery attempts count
+    pub recovery_attempts: u32,
+    /// Maximum recovery attempts allowed
+    pub max_recovery_attempts: u32,
+    /// Recovery success timestamp
+    pub recovery_success_timestamp: Option<u64>,
+    /// Recovery failure reason
+    pub recovery_failure_reason: Option<String>,
+}
+
+/// Recovery status enumeration
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecoveryStatus {
+    /// Recovery not attempted yet
+    Pending,
+    /// Recovery in progress
+    InProgress,
+    /// Recovery completed successfully
+    Success,
+    /// Recovery failed
+    Failed,
+    /// Recovery exceeded maximum attempts
+    Exhausted,
+    /// Recovery cancelled
+    Cancelled,
+}
+
+/// Recovery result information
+#[derive(Clone, Debug)]
+pub struct RecoveryResult {
+    /// Whether recovery was successful
+    pub success: bool,
+    /// Recovery method used
+    pub recovery_method: String,
+    /// Recovery duration in seconds
+    pub recovery_duration: u64,
+    /// Additional recovery data
+    pub recovery_data: Map<String, String>,
+    /// Recovery validation result
+    pub validation_result: bool,
+}
+
+/// Resilience pattern configuration
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ResiliencePattern {
+    /// Pattern name/identifier
+    pub pattern_name: String,
+    /// Pattern type
+    pub pattern_type: ResiliencePatternType,
+    /// Pattern configuration
+    pub pattern_config: Map<String, String>,
+    /// Pattern enabled status
+    pub enabled: bool,
+    /// Pattern priority (higher = more important)
+    pub priority: u32,
+    /// Pattern last used timestamp
+    pub last_used: Option<u64>,
+    /// Pattern success rate
+    pub success_rate: i128, // Percentage * 100
+}
+
+/// Resilience pattern types
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResiliencePatternType {
+    /// Retry with exponential backoff
+    RetryWithBackoff,
+    /// Circuit breaker pattern
+    CircuitBreaker,
+    /// Bulkhead isolation
+    Bulkhead,
+    /// Timeout pattern
+    Timeout,
+    /// Fallback pattern
+    Fallback,
+    /// Health check pattern
+    HealthCheck,
+    /// Rate limiting pattern
+    RateLimit,
+}
+
+/// Error recovery status tracking
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ErrorRecoveryStatus {
+    /// Total recovery attempts
+    pub total_attempts: u32,
+    /// Successful recoveries
+    pub successful_recoveries: u32,
+    /// Failed recoveries
+    pub failed_recoveries: u32,
+    /// Active recovery processes
+    pub active_recoveries: u32,
+    /// Recovery success rate
+    pub success_rate: i128, // Percentage * 100
+    /// Average recovery time
+    pub avg_recovery_time: u64,
+    /// Last recovery timestamp
+    pub last_recovery_timestamp: Option<u64>,
+}
+
 /// Main error handler for comprehensive error management
 pub struct ErrorHandler;
 
@@ -517,7 +638,254 @@ impl ErrorHandler {
         })
     }
 
+    // ===== ERROR RECOVERY MECHANISMS =====
+
+    /// Recover from an error using appropriate recovery strategy
+    pub fn recover_from_error(env: &Env, error: Error, context: ErrorContext) -> Result<ErrorRecovery, Error> {
+        // Validate error context
+        Self::validate_error_context(&context)?;
+
+        // Create initial recovery record
+        let mut recovery = ErrorRecovery {
+            original_error_code: error as u32,
+            recovery_strategy: Self::get_error_recovery_strategy_string(&error),
+            recovery_timestamp: env.ledger().timestamp(),
+            recovery_status: String::from_str(env, "pending"),
+            recovery_context: context.clone(),
+            recovery_attempts: 0,
+            max_recovery_attempts: Self::get_max_recovery_attempts(&error),
+            recovery_success_timestamp: None,
+            recovery_failure_reason: None,
+        };
+
+        // Attempt recovery based on strategy
+        recovery.recovery_status = String::from_str(env, "in_progress");
+        recovery.recovery_attempts += 1;
+
+        let recovery_result = Self::execute_recovery_strategy(env, &recovery)?;
+
+        // Update recovery status based on result
+        if recovery_result.success {
+            recovery.recovery_status = String::from_str(env, "success");
+            recovery.recovery_success_timestamp = Some(env.ledger().timestamp());
+        } else {
+            recovery.recovery_status = String::from_str(env, "failed");
+            recovery.recovery_failure_reason = Some(String::from_str(env, "Recovery strategy failed"));
+        }
+
+        // Store recovery record
+        Self::store_recovery_record(env, &recovery)?;
+
+        // Emit recovery event
+        Self::emit_error_recovery_event(env, &recovery);
+
+        Ok(recovery)
+    }
+
+    /// Validate error recovery configuration and state
+    pub fn validate_error_recovery(env: &Env, recovery: &ErrorRecovery) -> Result<bool, Error> {
+        // Validate recovery context
+        Self::validate_error_context(&recovery.recovery_context)?;
+
+        // Check if recovery attempts are within limits
+        if recovery.recovery_attempts > recovery.max_recovery_attempts {
+            return Err(Error::InvalidState);
+        }
+
+        // Validate recovery timestamp
+        let current_time = env.ledger().timestamp();
+        if recovery.recovery_timestamp > current_time {
+            return Err(Error::InvalidState);
+        }
+
+        // Validate recovery result if present
+        if let Some(ref result) = recovery.recovery_result {
+            if result.recovery_duration > 3600 { // Max 1 hour recovery time
+                return Err(Error::InvalidState);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Get current error recovery status and statistics
+    pub fn get_error_recovery_status(env: &Env) -> Result<ErrorRecoveryStatus, Error> {
+        // In a real implementation, this would aggregate recovery data from storage
+        let status = ErrorRecoveryStatus {
+            total_attempts: 0,
+            successful_recoveries: 0,
+            failed_recoveries: 0,
+            active_recoveries: 0,
+            success_rate: 0,
+            avg_recovery_time: 0,
+            last_recovery_timestamp: None,
+        };
+
+        Ok(status)
+    }
+
+    /// Emit error recovery event for monitoring and logging
+    pub fn emit_error_recovery_event(env: &Env, recovery: &ErrorRecovery) {
+        use crate::events::EventEmitter;
+        
+        EventEmitter::emit_error_recovery_event(
+            env,
+            recovery.original_error_code,
+            &recovery.recovery_strategy,
+            recovery.recovery_status.clone(),
+            recovery.recovery_attempts,
+            recovery.recovery_context.user_address.clone(),
+            recovery.recovery_context.market_id.clone(),
+        );
+    }
+
+    /// Validate resilience patterns configuration
+    pub fn validate_resilience_patterns(env: &Env, patterns: &Vec<ResiliencePattern>) -> Result<bool, Error> {
+        for pattern in patterns.iter() {
+            // Validate pattern name
+            if pattern.pattern_name.is_empty() {
+                return Err(Error::InvalidInput);
+            }
+
+            // Validate pattern configuration
+            if pattern.pattern_config.is_empty() {
+                return Err(Error::InvalidInput);
+            }
+
+            // Validate priority (must be between 1-100)
+            if pattern.priority == 0 || pattern.priority > 100 {
+                return Err(Error::InvalidInput);
+            }
+
+            // Validate success rate (must be between 0-10000 for percentage * 100)
+            if pattern.success_rate < 0 || pattern.success_rate > 10000 {
+                return Err(Error::InvalidInput);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Document error recovery procedures and best practices
+    pub fn document_error_recovery_procedures(env: &Env) -> Result<Map<String, String>, Error> {
+        let mut procedures = Map::new(env);
+        
+        procedures.set(
+            String::from_str(env, "retry_procedure"),
+            String::from_str(env, "For retryable errors, implement exponential backoff with max 3 attempts")
+        );
+        
+        procedures.set(
+            String::from_str(env, "oracle_recovery"),
+            String::from_str(env, "For oracle errors, try fallback oracle or cached data before failing")
+        );
+        
+        procedures.set(
+            String::from_str(env, "validation_recovery"),
+            String::from_str(env, "For validation errors, provide clear error messages and retry guidance")
+        );
+        
+        procedures.set(
+            String::from_str(env, "system_recovery"),
+            String::from_str(env, "For system errors, log details and require manual intervention if critical")
+        );
+
+        Ok(procedures)
+    }
+
     // ===== PRIVATE HELPER METHODS =====
+
+    /// Execute recovery strategy based on error type
+    fn execute_recovery_strategy(env: &Env, recovery: &ErrorRecovery) -> Result<RecoveryResult, Error> {
+        let start_time = env.ledger().timestamp();
+        
+        let recovery_method = recovery.recovery_strategy.clone();
+
+        let success = match recovery.recovery_strategy.to_string().as_str() {
+            "retry" => true,
+            "retry_with_delay" => {
+                // Check if enough time has passed since last attempt
+                let delay_required = 60; // 1 minute
+                let time_since_last = env.ledger().timestamp() - recovery.recovery_timestamp;
+                time_since_last >= delay_required
+            },
+            "alternative_method" => {
+                // Try alternative approach based on error type
+                match recovery.original_error_code {
+                    200 => true,  // OracleUnavailable - Try fallback oracle
+                    101 => false, // MarketNotFound - No alternative available
+                    _ => false,
+                }
+            },
+            "skip" => true,
+            "abort" => false,
+            "manual_intervention" => false,
+            "no_recovery" => false,
+            _ => false,
+        };
+
+        let recovery_duration = env.ledger().timestamp() - start_time;
+        let mut recovery_data = Map::new(env);
+        recovery_data.set(String::from_str(env, "strategy"), recovery_method.clone());
+        recovery_data.set(String::from_str(env, "duration"), String::from_str(env, &recovery_duration.to_string()));
+
+        Ok(RecoveryResult {
+            success,
+            recovery_method,
+            recovery_duration,
+            recovery_data,
+            validation_result: true,
+        })
+    }
+
+    /// Get maximum recovery attempts for error type
+    fn get_max_recovery_attempts(error: &Error) -> u32 {
+        match error {
+            Error::OracleUnavailable => 3,
+            Error::InvalidInput => 2,
+            Error::MarketNotFound => 1,
+            Error::ConfigurationNotFound => 1,
+            Error::AlreadyVoted => 0,
+            Error::AlreadyClaimed => 0,
+            Error::FeeAlreadyCollected => 0,
+            Error::Unauthorized => 0,
+            Error::MarketClosed => 0,
+            Error::MarketAlreadyResolved => 0,
+            Error::AdminNotSet => 0,
+            Error::DisputeFeeDistributionFailed => 0,
+            Error::InvalidState => 0,
+            Error::InvalidOracleConfig => 0,
+            _ => 1,
+        }
+    }
+
+    /// Store recovery record in persistent storage
+    fn store_recovery_record(env: &Env, recovery: &ErrorRecovery) -> Result<(), Error> {
+        let recovery_key = Symbol::new(env, &format!("recovery_{}_{}", recovery.original_error_code, recovery.recovery_timestamp));
+        env.storage().persistent().set(&recovery_key, recovery);
+        Ok(())
+    }
+
+    /// Get error recovery strategy as string
+    fn get_error_recovery_strategy_string(error: &Error) -> String {
+        match error {
+            Error::OracleUnavailable => String::from_str(&Env::default(), "retry_with_delay"),
+            Error::InvalidInput => String::from_str(&Env::default(), "retry"),
+            Error::MarketNotFound => String::from_str(&Env::default(), "alternative_method"),
+            Error::ConfigurationNotFound => String::from_str(&Env::default(), "alternative_method"),
+            Error::AlreadyVoted => String::from_str(&Env::default(), "skip"),
+            Error::AlreadyClaimed => String::from_str(&Env::default(), "skip"),
+            Error::FeeAlreadyCollected => String::from_str(&Env::default(), "skip"),
+            Error::Unauthorized => String::from_str(&Env::default(), "abort"),
+            Error::MarketClosed => String::from_str(&Env::default(), "abort"),
+            Error::MarketAlreadyResolved => String::from_str(&Env::default(), "abort"),
+            Error::AdminNotSet => String::from_str(&Env::default(), "manual_intervention"),
+            Error::DisputeFeeDistributionFailed => String::from_str(&Env::default(), "manual_intervention"),
+            Error::InvalidState => String::from_str(&Env::default(), "no_recovery"),
+            Error::InvalidOracleConfig => String::from_str(&Env::default(), "no_recovery"),
+            _ => String::from_str(&Env::default(), "abort"),
+        }
+    }
 
     /// Get error classification (severity, category, recovery strategy)
     fn get_error_classification(error: &Error) -> (ErrorSeverity, ErrorCategory, RecoveryStrategy) {

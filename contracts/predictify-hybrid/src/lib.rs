@@ -1133,6 +1133,48 @@ impl PredictifyHybrid {
         Ok(storage::StorageUtils::get_storage_recommendations(&market))
 
     }
+
+    // ===== ERROR RECOVERY FUNCTIONS =====
+
+    /// Recover from an error using appropriate recovery strategy
+    pub fn recover_from_error(
+        env: Env,
+        error: Error,
+        context: errors::ErrorContext,
+    ) -> Result<errors::ErrorRecovery, Error> {
+        errors::ErrorHandler::recover_from_error(&env, error, context)
+    }
+
+    /// Validate error recovery configuration and state
+    pub fn validate_error_recovery(
+        env: Env,
+        recovery: errors::ErrorRecovery,
+    ) -> Result<bool, Error> {
+        errors::ErrorHandler::validate_error_recovery(&env, &recovery)
+    }
+
+    /// Get current error recovery status and statistics
+    pub fn get_error_recovery_status(env: Env) -> Result<errors::ErrorRecoveryStatus, Error> {
+        errors::ErrorHandler::get_error_recovery_status(&env)
+    }
+
+    /// Emit error recovery event for monitoring and logging
+    pub fn emit_error_recovery_event(env: Env, recovery: errors::ErrorRecovery) {
+        errors::ErrorHandler::emit_error_recovery_event(&env, &recovery);
+    }
+
+    /// Validate resilience patterns configuration
+    pub fn validate_resilience_patterns(
+        env: Env,
+        patterns: Vec<errors::ResiliencePattern>,
+    ) -> Result<bool, Error> {
+        errors::ErrorHandler::validate_resilience_patterns(&env, &patterns)
+    }
+
+    /// Document error recovery procedures and best practices
+    pub fn document_error_recovery(env: Env) -> Result<soroban_sdk::Map<String, String>, Error> {
+        errors::ErrorHandler::document_error_recovery_procedures(&env)
+    }
 }
 
 mod test;
