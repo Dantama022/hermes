@@ -3,7 +3,8 @@ mod batch_operations_tests {
     use super::*;
     use crate::batch_operations::*;
     use crate::admin::AdminAccessControl;
-    use soroban_sdk::testutils::Address;
+    use crate::types::OracleProvider;
+    use soroban_sdk::{Env, String, Vec, Symbol, testutils::Address, vec};
 
     #[test]
     fn test_batch_processor_initialization() {
@@ -29,7 +30,7 @@ mod batch_operations_tests {
         assert_eq!(stats.total_failed_operations, 0);
         assert_eq!(stats.average_batch_size, 0);
         assert_eq!(stats.average_execution_time, 0);
-        assert_eq!(stats.gas_efficiency_ratio, 1.0);
+        assert_eq!(stats.gas_efficiency_ratio, 100u64);
     }
 
     #[test]
@@ -83,7 +84,7 @@ mod batch_operations_tests {
         BatchProcessor::initialize(&env).unwrap();
         
         let admin = Address::generate(&env);
-        AdminAccessControl::assign_role(&env, &admin, crate::admin::AdminRole::Admin).unwrap();
+        AdminAccessControl::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin).unwrap();
         
         // Create test market data
         let markets = vec![
@@ -481,7 +482,7 @@ mod batch_operations_tests {
         BatchProcessor::initialize(&env).unwrap();
         
         let admin = Address::generate(&env);
-        AdminAccessControl::assign_role(&env, &admin, crate::admin::AdminRole::Admin).unwrap();
+        AdminAccessControl::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin).unwrap();
         
         // Test complete batch workflow
         // 1. Create test data

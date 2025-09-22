@@ -2,8 +2,9 @@
 mod circuit_breaker_tests {
     use super::*;
     use crate::circuit_breaker::*;
-    use crate::admin::AdminManager;
-    use soroban_sdk::testutils::Address;
+    use crate::admin::AdminRoleManager;
+    use crate::errors::Error;
+    use soroban_sdk::{Env, String, Vec, Symbol, testutils::Address, vec};
 
     #[test]
     fn test_circuit_breaker_initialization() {
