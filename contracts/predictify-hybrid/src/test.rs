@@ -605,6 +605,8 @@ fn test_error_recovery_mechanisms() {
     
     env.as_contract(&contract_id, || {
         let admin = Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
+        // Initialize admin system first
+        crate::admin::AdminRoleManager::initialize(&env).unwrap();
     
     // Test error recovery for different error types
     let context = errors::ErrorContext {
@@ -689,6 +691,8 @@ fn test_error_recovery_scenarios() {
     
     env.as_contract(&contract_id, || {
         let admin = Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
+        // Initialize admin system first
+        crate::admin::AdminRoleManager::initialize(&env).unwrap();
     
     let context = errors::ErrorContext {
         operation: String::from_str(&env, "test_scenario"),
