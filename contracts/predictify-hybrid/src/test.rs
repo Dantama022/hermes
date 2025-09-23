@@ -600,10 +600,10 @@ fn test_oracle_provider_types() {
 #[test]
 fn test_error_recovery_mechanisms() {
     let env = Env::default();
-    let contract_id = env.register(None, PredictifyHybrid);
+    let contract_id = env.register(PredictifyHybrid, ());
+    env.mock_all_auths();
     
     env.as_contract(&contract_id, || {
-        env.mock_all_auths();
         let admin = Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
     
     // Test error recovery for different error types
@@ -639,7 +639,7 @@ fn test_error_recovery_mechanisms() {
 #[test]
 fn test_resilience_patterns_validation() {
     let env = Env::default();
-    let contract_id = env.register(None, PredictifyHybrid);
+    let contract_id = env.register(PredictifyHybrid, ());
     
     env.as_contract(&contract_id, || {
         let mut patterns = Vec::new(&env);
@@ -667,7 +667,7 @@ fn test_resilience_patterns_validation() {
 #[test]
 fn test_error_recovery_procedures_documentation() {
     let env = Env::default();
-    let contract_id = env.register(None, PredictifyHybrid);
+    let contract_id = env.register(PredictifyHybrid, ());
     
     env.as_contract(&contract_id, || {
         let procedures = errors::ErrorHandler::document_error_recovery_procedures(&env).unwrap();
@@ -684,10 +684,10 @@ fn test_error_recovery_procedures_documentation() {
 #[test]
 fn test_error_recovery_scenarios() {
     let env = Env::default();
-    let contract_id = env.register(None, PredictifyHybrid);
+    let contract_id = env.register(PredictifyHybrid, ());
+    env.mock_all_auths();
     
     env.as_contract(&contract_id, || {
-        env.mock_all_auths();
         let admin = Address::from_string(&String::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"));
     
     let context = errors::ErrorContext {
