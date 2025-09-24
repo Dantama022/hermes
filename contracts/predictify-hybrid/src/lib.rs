@@ -16,6 +16,7 @@ mod errors;
 mod events;
 mod extensions;
 mod fees;
+mod governance;
 mod markets;
 mod oracles;
 mod resolution;
@@ -587,9 +588,6 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
     }
 
-
-
-
     /// Fetches oracle result for a market from external oracle contracts.
     ///
     /// This function retrieves prediction results from configured oracle sources
@@ -1043,19 +1041,20 @@ impl PredictifyHybrid {
             additional_days,
             reason,
         )
-
-
     }
 
     // ===== STORAGE OPTIMIZATION FUNCTIONS =====
 
     /// Compress market data for storage optimization
-    pub fn compress_market_data(env: Env, market_id: Symbol) -> Result<storage::CompressedMarket, Error> {
+    pub fn compress_market_data(
+        env: Env,
+        market_id: Symbol,
+    ) -> Result<storage::CompressedMarket, Error> {
         let market = match markets::MarketStateManager::get_market(&env, &market_id) {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-        
+
         storage::StorageOptimizer::compress_market_data(&env, &market)
     }
 
@@ -1089,7 +1088,10 @@ impl PredictifyHybrid {
     }
 
     /// Validate storage integrity for a specific market
-    pub fn validate_storage_integrity(env: Env, market_id: Symbol) -> Result<storage::StorageIntegrityResult, Error> {
+    pub fn validate_storage_integrity(
+        env: Env,
+        market_id: Symbol,
+    ) -> Result<storage::StorageIntegrityResult, Error> {
         storage::StorageOptimizer::validate_storage_integrity(&env, &market_id)
     }
 
@@ -1109,7 +1111,7 @@ impl PredictifyHybrid {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-        
+
         Ok(storage::StorageUtils::calculate_storage_cost(&market))
     }
 
@@ -1119,7 +1121,7 @@ impl PredictifyHybrid {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-        
+
         Ok(storage::StorageUtils::get_storage_efficiency_score(&market))
     }
 
@@ -1129,9 +1131,8 @@ impl PredictifyHybrid {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-        
-        Ok(storage::StorageUtils::get_storage_recommendations(&market))
 
+        Ok(storage::StorageUtils::get_storage_recommendations(&market))
     }
 }
 
