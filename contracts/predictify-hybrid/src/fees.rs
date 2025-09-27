@@ -3,6 +3,7 @@ use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Sy
 use crate::errors::Error;
 use crate::markets::{MarketStateManager, MarketUtils};
 use crate::types::Market;
+use crate::reentrancy_guard::ReentrancyGuard;
 
 /// Fee management system for Predictify Hybrid contract
 ///
@@ -751,10 +752,11 @@ impl FeeManager {
         FeeValidator::validate_creation_fee(MARKET_CREATION_FEE)?;
 
         // Get token client
+        ReentrancyGuard::before_external_call(env)?;
         let token_client = MarketUtils::get_token_client(env)?;
-
         // Transfer creation fee from admin to contract
         token_client.transfer(admin, &env.current_contract_address(), &MARKET_CREATION_FEE);
+        ReentrancyGuard::after_external_call(env);
 
         // Record creation fee
         FeeTracker::record_creation_fee(env, admin, MARKET_CREATION_FEE)?;
@@ -1249,8 +1251,10 @@ pub struct FeeUtils;
 impl FeeUtils {
     /// Transfer fees to admin
     pub fn transfer_fees_to_admin(env: &Env, admin: &Address, amount: i128) -> Result<(), Error> {
+        ReentrancyGuard::before_external_call(env)?;
         let token_client = MarketUtils::get_token_client(env)?;
         token_client.transfer(&env.current_contract_address(), admin, &amount);
+        ReentrancyGuard::after_external_call(env);
         Ok(())
     }
 
