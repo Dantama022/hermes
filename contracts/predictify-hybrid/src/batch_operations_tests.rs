@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod batch_operations_tests {
-    use crate::admin::AdminRoleManager;
+    use crate::admin::{AdminInitializer, AdminRoleManager};
     use crate::batch_operations::*;
     use crate::types::OracleProvider;
     use soroban_sdk::{testutils::Address, vec, Env, String, Symbol, Vec};
@@ -9,29 +9,29 @@ mod batch_operations_tests {
     fn test_batch_processor_initialization() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
+
         env.as_contract(&contract_id, || {
             // Test initialization
             assert!(BatchProcessor::initialize(&env).is_ok());
-        
-        // Test get config
-        let config = BatchProcessor::get_config(&env).unwrap();
-        assert_eq!(config.max_batch_size, 50);
-        assert_eq!(config.max_operations_per_batch, 100);
-        assert_eq!(config.gas_limit_per_batch, 1_000_000);
-        assert_eq!(config.timeout_per_batch, 30);
-        assert!(config.retry_failed_operations);
-        assert!(!config.parallel_processing_enabled);
-        
-        // Test get statistics
-        let stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
-        assert_eq!(stats.total_batches_processed, 0);
-        assert_eq!(stats.total_operations_processed, 0);
-        assert_eq!(stats.total_successful_operations, 0);
-        assert_eq!(stats.total_failed_operations, 0);
-        assert_eq!(stats.average_batch_size, 0);
-        assert_eq!(stats.average_execution_time, 0);
-        assert_eq!(stats.gas_efficiency_ratio, 1u64);
+
+            // Test get config
+            let config = BatchProcessor::get_config(&env).unwrap();
+            assert_eq!(config.max_batch_size, 50);
+            assert_eq!(config.max_operations_per_batch, 100);
+            assert_eq!(config.gas_limit_per_batch, 1_000_000);
+            assert_eq!(config.timeout_per_batch, 30);
+            assert!(config.retry_failed_operations);
+            assert!(!config.parallel_processing_enabled);
+
+            // Test get statistics
+            let stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
+            assert_eq!(stats.total_batches_processed, 0);
+            assert_eq!(stats.total_operations_processed, 0);
+            assert_eq!(stats.total_successful_operations, 0);
+            assert_eq!(stats.total_failed_operations, 0);
+            assert_eq!(stats.average_batch_size, 0);
+            assert_eq!(stats.average_execution_time, 0);
+            assert_eq!(stats.gas_efficiency_ratio, 1u64);
         });
     }
 
@@ -39,26 +39,26 @@ mod batch_operations_tests {
     fn test_batch_vote_operations() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
+
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
-        
-        // Create test vote data
-        let market_id = Symbol::new(&env, "test_market");
-        let votes = vec![
-            &env,
-            BatchTesting::create_test_vote_data(&env, &market_id),
-            BatchTesting::create_test_vote_data(&env, &market_id),
-            BatchTesting::create_test_vote_data(&env, &market_id),
-        ];
-        
-        // Test batch vote processing
-        let result = BatchProcessor::batch_vote(&env, &votes);
-        assert!(result.is_ok());
-        
-        let batch_result = result.unwrap();
-        assert_eq!(batch_result.total_operations, 3);
-        assert!(batch_result.execution_time >= 0);
+
+            // Create test vote data
+            let market_id = Symbol::new(&env, "test_market");
+            let votes = vec![
+                &env,
+                BatchTesting::create_test_vote_data(&env, &market_id),
+                BatchTesting::create_test_vote_data(&env, &market_id),
+                BatchTesting::create_test_vote_data(&env, &market_id),
+            ];
+
+            // Test batch vote processing
+            let result = BatchProcessor::batch_vote(&env, &votes);
+            assert!(result.is_ok());
+
+            let batch_result = result.unwrap();
+            assert_eq!(batch_result.total_operations, 3);
+            assert!(batch_result.execution_time >= 0);
         });
     }
 
@@ -66,25 +66,25 @@ mod batch_operations_tests {
     fn test_batch_claim_operations() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-       
+
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
-        
-        // Create test claim data
-        let market_id = Symbol::new(&env, "test_market");
-        let claims = vec![
-            &env,
-            BatchTesting::create_test_claim_data(&env, &market_id),
-            BatchTesting::create_test_claim_data(&env, &market_id),
-        ];
-        
-        // Test batch claim processing
-        let result = BatchProcessor::batch_claim(&env, &claims);
-        assert!(result.is_ok());
-        
-        let batch_result = result.unwrap();
-        assert_eq!(batch_result.total_operations, 2);
-        assert!(batch_result.execution_time >= 0);
+
+            // Create test claim data
+            let market_id = Symbol::new(&env, "test_market");
+            let claims = vec![
+                &env,
+                BatchTesting::create_test_claim_data(&env, &market_id),
+                BatchTesting::create_test_claim_data(&env, &market_id),
+            ];
+
+            // Test batch claim processing
+            let result = BatchProcessor::batch_claim(&env, &claims);
+            assert!(result.is_ok());
+
+            let batch_result = result.unwrap();
+            assert_eq!(batch_result.total_operations, 2);
+            assert!(batch_result.execution_time >= 0);
         });
     }
 
@@ -95,32 +95,34 @@ mod batch_operations_tests {
         env.mock_all_auths();
 
         let admin = <soroban_sdk::Address as Address>::generate(&env);
-        
+
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
-        
-        // Initialize admin system first
-        crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
-        AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin).unwrap();
-        
-        // Create test market data
-        let markets = vec![
-            &env,
-            BatchTesting::create_test_market_data(&env),
-            BatchTesting::create_test_market_data(&env),
-        ];
-        
-        // Test batch market creation (skip for now due to admin validation complexity)
-        // let result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
-        // assert!(result.is_ok());
-        
-        // For now, just test that the function exists and can be called
-        let result = BatchProcessor::get_batch_operation_statistics(&env);
-        assert!(result.is_ok());
-        
-        let _stats = result.unwrap();
-        // assert_eq!(batch_result.total_operations, 2);
-        // assert!(batch_result.execution_time >= 0);
+
+            // Initialize admin system first
+            AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
+
+            // Create test market data
+            let markets = vec![
+                &env,
+                BatchTesting::create_test_market_data(&env),
+                BatchTesting::create_test_market_data(&env),
+            ];
+
+            // Test batch market creation
+            let result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
+            assert!(result.is_ok());
+
+            let batch_result = result.unwrap();
+            assert_eq!(batch_result.total_operations, 2);
+            assert!(batch_result.execution_time >= 0);
         });
     }
 
@@ -131,22 +133,22 @@ mod batch_operations_tests {
 
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
-        
-        // Create test oracle feed data
-        let market_id = Symbol::new(&env, "test_market");
-        let feeds = vec![
-            &env,
-            BatchTesting::create_test_oracle_feed_data(&env, &market_id),
-            BatchTesting::create_test_oracle_feed_data(&env, &market_id),
-        ];
-        
-        // Test batch oracle calls
-        let result = BatchProcessor::batch_oracle_calls(&env, &feeds);
-        assert!(result.is_ok());
-        
-        let batch_result = result.unwrap();
-        assert_eq!(batch_result.total_operations, 2);
-        assert!(batch_result.execution_time >= 0);
+
+            // Create test oracle feed data
+            let market_id = Symbol::new(&env, "test_market");
+            let feeds = vec![
+                &env,
+                BatchTesting::create_test_oracle_feed_data(&env, &market_id),
+                BatchTesting::create_test_oracle_feed_data(&env, &market_id),
+            ];
+
+            // Test batch oracle calls
+            let result = BatchProcessor::batch_oracle_calls(&env, &feeds);
+            assert!(result.is_ok());
+
+            let batch_result = result.unwrap();
+            assert_eq!(batch_result.total_operations, 2);
+            assert!(batch_result.execution_time >= 0);
         });
     }
 
@@ -230,36 +232,41 @@ mod batch_operations_tests {
     fn test_batch_utils() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
+
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
-        
-        // Test batch processing enabled
-        assert!(BatchUtils::is_batch_processing_enabled(&env).unwrap());
-        
-        // Test optimal batch sizes
-        let vote_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Vote).unwrap();
-        assert!(vote_size <= 20);
-        
-        let claim_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Claim).unwrap();
-        assert!(claim_size <= 15);
-        
-        let market_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::CreateMarket).unwrap();
-        assert!(market_size <= 10);
-        
-        let oracle_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::OracleCall).unwrap();
-        assert!(oracle_size <= 25);
-        
-        // Test gas efficiency calculation
-        let efficiency = BatchUtils::calculate_gas_efficiency(8, 10, 1000);
-        assert_eq!(efficiency, 0.8 * 0.01); // 80% success rate * 0.01 operations per gas
-        
-        // Test gas cost estimation
-        let vote_cost = BatchUtils::estimate_gas_cost(&BatchOperationType::Vote, 5);
-        assert_eq!(vote_cost, 5000); // 1000 * 5
-        
-        let market_cost = BatchUtils::estimate_gas_cost(&BatchOperationType::CreateMarket, 3);
-        assert_eq!(market_cost, 15000); // 5000 * 3
+
+            // Test batch processing enabled
+            assert!(BatchUtils::is_batch_processing_enabled(&env).unwrap());
+
+            // Test optimal batch sizes
+            let vote_size =
+                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Vote).unwrap();
+            assert!(vote_size <= 20);
+
+            let claim_size =
+                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Claim).unwrap();
+            assert!(claim_size <= 15);
+
+            let market_size =
+                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::CreateMarket)
+                    .unwrap();
+            assert!(market_size <= 10);
+
+            let oracle_size =
+                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::OracleCall).unwrap();
+            assert!(oracle_size <= 25);
+
+            // Test gas efficiency calculation
+            let efficiency = BatchUtils::calculate_gas_efficiency(8, 10, 1000);
+            assert_eq!(efficiency, 0.8 * 0.01); // 80% success rate * 0.01 operations per gas
+
+            // Test gas cost estimation
+            let vote_cost = BatchUtils::estimate_gas_cost(&BatchOperationType::Vote, 5);
+            assert_eq!(vote_cost, 5000); // 1000 * 5
+
+            let market_cost = BatchUtils::estimate_gas_cost(&BatchOperationType::CreateMarket, 3);
+            assert_eq!(market_cost, 15000); // 5000 * 3
         });
     }
 
@@ -482,38 +489,55 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_statistics_update() {
         let env = Env::default();
+        env.mock_all_auths();
+
         let contract_id = env.register(crate::PredictifyHybrid, ());
+        let admin = <soroban_sdk::Address as Address>::generate(&env);
+
         env.as_contract(&contract_id, || {
+            // Initialize the main contract first
+            crate::PredictifyHybrid::initialize(env.clone(), admin.clone());
+
+            // Initialize configuration
+            let config = crate::config::ConfigManager::get_development_config(&env);
+            crate::config::ConfigManager::store_config(&env, &config).unwrap();
+
             BatchProcessor::initialize(&env).unwrap();
-        
-        // Create test batch result
-        let test_result = BatchResult {
-            successful_operations: 8,
-            failed_operations: 2,
-            total_operations: 10,
-            errors: Vec::new(&env),
-            gas_used: 5000,
-            execution_time: 100,
-        };
-        
-        // Get initial statistics
-        let initial_stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
-        assert_eq!(initial_stats.total_batches_processed, 0);
-        
-        // Test a simple batch operation to trigger statistics update
-        let market_id = Symbol::new(&env, "test_market");
-        let test_votes = vec![
-            &env,
-            BatchTesting::create_test_vote_data(&env, &market_id),
-        ];
-        let _batch_result = BatchProcessor::batch_vote(&env, &test_votes);
-        
-        // Get updated statistics
-        let updated_stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
-        
-        // Verify statistics were updated
-        assert!(updated_stats.total_batches_processed > 0);
-        assert!(updated_stats.total_operations_processed > 0);
+
+            // Initialize admin system
+            AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
+
+            // Get initial statistics
+            let initial_stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
+            assert_eq!(initial_stats.total_batches_processed, 0);
+
+            // Test batch statistics update by directly calling update_batch_statistics
+            // This avoids the token transfer authentication issues
+            let batch_result = crate::batch_operations::BatchResult {
+                successful_operations: 2,
+                failed_operations: 0,
+                total_operations: 2,
+                errors: Vec::new(&env),
+                gas_used: 1000,
+                execution_time: 100,
+            };
+
+            BatchProcessor::update_batch_statistics(&env, &batch_result).unwrap();
+
+            // Get updated statistics
+            let updated_stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
+            assert_eq!(updated_stats.total_batches_processed, 1);
+            assert_eq!(updated_stats.total_operations_processed, 2);
+            assert_eq!(updated_stats.total_successful_operations, 2);
+            assert_eq!(updated_stats.total_failed_operations, 0);
+            assert_eq!(updated_stats.average_batch_size, 2);
         });
     }
 
@@ -551,76 +575,85 @@ mod batch_operations_tests {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
         env.mock_all_auths();
-        
+
         let admin = <soroban_sdk::Address as Address>::generate(&env);
-        
+
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
-        
-        // Initialize admin system first
-        crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
-        AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin).unwrap();
-        
-        // Test complete batch workflow
-        // 1. Create test data
-        let market_id = Symbol::new(&env, "test_market");
-        let votes = vec![
-            &env,
-            BatchTesting::create_test_vote_data(&env, &market_id),
-            BatchTesting::create_test_vote_data(&env, &market_id),
-        ];
-        
-        let claims = vec![
-            &env,
-            BatchTesting::create_test_claim_data(&env, &market_id),
-        ];
-        
-        let markets = vec![
-            &env,
-            BatchTesting::create_test_market_data(&env),
-        ];
-        
-        let feeds = vec![
-            &env,
-            BatchTesting::create_test_oracle_feed_data(&env, &market_id),
-        ];
-        
-        // 2. Process batch operations
-        let vote_result = BatchProcessor::batch_vote(&env, &votes);
-        assert!(vote_result.is_ok());
-        
-        let claim_result = BatchProcessor::batch_claim(&env, &claims);
-        assert!(claim_result.is_ok());
-        
-        // Skip market creation due to admin validation complexity
-        // let market_result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
-        // assert!(market_result.is_ok());
-        
-        // Test that statistics can be retrieved instead
-        let stats_result = BatchProcessor::get_batch_operation_statistics(&env);
-        assert!(stats_result.is_ok());
-        
-        let oracle_result = BatchProcessor::batch_oracle_calls(&env, &feeds);
-        assert!(oracle_result.is_ok());
-        
-        // 3. Check statistics
-        let stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
-        assert_eq!(stats.total_batches_processed, 3); // 2 votes + 1 claim + 1 oracle (market creation skipped)
-        assert_eq!(stats.total_operations_processed, 4); // 2 votes + 1 claim + 1 oracle
-        assert!(stats.total_successful_operations >= 0);
-        assert!(stats.total_failed_operations >= 0);
-        
-        // 4. Test utilities
-        assert!(BatchUtils::is_batch_processing_enabled(&env).unwrap());
-        
-        let optimal_vote_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Vote).unwrap();
-        assert!(optimal_vote_size > 0);
-        
-        let gas_cost = BatchUtils::estimate_gas_cost(&BatchOperationType::Vote, 5);
-        assert_eq!(gas_cost, 5000);
-        
-        let efficiency = BatchUtils::calculate_gas_efficiency(4, 5, 1000);
-        assert_eq!(efficiency, 0.8 * 0.005); // 80% success rate * 0.005 operations per gas
+
+            // Initialize admin system
+            AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
+
+            // Test admin authentication
+            let auth_result = crate::admin::AdminAccessControl::validate_admin_for_action(
+                &env,
+                &admin,
+                "batch_create_markets",
+            );
+            if let Err(e) = auth_result {
+                panic!("Admin authentication failed: {:?}", e);
+            }
+
+            // Test complete batch workflow
+            // 1. Create test data
+            let market_id = Symbol::new(&env, "test_market");
+            let votes = vec![
+                &env,
+                BatchTesting::create_test_vote_data(&env, &market_id),
+                BatchTesting::create_test_vote_data(&env, &market_id),
+            ];
+
+            let claims = vec![&env, BatchTesting::create_test_claim_data(&env, &market_id)];
+
+            let markets = vec![&env, BatchTesting::create_test_market_data(&env)];
+
+            let feeds = vec![
+                &env,
+                BatchTesting::create_test_oracle_feed_data(&env, &market_id),
+            ];
+
+            // 2. Process batch operations
+            let vote_result = BatchProcessor::batch_vote(&env, &votes);
+            assert!(vote_result.is_ok());
+
+            let claim_result = BatchProcessor::batch_claim(&env, &claims);
+            assert!(claim_result.is_ok());
+
+            let market_result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
+            if let Err(e) = &market_result {
+                panic!("Market creation failed: {:?}", e);
+            }
+            assert!(market_result.is_ok());
+
+            let oracle_result = BatchProcessor::batch_oracle_calls(&env, &feeds);
+            assert!(oracle_result.is_ok());
+
+            // 3. Check statistics
+            let stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
+            assert_eq!(stats.total_batches_processed, 4);
+            assert_eq!(stats.total_operations_processed, 5); // 2 votes + 1 claim + 1 market + 1 oracle
+            assert!(stats.total_successful_operations >= 0);
+            assert!(stats.total_failed_operations >= 0);
+
+            // 4. Test utilities
+            assert!(BatchUtils::is_batch_processing_enabled(&env).unwrap());
+
+            let optimal_vote_size =
+                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Vote).unwrap();
+            assert!(optimal_vote_size > 0);
+
+            let gas_cost = BatchUtils::estimate_gas_cost(&BatchOperationType::Vote, 5);
+            assert_eq!(gas_cost, 5000);
+
+            let efficiency = BatchUtils::calculate_gas_efficiency(4, 5, 1000);
+            assert_eq!(efficiency, 0.8 * 0.005); // 80% success rate * 0.005 operations per gas
         });
     }
 }

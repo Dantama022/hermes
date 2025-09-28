@@ -1,8 +1,6 @@
-use soroban_sdk::{
-    contracttype, vec, Address, Env, Map, String, Symbol, Vec,
-};
 use alloc::format;
 use alloc::string::ToString;
+use soroban_sdk::{contracttype, vec, Address, Env, Map, String, Symbol, Vec};
 
 use crate::errors::Error;
 use crate::types::*;
@@ -633,7 +631,7 @@ impl BatchProcessor {
     }
 
     /// Update batch statistics
-    fn update_batch_statistics(env: &Env, result: &BatchResult) -> Result<(), Error> {
+    pub fn update_batch_statistics(env: &Env, result: &BatchResult) -> Result<(), Error> {
         let mut stats = Self::get_batch_operation_statistics(env)?;
 
         stats.total_batches_processed += 1;
@@ -649,7 +647,6 @@ impl BatchProcessor {
 
         // Update average execution time
         if stats.total_batches_processed > 0 {
-
             let total_time = stats.average_execution_time
                 * (stats.total_batches_processed - 1) as u64
                 + result.execution_time;
@@ -825,8 +822,10 @@ impl BatchUtils {
 // ===== BATCH TESTING =====
 
 /// Batch operation testing utilities
+#[cfg(test)]
 pub struct BatchTesting;
 
+#[cfg(test)]
 impl BatchTesting {
     /// Create test vote data
     pub fn create_test_vote_data(env: &Env, market_id: &Symbol) -> VoteData {

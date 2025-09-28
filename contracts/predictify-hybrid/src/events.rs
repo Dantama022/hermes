@@ -1,10 +1,8 @@
 extern crate alloc;
 
-// use alloc::string::ToString; // Removed to fix Display/ToString trait errors
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
-
 use crate::config::Environment;
 use crate::errors::Error;
+use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
 
 // Define AdminRole locally since it's not available in the crate root
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -875,9 +873,9 @@ pub struct StorageMigrationEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CircuitBreakerEvent {
     /// Action taken by circuit breaker
-    pub action: crate::circuit_breaker::BreakerAction,
+    pub action: String,
     /// Condition that triggered the action (if automatic)
-    pub condition: crate::circuit_breaker::BreakerCondition,
+    pub condition: Option<String>,
     /// Reason for the action
     pub reason: String,
     /// Event timestamp
@@ -1699,7 +1697,6 @@ impl EventValidator {
     }
 
     /// Validate extension requested event
-
     pub fn validate_extension_requested_event(
         event: &ExtensionRequestedEvent,
     ) -> Result<(), Error> {
@@ -1935,7 +1932,6 @@ impl EventTestingUtils {
     /// Simulate event emission
     pub fn simulate_event_emission(env: &Env, _event_type: &String) -> bool {
         // Simulate successful event emission
-
         let event_key = Symbol::new(env, "event");
         env.storage()
             .persistent()

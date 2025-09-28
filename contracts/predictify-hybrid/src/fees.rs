@@ -1,12 +1,11 @@
 use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
 
-use crate::errors::Error;
-use crate::markets::{MarketStateManager, MarketUtils};
-use crate::types::Market;
-use crate::reentrancy_guard::ReentrancyGuard;
 use crate::config::{ConfigManager, ConfigValidator, FeeConfig};
+use crate::errors::Error;
 use crate::events::EventEmitter;
-
+use crate::markets::{MarketStateManager, MarketUtils};
+use crate::reentrancy_guard::ReentrancyGuard;
+use crate::types::Market;
 
 /// Fee management system for Predictify Hybrid contract
 ///
@@ -55,7 +54,6 @@ pub const MARKET_SIZE_MEDIUM: i128 = 1_000_000_000; // 100 XLM
 pub const MARKET_SIZE_LARGE: i128 = 10_000_000_000; // 1000 XLM
 
 // ===== FEE TYPES =====
-
 
 /// Dynamic fee tier configuration based on market size
 ///
@@ -721,7 +719,6 @@ impl FeeManager {
         token_client.transfer(admin, &env.current_contract_address(), &MARKET_CREATION_FEE);
         ReentrancyGuard::after_external_call(env);
 
-
         // Record creation fee
         FeeTracker::record_creation_fee(env, admin, creation_fee)?;
 
@@ -1235,7 +1232,7 @@ impl FeeValidator {
 
     /// Validate creation fee against dynamic configuration
     pub fn validate_creation_fee_env(env: &Env, fee_amount: i128) -> Result<(), Error> {
-        let cfg =   ConfigManager::get_config(env)?;
+        let cfg = ConfigManager::get_config(env)?;
         if fee_amount != cfg.fees.creation_fee {
             return Err(Error::InvalidInput);
         }
