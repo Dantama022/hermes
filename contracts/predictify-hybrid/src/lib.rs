@@ -12,6 +12,7 @@ mod batch_operations;
 mod circuit_breaker;
 mod config;
 mod disputes;
+mod edge_cases;
 mod errors;
 mod events;
 mod extensions;
@@ -19,8 +20,8 @@ mod fees;
 mod governance;
 mod markets;
 mod oracles;
-mod resolution;
 mod reentrancy_guard;
+mod resolution;
 mod storage;
 mod types;
 mod utils;
@@ -42,13 +43,14 @@ use admin::AdminInitializer;
 pub use errors::Error;
 pub use types::*;
 
+use crate::config::{
+    ConfigChanges, ConfigManager, ConfigUpdateRecord, ContractConfig, MarketLimits,
+};
+use crate::reentrancy_guard::ReentrancyGuard;
 use alloc::format;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Env, Map, String, Symbol, Vec,
 };
-use crate::reentrancy_guard::ReentrancyGuard;
-use crate::config::{ConfigManager, ContractConfig, ConfigChanges, MarketLimits, ConfigUpdateRecord};
-
 
 #[contract]
 pub struct PredictifyHybrid;
@@ -428,9 +430,8 @@ impl PredictifyHybrid {
                     Err(_) => panic_with_error!(env, Error::ConfigurationNotFound),
                 };
                 let fee_percent = cfg.fees.platform_fee_percentage;
-                let user_share = (user_stake
-                    * (PERCENTAGE_DENOMINATOR - fee_percent))
-                    / PERCENTAGE_DENOMINATOR;
+                let user_share =
+                    (user_stake * (PERCENTAGE_DENOMINATOR - fee_percent)) / PERCENTAGE_DENOMINATOR;
                 let total_pool = market.total_staked;
                 let _payout = (user_share * total_pool) / winning_total;
 
@@ -698,7 +699,9 @@ impl PredictifyHybrid {
         ReentrancyGuard::check_reentrancy_state(&env)?;
         ReentrancyGuard::before_external_call(&env)?;
         let result = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env, &market_id, &oracle_contract,
+            &env,
+            &market_id,
+            &oracle_contract,
         );
         ReentrancyGuard::after_external_call(&env);
 
@@ -1182,17 +1185,12 @@ impl PredictifyHybrid {
     }
 
     /// Get configuration update history
-    pub fn get_configuration_history(
-        env: Env,
-    ) -> Result<Vec<ConfigUpdateRecord>, Error> {
+    pub fn get_configuration_history(env: Env) -> Result<Vec<ConfigUpdateRecord>, Error> {
         ConfigManager::get_configuration_history(&env)
     }
 
     /// Validate a set of configuration changes without persisting
-    pub fn validate_configuration_changes(
-        env: Env,
-        changes: ConfigChanges,
-    ) -> Result<(), Error> {
+    pub fn validate_configuration_changes(env: Env, changes: ConfigChanges) -> Result<(), Error> {
         ConfigManager::validate_configuration_changes(&env, &changes)
     }
 
@@ -1230,6 +1228,53 @@ impl PredictifyHybrid {
         limits: MarketLimits,
     ) -> Result<ContractConfig, Error> {
         ConfigManager::update_market_limits(&env, admin, limits)
+    }
+
+    // ===== EDGE CASE HANDLING ENTRY POINTS =====
+
+    /// Handle zero stake scenario for a specific market
+    pub fn handle_zero_stake_scenario(env: Env, market_id: Symbol) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::handle_zero_stake_scenario(&env, market_id)
+    }
+
+    /// Implement tie-breaking mechanism for equal outcomes
+    pub fn implement_tie_breaking_mechanism(
+        env: Env,
+        outcomes: Vec<String>,
+    ) -> Result<String, Error> {
+        edge_cases::EdgeCaseHandler::implement_tie_breaking_mechanism(&env, outcomes)
+    }
+
+    /// Detect orphaned markets and return their IDs
+    pub fn detect_orphaned_markets(env: Env) -> Result<Vec<Symbol>, Error> {
+        edge_cases::EdgeCaseHandler::detect_orphaned_markets(&env)
+    }
+
+    /// Handle partial resolution with incomplete data
+    pub fn handle_partial_resolution(
+        env: Env,
+        market_id: Symbol,
+        partial_data: edge_cases::PartialData,
+    ) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::handle_partial_resolution(&env, market_id, partial_data)
+    }
+
+    /// Validate edge case handling scenario
+    pub fn validate_edge_case_handling(
+        env: Env,
+        scenario: edge_cases::EdgeCaseScenario,
+    ) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::validate_edge_case_handling(&env, scenario)
+    }
+
+    /// Run comprehensive edge case testing scenarios
+    pub fn test_edge_case_scenarios(env: Env) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::test_edge_case_scenarios(&env)
+    }
+
+    /// Get comprehensive edge case statistics
+    pub fn get_edge_case_statistics(env: Env) -> Result<edge_cases::EdgeCaseStats, Error> {
+        edge_cases::EdgeCaseHandler::get_edge_case_statistics(&env)
     }
 }
 
