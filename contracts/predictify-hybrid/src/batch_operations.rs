@@ -1,3 +1,6 @@
+use soroban_sdk::{
+    contracttype, vec, Address, Env, Map, String, Symbol, Vec,
+};
 use alloc::format;
 use alloc::string::ToString;
 use soroban_sdk::{contracttype, vec, Address, Env, Map, String, Symbol, Vec};
@@ -647,6 +650,7 @@ impl BatchProcessor {
 
         // Update average execution time
         if stats.total_batches_processed > 0 {
+
             let total_time = stats.average_execution_time
                 * (stats.total_batches_processed - 1) as u64
                 + result.execution_time;

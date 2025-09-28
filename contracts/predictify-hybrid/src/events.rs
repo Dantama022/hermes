@@ -587,6 +587,26 @@ pub struct ErrorLoggedEvent {
     pub timestamp: u64,
 }
 
+/// Error recovery event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ErrorRecoveryEvent {
+    /// Original error code
+    pub error_code: u32,
+    /// Recovery strategy used
+    pub recovery_strategy: String,
+    /// Recovery status
+    pub recovery_status: String,
+    /// Recovery attempts count
+    pub recovery_attempts: u32,
+    /// User address (if applicable)
+    pub user: Option<Address>,
+    /// Market ID (if applicable)
+    pub market_id: Option<Symbol>,
+    /// Recovery timestamp
+    pub timestamp: u64,
+}
+
 /// Performance metric event
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -857,7 +877,7 @@ pub struct CircuitBreakerEvent {
     /// Action taken by circuit breaker
     pub action: crate::circuit_breaker::BreakerAction,
     /// Condition that triggered the action (if automatic)
-    pub condition: Option<crate::circuit_breaker::BreakerCondition>,
+    pub condition: crate::circuit_breaker::BreakerCondition,
     /// Reason for the action
     pub reason: String,
     /// Event timestamp
@@ -1161,6 +1181,29 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("err_log"), &event);
+    }
+
+    /// Emit error recovery event
+    pub fn emit_error_recovery_event(
+        env: &Env,
+        error_code: u32,
+        recovery_strategy: &String,
+        recovery_status: String,
+        recovery_attempts: u32,
+        user: Option<Address>,
+        market_id: Option<Symbol>,
+    ) {
+        let event = ErrorRecoveryEvent {
+            error_code,
+            recovery_strategy: recovery_strategy.clone(),
+            recovery_status,
+            recovery_attempts,
+            user,
+            market_id,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("err_rec"), &event);
     }
 
     /// Emit performance metric event
