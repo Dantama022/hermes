@@ -9,7 +9,6 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_initialization() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             // Test initialization
             assert!(CircuitBreaker::initialize(&env).is_ok());
@@ -37,7 +36,6 @@ mod circuit_breaker_tests {
     fn test_emergency_pause() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
             
@@ -55,7 +53,7 @@ mod circuit_breaker_tests {
             // Test that circuit breaker is open
             assert!(CircuitBreaker::is_open(&env).unwrap());
             assert!(!CircuitBreaker::is_closed(&env).unwrap());
-            
+
             // Test that trying to pause again fails
             assert!(CircuitBreaker::emergency_pause(&env, &admin, &reason).is_err());
         });
@@ -65,7 +63,7 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_recovery() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
+
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -86,6 +84,7 @@ mod circuit_breaker_tests {
         // Test that circuit breaker is closed
         assert!(CircuitBreaker::is_closed(&env).unwrap());
         assert!(!CircuitBreaker::is_open(&env).unwrap());
+
         });
     }
 
@@ -93,7 +92,6 @@ mod circuit_breaker_tests {
     fn test_automatic_trigger() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -121,7 +119,6 @@ mod circuit_breaker_tests {
     fn test_record_success_and_failure() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -146,7 +143,6 @@ mod circuit_breaker_tests {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
         env.mock_all_auths();
-        
         let admin = <soroban_sdk::Address as Address>::generate(&env);
         
         env.as_contract(&contract_id, || {
@@ -190,7 +186,6 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_status() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -212,7 +207,6 @@ mod circuit_breaker_tests {
     fn test_event_history() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -236,7 +230,6 @@ mod circuit_breaker_tests {
     fn test_validate_circuit_breaker_conditions() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             // Test valid conditions
         let valid_conditions = vec![
@@ -264,7 +257,6 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_utils() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -289,7 +281,6 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_testing() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             // Test create test config
         let test_config = CircuitBreakerTesting::create_test_config(&env);
@@ -314,7 +305,6 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_scenarios() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -334,7 +324,6 @@ mod circuit_breaker_tests {
     fn test_config_validation() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             // Test valid config
         let valid_config = CircuitBreakerConfig {
@@ -366,7 +355,6 @@ mod circuit_breaker_tests {
     fn test_error_handling() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             // Test circuit breaker not initialized
         assert!(CircuitBreaker::get_config(&env).is_err());
@@ -391,7 +379,6 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_integration() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
         
@@ -425,4 +412,4 @@ mod circuit_breaker_tests {
         assert!(events.len() >= 2); // At least pause and recovery events
         });
     }
-} 
+}

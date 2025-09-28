@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod batch_operations_tests {
-    use crate::batch_operations::*;
     use crate::admin::AdminRoleManager;
+    use crate::batch_operations::*;
     use crate::types::OracleProvider;
-    use soroban_sdk::{Env, String, Vec, Symbol, testutils::Address, vec};
+    use soroban_sdk::{testutils::Address, vec, Env, String, Symbol, Vec};
 
     #[test]
     fn test_batch_processor_initialization() {
@@ -66,7 +66,7 @@ mod batch_operations_tests {
     fn test_batch_claim_operations() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
+       
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
         
@@ -93,7 +93,7 @@ mod batch_operations_tests {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
         env.mock_all_auths();
-        
+
         let admin = <soroban_sdk::Address as Address>::generate(&env);
         
         env.as_contract(&contract_id, || {
@@ -128,7 +128,7 @@ mod batch_operations_tests {
     fn test_batch_oracle_calls() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
+
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
         
@@ -153,7 +153,7 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_operation_validation() {
         let env = Env::default();
-        
+
         // Test valid batch operations
         let valid_operations = vec![
             &env,
@@ -171,11 +171,11 @@ mod batch_operations_tests {
             },
         ];
         assert!(BatchProcessor::validate_batch_operations(&valid_operations).is_ok());
-        
+
         // Test empty operations
         let empty_operations = Vec::new(&env);
         assert!(BatchProcessor::validate_batch_operations(&empty_operations).is_err());
-        
+
         // Test duplicate operations
         let duplicate_operations = vec![
             &env,
@@ -198,7 +198,7 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_error_handling() {
         let env = Env::default();
-        
+
         // Create test batch errors
         let errors = vec![
             &env,
@@ -215,13 +215,15 @@ mod batch_operations_tests {
                 operation_type: BatchOperationType::Claim,
             },
         ];
-        
+
         // Test error handling
         let result = BatchProcessor::handle_batch_errors(&env, &errors);
         assert!(result.is_ok());
-        
+
         let error_summary = result.unwrap();
-        assert!(error_summary.get(String::from_str(&env, "total_errors")).is_some());
+        assert!(error_summary
+            .get(String::from_str(&env, "total_errors"))
+            .is_some());
     }
 
     #[test]
@@ -264,25 +266,28 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_testing() {
         let env = Env::default();
-        
+
         // Test create test vote data
         let market_id = Symbol::new(&env, "test_market");
         let vote_data = BatchTesting::create_test_vote_data(&env, &market_id);
         assert_eq!(vote_data.market_id, market_id);
         assert_eq!(vote_data.outcome, String::from_str(&env, "Yes"));
         assert_eq!(vote_data.stake_amount, 1_000_000_000);
-        
+
         // Test create test claim data
         let claim_data = BatchTesting::create_test_claim_data(&env, &market_id);
         assert_eq!(claim_data.market_id, market_id);
         assert_eq!(claim_data.expected_amount, 2_000_000_000);
-        
+
         // Test create test market data
         let market_data = BatchTesting::create_test_market_data(&env);
-        assert_eq!(market_data.question, String::from_str(&env, "Will Bitcoin reach $100,000 by end of 2024?"));
+        assert_eq!(
+            market_data.question,
+            String::from_str(&env, "Will Bitcoin reach $100,000 by end of 2024?")
+        );
         assert_eq!(market_data.outcomes.len(), 2);
         assert_eq!(market_data.duration_days, 30);
-        
+
         // Test create test oracle feed data
         let feed_data = BatchTesting::create_test_oracle_feed_data(&env, &market_id);
         assert_eq!(feed_data.market_id, market_id);
@@ -290,11 +295,11 @@ mod batch_operations_tests {
         assert_eq!(feed_data.provider, OracleProvider::Reflector);
         assert_eq!(feed_data.threshold, 100_000_000_000);
         assert_eq!(feed_data.comparison, String::from_str(&env, "gt"));
-        
+
         // Test simulate batch operation
         let result = BatchTesting::simulate_batch_operation(&env, &BatchOperationType::Vote, 10);
         assert!(result.is_ok());
-        
+
         let batch_result = result.unwrap();
         assert_eq!(batch_result.total_operations, 10);
         assert!(batch_result.successful_operations > 0);
@@ -306,7 +311,7 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_config_validation() {
         let env = Env::default();
-        
+
         // Test valid config
         let valid_config = BatchConfig {
             max_batch_size: 50,
@@ -316,20 +321,20 @@ mod batch_operations_tests {
             retry_failed_operations: true,
             parallel_processing_enabled: false,
         };
-        
+
         // Test invalid configs
         let mut invalid_config = valid_config.clone();
         invalid_config.max_batch_size = 0;
         // This would fail validation
-        
+
         let mut invalid_config2 = valid_config.clone();
         invalid_config2.max_operations_per_batch = 0;
         // This would fail validation
-        
+
         let mut invalid_config3 = valid_config.clone();
         invalid_config3.gas_limit_per_batch = 0;
         // This would fail validation
-        
+
         let mut invalid_config4 = valid_config.clone();
         invalid_config4.timeout_per_batch = 0;
         // This would fail validation
@@ -340,7 +345,7 @@ mod batch_operations_tests {
         // Test vote data validation
         let env = Env::default();
         let market_id = Symbol::new(&env, "test_market");
-        
+
         // Valid vote data
         let valid_vote = VoteData {
             market_id: market_id.clone(),
@@ -348,7 +353,7 @@ mod batch_operations_tests {
             outcome: String::from_str(&env, "Yes"),
             stake_amount: 1_000_000_000,
         };
-        
+
         // Invalid vote data - zero stake
         let invalid_vote = VoteData {
             market_id: market_id.clone(),
@@ -356,7 +361,7 @@ mod batch_operations_tests {
             outcome: String::from_str(&env, "Yes"),
             stake_amount: 0,
         };
-        
+
         // Invalid vote data - empty outcome
         let invalid_vote2 = VoteData {
             market_id: market_id.clone(),
@@ -364,7 +369,7 @@ mod batch_operations_tests {
             outcome: String::from_str(&env, ""),
             stake_amount: 1_000_000_000,
         };
-        
+
         // Test claim data validation
         // Valid claim data
         let valid_claim = ClaimData {
@@ -372,19 +377,23 @@ mod batch_operations_tests {
             claimant: <soroban_sdk::Address as Address>::generate(&env),
             expected_amount: 2_000_000_000,
         };
-        
+
         // Invalid claim data - zero amount
         let invalid_claim = ClaimData {
             market_id: market_id.clone(),
             claimant: <soroban_sdk::Address as Address>::generate(&env),
             expected_amount: 0,
         };
-        
+
         // Test market data validation
         // Valid market data
         let valid_market = MarketData {
             question: String::from_str(&env, "Test question?"),
-            outcomes: vec![&env, String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+            outcomes: vec![
+                &env,
+                String::from_str(&env, "Yes"),
+                String::from_str(&env, "No"),
+            ],
             duration_days: 30,
             oracle_config: crate::types::OracleConfig {
                 provider: crate::types::OracleProvider::Reflector,
@@ -393,11 +402,15 @@ mod batch_operations_tests {
                 comparison: String::from_str(&env, "gt"),
             },
         };
-        
+
         // Invalid market data - empty question
         let invalid_market = MarketData {
             question: String::from_str(&env, ""),
-            outcomes: vec![&env, String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+            outcomes: vec![
+                &env,
+                String::from_str(&env, "Yes"),
+                String::from_str(&env, "No"),
+            ],
             duration_days: 30,
             oracle_config: crate::types::OracleConfig {
                 provider: crate::types::OracleProvider::Reflector,
@@ -406,7 +419,7 @@ mod batch_operations_tests {
                 comparison: String::from_str(&env, "gt"),
             },
         };
-        
+
         // Invalid market data - insufficient outcomes
         let invalid_market2 = MarketData {
             question: String::from_str(&env, "Test question?"),
@@ -419,11 +432,15 @@ mod batch_operations_tests {
                 comparison: String::from_str(&env, "gt"),
             },
         };
-        
+
         // Invalid market data - zero duration
         let invalid_market3 = MarketData {
             question: String::from_str(&env, "Test question?"),
-            outcomes: vec![&env, String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+            outcomes: vec![
+                &env,
+                String::from_str(&env, "Yes"),
+                String::from_str(&env, "No"),
+            ],
             duration_days: 0,
             oracle_config: crate::types::OracleConfig {
                 provider: crate::types::OracleProvider::Reflector,
@@ -432,7 +449,7 @@ mod batch_operations_tests {
                 comparison: String::from_str(&env, "gt"),
             },
         };
-        
+
         // Test oracle feed data validation
         // Valid oracle feed data
         let valid_feed = OracleFeed {
@@ -442,7 +459,7 @@ mod batch_operations_tests {
             threshold: 100_000_000_000,
             comparison: String::from_str(&env, "gt"),
         };
-        
+
         // Invalid oracle feed data - empty feed ID
         let invalid_feed = OracleFeed {
             market_id: market_id.clone(),
@@ -451,7 +468,7 @@ mod batch_operations_tests {
             threshold: 100_000_000_000,
             comparison: String::from_str(&env, "gt"),
         };
-        
+
         // Invalid oracle feed data - zero threshold
         let invalid_feed2 = OracleFeed {
             market_id: market_id.clone(),
@@ -466,7 +483,6 @@ mod batch_operations_tests {
     fn test_batch_statistics_update() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-        
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
         
@@ -512,13 +528,13 @@ mod batch_operations_tests {
         let extension_type = BatchOperationType::Extension;
         let resolution_type = BatchOperationType::Resolution;
         let fee_collection_type = BatchOperationType::FeeCollection;
-        
+
         // Test that they are different
         assert_ne!(vote_type, claim_type);
         assert_ne!(create_market_type, oracle_call_type);
         assert_ne!(dispute_type, extension_type);
         assert_ne!(resolution_type, fee_collection_type);
-        
+
         // Test that they are equal to themselves
         assert_eq!(vote_type, BatchOperationType::Vote);
         assert_eq!(claim_type, BatchOperationType::Claim);
@@ -607,4 +623,4 @@ mod batch_operations_tests {
         assert_eq!(efficiency, 0.8 * 0.005); // 80% success rate * 0.005 operations per gas
         });
     }
-} 
+}

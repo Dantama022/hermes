@@ -129,7 +129,6 @@ impl MarketCreator {
         Ok(market_id)
     }
 
-
     /// Create a market with Reflector oracle
 
     /// Creates a prediction market using Reflector oracle as the data source.
@@ -901,7 +900,6 @@ impl MarketStateManager {
         market.total_staked += stake;
         // No state change for voting
     }
-
 
     /// Add dispute stake to market
 
@@ -2525,7 +2523,6 @@ impl MarketStateLogic {
             Err(Error::InvalidState)
         }
     }
-
 
     /// Check if a function is allowed in the given state
 
