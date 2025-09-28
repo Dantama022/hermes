@@ -20,6 +20,7 @@ mod governance;
 mod markets;
 mod oracles;
 mod resolution;
+mod reentrancy_guard;
 mod storage;
 mod types;
 mod utils;
@@ -45,7 +46,9 @@ use alloc::format;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Env, Map, String, Symbol, Vec,
 };
+use crate::reentrancy_guard::ReentrancyGuard;
 use crate::config::{ConfigManager, ContractConfig, ConfigChanges, MarketLimits, ConfigUpdateRecord};
+
 
 #[contract]
 pub struct PredictifyHybrid;
@@ -283,6 +286,9 @@ impl PredictifyHybrid {
     /// - Current time must be before market end time
     /// - Market must not be cancelled or resolved
     pub fn vote(env: Env, user: Address, market_id: Symbol, outcome: String, stake: i128) {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            panic_with_error!(env, e);
+        }
         user.require_auth();
 
         let mut market: Market = env
@@ -373,6 +379,9 @@ impl PredictifyHybrid {
     /// - User must have voted for the winning outcome
     /// - User must not have previously claimed winnings
     pub fn claim_winnings(env: Env, user: Address, market_id: Symbol) {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            panic_with_error!(env, e);
+        }
         user.require_auth();
 
         let mut market: Market = env
@@ -556,6 +565,9 @@ impl PredictifyHybrid {
         market_id: Symbol,
         winning_outcome: String,
     ) {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            panic_with_error!(env, e);
+        }
         admin.require_auth();
 
         // Verify admin
@@ -682,14 +694,15 @@ impl PredictifyHybrid {
             return Err(Error::MarketClosed);
         }
 
-        // Get oracle result using the resolution module
-        let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env,
-            &market_id,
-            &oracle_contract,
-        )?;
+        // Guard external oracle invocation
+        ReentrancyGuard::check_reentrancy_state(&env)?;
+        ReentrancyGuard::before_external_call(&env)?;
+        let result = resolution::OracleResolutionManager::fetch_oracle_result(
+            &env, &market_id, &oracle_contract,
+        );
+        ReentrancyGuard::after_external_call(&env);
 
-        Ok(oracle_resolution.oracle_result)
+        result.map(|oracle_resolution| oracle_resolution.oracle_result)
     }
 
     /// Resolves a market automatically using oracle data and community consensus.
@@ -762,6 +775,9 @@ impl PredictifyHybrid {
     /// - Users can claim winnings
     /// - Market statistics are finalized
     pub fn resolve_market(env: Env, market_id: Symbol) -> Result<(), Error> {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            return Err(e);
+        }
         // Use the resolution module to resolve the market
         let _resolution = resolution::MarketResolutionManager::resolve_market(&env, &market_id)?;
         Ok(())
@@ -954,6 +970,9 @@ impl PredictifyHybrid {
         stake: i128,
         reason: Option<String>,
     ) -> Result<(), Error> {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            return Err(e);
+        }
         user.require_auth();
         disputes::DisputeManager::process_dispute(&env, user, market_id, stake, reason)
     }
@@ -968,6 +987,9 @@ impl PredictifyHybrid {
         stake: i128,
         reason: Option<String>,
     ) -> Result<(), Error> {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            return Err(e);
+        }
         user.require_auth();
         disputes::DisputeManager::vote_on_dispute(
             &env, user, market_id, dispute_id, vote, stake, reason,
@@ -980,6 +1002,9 @@ impl PredictifyHybrid {
         admin: Address,
         market_id: Symbol,
     ) -> Result<disputes::DisputeResolution, Error> {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            return Err(e);
+        }
         admin.require_auth();
 
         // Verify admin
@@ -1000,6 +1025,9 @@ impl PredictifyHybrid {
 
     /// Collect fees from a market (admin only)
     pub fn collect_fees(env: Env, admin: Address, market_id: Symbol) -> Result<i128, Error> {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            return Err(e);
+        }
         admin.require_auth();
 
         // Verify admin
@@ -1027,6 +1055,9 @@ impl PredictifyHybrid {
         reason: String,
         fee_amount: i128,
     ) -> Result<(), Error> {
+        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
+            return Err(e);
+        }
         admin.require_auth();
 
         // Verify admin
