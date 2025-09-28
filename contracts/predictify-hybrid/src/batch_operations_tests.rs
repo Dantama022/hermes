@@ -1,25 +1,16 @@
 #[cfg(test)]
 mod batch_operations_tests {
-    use crate::admin::AdminRoleManager;
+    use crate::admin::{AdminInitializer, AdminRoleManager};
     use crate::batch_operations::*;
     use crate::types::OracleProvider;
-    use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::Address;
-    use soroban_sdk::{vec, Env, String, Symbol, Vec};
-
-    fn with_contract_context<F, R>(env: &Env, f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let contract_id = env.register(crate::PredictifyHybrid {}, ());
-        env.as_contract(&contract_id, f)
-    }
+    use soroban_sdk::{testutils::Address, vec, Env, String, Symbol, Vec};
 
     #[test]
     fn test_batch_processor_initialization() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
 
-        with_contract_context(&env, || {
+        env.as_contract(&contract_id, || {
             // Test initialization
             assert!(BatchProcessor::initialize(&env).is_ok());
 
@@ -40,15 +31,16 @@ mod batch_operations_tests {
             assert_eq!(stats.total_failed_operations, 0);
             assert_eq!(stats.average_batch_size, 0);
             assert_eq!(stats.average_execution_time, 0);
-            assert_eq!(stats.gas_efficiency_ratio, 1);
+            assert_eq!(stats.gas_efficiency_ratio, 1u64);
         });
     }
 
     #[test]
     fn test_batch_vote_operations() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
 
-        with_contract_context(&env, || {
+        env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
             // Create test vote data
@@ -73,12 +65,13 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_claim_operations() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
 
-        with_contract_context(&env, || {
+        env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
             // Create test claim data
-            let market_id = Symbol::new(&env, "test_market");
+            let market_id = Symbol_tripleequals(&env, "test_market");
             let claims = vec![
                 &env,
                 BatchTesting::create_test_claim_data(&env, &market_id),
@@ -98,19 +91,18 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_market_creation() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
+        env.mock_all_auths();
 
-        with_contract_context(&env, || {
+        let admin = <soroban_sdk::Address as Address>::generate(&env);
+
+        env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
-            let admin = Address::generate(&env);
-            crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(
-                &env,
-                &admin,
-                crate::admin::AdminRole::SuperAdmin,
-                &admin,
-            )
-            .unwrap();
+            // Initialize admin system first
+            AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
+                .unwrap();
 
             // Create test market data
             let markets = vec![
@@ -132,8 +124,9 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_oracle_calls() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
 
-        with_contract_context(&env, || {
+        env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
             // Create test oracle feed data
@@ -233,29 +226,25 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_utils() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
 
-        with_contract_context(&env, || {
+        env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
             // Test batch processing enabled
             assert!(BatchUtils::is_batch_processing_enabled(&env).unwrap());
 
             // Test optimal batch sizes
-            let vote_size =
-                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Vote).unwrap();
+            let vote_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Vote).unwrap();
             assert!(vote_size <= 20);
 
-            let claim_size =
-                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Claim).unwrap();
+            let claim_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::Claim).unwrap();
             assert!(claim_size <= 15);
 
-            let market_size =
-                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::CreateMarket)
-                    .unwrap();
+            let market_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::CreateMarket).unwrap();
             assert!(market_size <= 10);
 
-            let oracle_size =
-                BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::OracleCall).unwrap();
+            let oracle_size = BatchUtils::get_optimal_batch_size(&env, &BatchOperationType::OracleCall).unwrap();
             assert!(oracle_size <= 25);
 
             // Test gas efficiency calculation
@@ -357,7 +346,7 @@ mod batch_operations_tests {
         // Valid vote data
         let valid_vote = VoteData {
             market_id: market_id.clone(),
-            voter: Address::generate(&env),
+            voter: <soroban_sdk::Address as Address>::generate(&env),
             outcome: String::from_str(&env, "Yes"),
             stake_amount: 1_000_000_000,
         };
@@ -365,7 +354,7 @@ mod batch_operations_tests {
         // Invalid vote data - zero stake
         let invalid_vote = VoteData {
             market_id: market_id.clone(),
-            voter: Address::generate(&env),
+            voter: <soroban_sdk::Address as Address>::generate(&env),
             outcome: String::from_str(&env, "Yes"),
             stake_amount: 0,
         };
@@ -373,7 +362,7 @@ mod batch_operations_tests {
         // Invalid vote data - empty outcome
         let invalid_vote2 = VoteData {
             market_id: market_id.clone(),
-            voter: Address::generate(&env),
+            voter: <soroban_sdk::Address as Address>::generate(&env),
             outcome: String::from_str(&env, ""),
             stake_amount: 1_000_000_000,
         };
@@ -382,14 +371,14 @@ mod batch_operations_tests {
         // Valid claim data
         let valid_claim = ClaimData {
             market_id: market_id.clone(),
-            claimant: Address::generate(&env),
+            claimant: <soroban_sdk::Address as Address>::generate(&env),
             expected_amount: 2_000_000_000,
         };
 
         // Invalid claim data - zero amount
         let invalid_claim = ClaimData {
             market_id: market_id.clone(),
-            claimant: Address::generate(&env),
+            claimant: <soroban_sdk::Address as Address>::generate(&env),
             expected_amount: 0,
         };
 
@@ -403,7 +392,12 @@ mod batch_operations_tests {
                 String::from_str(&env, "No"),
             ],
             duration_days: 30,
-            oracle_config: None,
+            oracle_config: crate::types::OracleConfig {
+                provider: crate::types::OracleProvider::Reflector,
+                feed_id: String::from_str(&env, "BTC"),
+                threshold: 100_000_00,
+                comparison: String::from_str(&env, "gt"),
+            },
         };
 
         // Invalid market data - empty question
@@ -415,7 +409,12 @@ mod batch_operations_tests {
                 String::from_str(&env, "No"),
             ],
             duration_days: 30,
-            oracle_config: None,
+            oracle_config: crate::types::OracleConfig {
+                provider: crate::types::OracleProvider::Reflector,
+                feed_id: String::from_str(&env, "BTC"),
+                threshold: 100_000_00,
+                comparison: String::from_str(&env, "gt"),
+            },
         };
 
         // Invalid market data - insufficient outcomes
@@ -423,7 +422,12 @@ mod batch_operations_tests {
             question: String::from_str(&env, "Test question?"),
             outcomes: vec![&env, String::from_str(&env, "Yes")],
             duration_days: 30,
-            oracle_config: None,
+            oracle_config: crate::types::OracleConfig {
+                provider: crate::types::OracleProvider::Reflector,
+                feed_id: String::from_str(&env, "BTC"),
+                threshold: 100_000_00,
+                comparison: String::from_str(&env, "gt"),
+            },
         };
 
         // Invalid market data - zero duration
@@ -435,7 +439,12 @@ mod batch_operations_tests {
                 String::from_str(&env, "No"),
             ],
             duration_days: 0,
-            oracle_config: None,
+            oracle_config: crate::types::OracleConfig {
+                provider: crate::types::OracleProvider::Reflector,
+                feed_id: String::from_str(&env, "BTC"),
+                threshold: 100_000_00,
+                comparison: String::from_str(&env, "gt"),
+            },
         };
 
         // Test oracle feed data validation
@@ -470,19 +479,18 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_statistics_update() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
+        env.mock_all_auths();
 
-        with_contract_context(&env, || {
+        let admin = <soroban_sdk::Address as Address>::generate(&env);
+
+        env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
-            let admin = Address::generate(&env);
-            crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(
-                &env,
-                &admin,
-                crate::admin::AdminRole::SuperAdmin,
-                &admin,
-            )
-            .unwrap();
+            // Initialize admin system
+            AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
+                .unwrap();
 
             // Get initial statistics
             let initial_stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
@@ -541,19 +549,18 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_integration() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
+        env.mock_all_auths();
 
-        with_contract_context(&env, || {
+        let admin = <soroban_sdk::Address as Address>::generate(&env);
+
+        env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
-            let admin = Address::generate(&env);
-            crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(
-                &env,
-                &admin,
-                crate::admin::AdminRole::SuperAdmin,
-                &admin,
-            )
-            .unwrap();
+            // Initialize admin system
+            AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
+                .unwrap();
 
             // Test admin authentication
             let auth_result = crate::admin::AdminAccessControl::validate_admin_for_action(
