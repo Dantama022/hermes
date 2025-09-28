@@ -4,7 +4,7 @@ mod circuit_breaker_tests {
     use crate::circuit_breaker::*;
     use crate::errors::Error;
     use alloc::format;
-    use soroban_sdk::{Env, String, Vec, testutils::Address, vec};
+    use soroban_sdk::{testutils::Address, vec, Env, String, Vec};
 
     #[test]
     fn test_circuit_breaker_initialization() {
@@ -43,8 +43,13 @@ mod circuit_breaker_tests {
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
             AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
-                .unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
 
             // Test emergency pause
             let reason = String::from_str(&env, "Test emergency pause");
@@ -73,8 +78,13 @@ mod circuit_breaker_tests {
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
             AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
-                .unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
 
             // First pause the circuit breaker
             let reason = String::from_str(&env, "Test pause");
@@ -153,8 +163,13 @@ mod circuit_breaker_tests {
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
             AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
-                .unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
 
             // Configure shorter recovery timeout for testing
             let mut config = CircuitBreaker::get_config(&env).unwrap();
@@ -197,12 +212,22 @@ mod circuit_breaker_tests {
 
             // Verify status contains expected fields
             assert!(status.get(String::from_str(&env, "state")).is_some());
-            assert!(status.get(String::from_str(&env, "failure_count")).is_some());
-            assert!(status.get(String::from_str(&env, "total_requests")).is_some());
+            assert!(status
+                .get(String::from_str(&env, "failure_count"))
+                .is_some());
+            assert!(status
+                .get(String::from_str(&env, "total_requests"))
+                .is_some());
             assert!(status.get(String::from_str(&env, "error_count")).is_some());
-            assert!(status.get(String::from_str(&env, "max_error_rate")).is_some());
-            assert!(status.get(String::from_str(&env, "failure_threshold")).is_some());
-            assert!(status.get(String::from_str(&env, "auto_recovery_enabled")).is_some());
+            assert!(status
+                .get(String::from_str(&env, "max_error_rate"))
+                .is_some());
+            assert!(status
+                .get(String::from_str(&env, "failure_threshold"))
+                .is_some());
+            assert!(status
+                .get(String::from_str(&env, "auto_recovery_enabled"))
+                .is_some());
         });
     }
 
@@ -216,8 +241,13 @@ mod circuit_breaker_tests {
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
             AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
-                .unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
 
             // Perform some actions to generate events
             let reason = String::from_str(&env, "Test event");
@@ -247,7 +277,9 @@ mod circuit_breaker_tests {
 
             // Test empty conditions
             let empty_conditions = Vec::new(&env);
-            assert!(CircuitBreaker::validate_circuit_breaker_conditions(&empty_conditions).is_err());
+            assert!(
+                CircuitBreaker::validate_circuit_breaker_conditions(&empty_conditions).is_err()
+            );
 
             // Test duplicate conditions
             let duplicate_conditions = vec![
@@ -255,7 +287,9 @@ mod circuit_breaker_tests {
                 BreakerCondition::HighErrorRate,
                 BreakerCondition::HighErrorRate,
             ];
-            assert!(CircuitBreaker::validate_circuit_breaker_conditions(&duplicate_conditions).is_err());
+            assert!(
+                CircuitBreaker::validate_circuit_breaker_conditions(&duplicate_conditions).is_err()
+            );
         });
     }
 
@@ -277,7 +311,9 @@ mod circuit_breaker_tests {
 
             // Test statistics
             let stats = CircuitBreakerUtils::get_statistics(&env).unwrap();
-            assert!(stats.get(String::from_str(&env, "total_requests")).is_some());
+            assert!(stats
+                .get(String::from_str(&env, "total_requests"))
+                .is_some());
             assert!(stats.get(String::from_str(&env, "error_count")).is_some());
             assert!(stats.get(String::from_str(&env, "current_state")).is_some());
         });
@@ -319,11 +355,19 @@ mod circuit_breaker_tests {
             let results = CircuitBreaker::test_circuit_breaker_scenarios(&env).unwrap();
 
             // Verify results contain expected test outcomes
-            assert!(results.get(String::from_str(&env, "normal_operation")).is_some());
-            assert!(results.get(String::from_str(&env, "emergency_pause")).is_some());
+            assert!(results
+                .get(String::from_str(&env, "normal_operation"))
+                .is_some());
+            assert!(results
+                .get(String::from_str(&env, "emergency_pause"))
+                .is_some());
             assert!(results.get(String::from_str(&env, "recovery")).is_some());
-            assert!(results.get(String::from_str(&env, "status_check")).is_some());
-            assert!(results.get(String::from_str(&env, "event_history")).is_some());
+            assert!(results
+                .get(String::from_str(&env, "status_check"))
+                .is_some());
+            assert!(results
+                .get(String::from_str(&env, "event_history"))
+                .is_some());
         });
     }
 
@@ -346,15 +390,15 @@ mod circuit_breaker_tests {
             // Test invalid configs
             let mut invalid_config = valid_config.clone();
             invalid_config.max_error_rate = 101; // > 100
-            // This would fail validation in update_config
+                                                 // This would fail validation in update_config
 
             let mut invalid_config2 = valid_config.clone();
             invalid_config2.max_latency_ms = 0; // = 0
-            // This would fail validation in update_config
+                                                // This would fail validation in update_config
 
             let mut invalid_config3 = valid_config.clone();
             invalid_config3.min_liquidity = -1; // < 0
-            // This would fail validation in update_config
+                                                // This would fail validation in update_config
         });
     }
 
@@ -390,8 +434,13 @@ mod circuit_breaker_tests {
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
             AdminInitializer::initialize(&env, &admin).unwrap();
-            AdminRoleManager::assign_role(&env, &admin, crate::admin::AdminRole::SuperAdmin, &admin)
-                .unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
 
             // Test complete workflow
             // 1. Normal operation
@@ -412,7 +461,9 @@ mod circuit_breaker_tests {
 
             // 5. Check status
             let status = CircuitBreaker::get_circuit_breaker_status(&env).unwrap();
-            assert!(status.get(String::from_str(&env, "total_requests")).is_some());
+            assert!(status
+                .get(String::from_str(&env, "total_requests"))
+                .is_some());
             assert!(status.get(String::from_str(&env, "error_count")).is_some());
 
             // 6. Check events

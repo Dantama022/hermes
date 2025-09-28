@@ -20,8 +20,8 @@ mod fees;
 mod governance;
 mod markets;
 mod oracles;
-mod resolution;
 mod reentrancy_guard;
+mod resolution;
 mod storage;
 mod types;
 mod utils;
@@ -46,12 +46,14 @@ use admin::AdminInitializer;
 pub use errors::Error;
 pub use types::*;
 
+use crate::config::{
+    ConfigChanges, ConfigManager, ConfigUpdateRecord, ContractConfig, MarketLimits,
+};
+use crate::reentrancy_guard::ReentrancyGuard;
 use alloc::format;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Env, Map, String, Symbol, Vec,
 };
-use crate::reentrancy_guard::ReentrancyGuard;
-use crate::config::{ConfigManager, ContractConfig, ConfigChanges, MarketLimits, ConfigUpdateRecord};
 
 #[contract]
 pub struct PredictifyHybrid;
@@ -431,9 +433,8 @@ impl PredictifyHybrid {
                     Err(_) => panic_with_error!(env, Error::ConfigurationNotFound),
                 };
                 let fee_percent = cfg.fees.platform_fee_percentage;
-                let user_share = (user_stake
-                    * (PERCENTAGE_DENOMINATOR - fee_percent))
-                    / PERCENTAGE_DENOMINATOR;
+                let user_share =
+                    (user_stake * (PERCENTAGE_DENOMINATOR - fee_percent)) / PERCENTAGE_DENOMINATOR;
                 let total_pool = market.total_staked;
                 let _payout = (user_share * total_pool) / winning_total;
 
@@ -701,7 +702,9 @@ impl PredictifyHybrid {
         ReentrancyGuard::check_reentrancy_state(&env)?;
         ReentrancyGuard::before_external_call(&env)?;
         let result = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env, &market_id, &oracle_contract,
+            &env,
+            &market_id,
+            &oracle_contract,
         );
         ReentrancyGuard::after_external_call(&env);
 
@@ -1274,17 +1277,12 @@ impl PredictifyHybrid {
     }
 
     /// Get configuration update history
-    pub fn get_configuration_history(
-        env: Env,
-    ) -> Result<Vec<ConfigUpdateRecord>, Error> {
+    pub fn get_configuration_history(env: Env) -> Result<Vec<ConfigUpdateRecord>, Error> {
         ConfigManager::get_configuration_history(&env)
     }
 
     /// Validate a set of configuration changes without persisting
-    pub fn validate_configuration_changes(
-        env: Env,
-        changes: ConfigChanges,
-    ) -> Result<(), Error> {
+    pub fn validate_configuration_changes(env: Env, changes: ConfigChanges) -> Result<(), Error> {
         ConfigManager::validate_configuration_changes(&env, &changes)
     }
 

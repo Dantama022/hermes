@@ -1,9 +1,8 @@
 extern crate alloc;
 
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
 use crate::config::Environment;
 use crate::errors::Error;
-use crate::circuit_breaker::{BreakerAction, BreakerCondition};
+use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
 
 // Define AdminRole locally since it's not available in the crate root
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -874,9 +873,9 @@ pub struct StorageMigrationEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CircuitBreakerEvent {
     /// Action taken by circuit breaker
-    pub action: crate::circuit_breaker::BreakerAction,
+    pub action: String,
     /// Condition that triggered the action (if automatic)
-    pub condition: Option<crate::circuit_breaker::BreakerCondition>,
+    pub condition: Option<String>,
     /// Reason for the action
     pub reason: String,
     /// Event timestamp

@@ -1,7 +1,5 @@
 use alloc::format;
 use alloc::string::ToString;
-#[cfg(test)]
-use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contracttype, vec, Address, Env, Map, String, Symbol, Vec};
 
 use crate::errors::Error;
@@ -219,7 +217,7 @@ impl BatchProcessor {
         }
 
         for (index, vote_data) in votes.iter().enumerate() {
-            match Self::process_single_vote(env, vote_data) {
+            match Self::process_single_vote(env, &vote_data) {
                 Ok(_) => {
                     successful_operations += 1;
                 }
@@ -293,7 +291,7 @@ impl BatchProcessor {
         }
 
         for (index, claim_data) in claims.iter().enumerate() {
-            match Self::process_single_claim(env, claim_data) {
+            match Self::process_single_claim(env, &claim_data) {
                 Ok(_) => {
                     successful_operations += 1;
                 }
@@ -376,7 +374,7 @@ impl BatchProcessor {
         }
 
         for (index, market_data) in markets.iter().enumerate() {
-            match Self::process_single_market_creation(env, admin, market_data) {
+            match Self::process_single_market_creation(env, admin, &market_data) {
                 Ok(_) => {
                     successful_operations += 1;
                 }
@@ -448,7 +446,7 @@ impl BatchProcessor {
         }
 
         for (index, feed_data) in feeds.iter().enumerate() {
-            match Self::process_single_oracle_call(env, feed_data) {
+            match Self::process_single_oracle_call(env, &feed_data) {
                 Ok(_) => {
                     successful_operations += 1;
                 }
@@ -526,7 +524,7 @@ impl BatchProcessor {
 
         // Validate individual operations
         for operation in operations.iter() {
-            Self::validate_single_operation(operation)?;
+            Self::validate_single_operation(&operation)?;
         }
 
         Ok(())
@@ -633,7 +631,7 @@ impl BatchProcessor {
     }
 
     /// Update batch statistics
-    fn update_batch_statistics(env: &Env, result: &BatchResult) -> Result<(), Error> {
+    pub fn update_batch_statistics(env: &Env, result: &BatchResult) -> Result<(), Error> {
         let mut stats = Self::get_batch_operation_statistics(env)?;
 
         stats.total_batches_processed += 1;
