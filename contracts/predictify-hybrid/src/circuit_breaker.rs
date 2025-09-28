@@ -7,10 +7,6 @@ use alloc::string::ToString;
 use crate::errors::Error;
 use crate::events::{EventEmitter, CircuitBreakerEvent};
 use crate::admin::AdminAccessControl;
-use crate::errors::Error;
-use crate::events::{CircuitBreakerEvent, EventEmitter};
-use alloc::format;
-use alloc::string::ToString;
 
 // ===== CIRCUIT BREAKER TYPES =====
 
@@ -465,7 +461,7 @@ impl CircuitBreaker {
     ) -> Result<(), Error> {
         let event = CircuitBreakerEvent {
             action,
-            condition: core::prelude::v1::Some(condition),
+            condition: core::prelude::v1::Some(condition).unwrap(),
             reason: reason.clone(),
             timestamp: env.ledger().timestamp(),
             admin,
