@@ -129,7 +129,6 @@ impl MarketCreator {
         Ok(market_id)
     }
 
-
     /// Create a market with Reflector oracle
 
     /// Creates a prediction market using Reflector oracle as the data source.
@@ -450,25 +449,41 @@ impl MarketValidator {
             return Err(Error::InvalidQuestion);
         }
 
+        // Load dynamic configuration
+        let cfg = crate::config::ConfigManager::get_config(_env)
+            .map_err(|_| Error::ConfigurationNotFound)?;
+
         // Use the new MarketParameterValidator for comprehensive validation
         use crate::validation::MarketParameterValidator;
 
-        // Validate duration limits
+        // Validate duration limits from dynamic config
         if let Err(_) = MarketParameterValidator::validate_duration_limits(
             duration_days,
-            config::MIN_MARKET_DURATION_DAYS,
-            config::MAX_MARKET_DURATION_DAYS,
+            cfg.market.min_duration_days,
+            cfg.market.max_duration_days,
         ) {
             return Err(Error::InvalidDuration);
         }
 
-        // Validate outcome count and content
+        // Validate outcome count against dynamic config
         if let Err(_) = MarketParameterValidator::validate_outcome_count(
             outcomes,
-            config::MIN_MARKET_OUTCOMES,
-            config::MAX_MARKET_OUTCOMES,
+            cfg.market.min_outcomes,
+            cfg.market.max_outcomes,
         ) {
             return Err(Error::InvalidOutcomes);
+        }
+
+        // Enforce max question length from dynamic config
+        if question.len() as u32 > cfg.market.max_question_length {
+            return Err(Error::InvalidQuestion);
+        }
+
+        // Enforce max outcome length from dynamic config
+        for o in outcomes.iter() {
+            if o.len() as u32 > cfg.market.max_outcome_length {
+                return Err(Error::InvalidOutcomes);
+            }
         }
 
         Ok(())
@@ -885,7 +900,6 @@ impl MarketStateManager {
         market.total_staked += stake;
         // No state change for voting
     }
-
 
     /// Add dispute stake to market
 
@@ -1305,16 +1319,9 @@ impl MarketAnalytics {
     ///   - Total amount staked across all participants
     ///   - Total dispute stakes (if any)
     ///   - Distribution of votes across different outcomes
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use soroban_sdk::{Env, Symbol};
-    /// use crate::markets::{MarketAnalytics, MarketStateManager};
-    ///
-    /// let env = Env::default();
     /// let market_id = Symbol::new(&env, "active_market");
     /// let market = MarketStateManager::get_market(&env, &market_id)?;
+    ///
     ///
     /// let stats = MarketAnalytics::get_market_stats(&market);
     ///
@@ -2342,6 +2349,8 @@ impl MarketTestHelpers {
         // Transfer stake
         let token_client = MarketUtils::get_token_client(env)?;
         token_client.transfer(&user, &env.current_contract_address(), &stake);
+        // Transfer stake via centralized, guarded utility
+        //  VotingUtils::transfer_stake(env, &user, stake)?;
 
         // Add vote
         MarketStateManager::add_vote(&mut market, user, outcome, stake, None);
@@ -2509,7 +2518,6 @@ impl MarketStateLogic {
             Err(Error::InvalidState)
         }
     }
-
 
     /// Check if a function is allowed in the given state
 
@@ -2825,55 +2833,65 @@ mod tests {
     #[test]
     fn test_market_validation() {
         let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
 
-        // Test valid market params
-        let valid_question = String::from_str(&env, "Test question?");
-        let valid_outcomes = vec![
-            &env,
-            String::from_str(&env, "yes"),
-            String::from_str(&env, "no"),
-        ];
+        env.as_contract(&contract_id, || {
+            // Ensure configuration exists in storage for validation
+            let cfg = crate::config::ConfigManager::get_development_config(&env);
+            crate::config::ConfigManager::store_config(&env, &cfg).unwrap();
 
-        assert!(MarketValidator::validate_market_params(
-            &env,
-            &valid_question,
-            &valid_outcomes,
-            30
-        )
-        .is_ok());
+            // Test valid market params
+            let valid_question = String::from_str(&env, "Test question?");
+            let valid_outcomes = vec![
+                &env,
+                String::from_str(&env, "yes"),
+                String::from_str(&env, "no"),
+            ];
 
-        // Test invalid question
-        let invalid_question = String::from_str(&env, "");
-        assert!(MarketValidator::validate_market_params(
-            &env,
-            &invalid_question,
-            &valid_outcomes,
-            30
-        )
-        .is_err());
+            assert!(MarketValidator::validate_market_params(
+                &env,
+                &valid_question,
+                &valid_outcomes,
+                30
+            )
+            .is_ok());
 
-        // Test invalid outcomes
-        let invalid_outcomes = vec![&env, String::from_str(&env, "yes")];
-        assert!(MarketValidator::validate_market_params(
-            &env,
-            &valid_question,
-            &invalid_outcomes,
-            30
-        )
-        .is_err());
+            // Test invalid question
+            let invalid_question = String::from_str(&env, "");
+            assert!(MarketValidator::validate_market_params(
+                &env,
+                &invalid_question,
+                &valid_outcomes,
+                30
+            )
+            .is_err());
 
-        // Test invalid duration
-        assert!(
-            MarketValidator::validate_market_params(&env, &valid_question, &valid_outcomes, 0)
-                .is_err()
-        );
-        assert!(MarketValidator::validate_market_params(
-            &env,
-            &valid_question,
-            &valid_outcomes,
-            400
-        )
-        .is_err());
+            // Test invalid outcomes
+            let invalid_outcomes = vec![&env, String::from_str(&env, "yes")];
+            assert!(MarketValidator::validate_market_params(
+                &env,
+                &valid_question,
+                &invalid_outcomes,
+                30
+            )
+            .is_err());
+
+            // Test invalid duration
+            assert!(MarketValidator::validate_market_params(
+                &env,
+                &valid_question,
+                &valid_outcomes,
+                0
+            )
+            .is_err());
+            assert!(MarketValidator::validate_market_params(
+                &env,
+                &valid_question,
+                &valid_outcomes,
+                400
+            )
+            .is_err());
+        });
     }
 
     #[test]

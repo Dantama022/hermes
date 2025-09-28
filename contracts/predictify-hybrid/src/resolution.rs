@@ -5,6 +5,7 @@ use crate::errors::Error;
 use crate::markets::{CommunityConsensus, MarketAnalytics, MarketStateManager, MarketUtils};
 
 use crate::oracles::{OracleFactory, OracleUtils};
+use crate::reentrancy_guard::ReentrancyGuard;
 use crate::types::*;
 
 /// Resolution management system for Predictify Hybrid contract
@@ -959,7 +960,11 @@ impl OracleResolutionManager {
             oracle_contract.clone(),
         )?;
 
-        let price = oracle.get_price(env, &market.oracle_config.feed_id)?;
+        // Perform external oracle call under reentrancy guard
+        ReentrancyGuard::before_external_call(env)?;
+        let price_result = oracle.get_price(env, &market.oracle_config.feed_id);
+        ReentrancyGuard::after_external_call(env);
+        let price = price_result?;
 
         // Determine the outcome based on the price and threshold using OracleUtils
         let outcome = OracleUtils::determine_outcome(
