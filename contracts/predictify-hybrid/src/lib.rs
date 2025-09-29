@@ -19,6 +19,7 @@ mod extensions;
 mod fees;
 mod governance;
 mod markets;
+mod monitoring;
 mod oracles;
 mod reentrancy_guard;
 mod resolution;
@@ -27,6 +28,7 @@ mod types;
 mod utils;
 mod validation;
 mod validation_tests;
+mod versioning;
 mod voting;
 
 #[cfg(test)]
@@ -40,6 +42,9 @@ mod batch_operations_tests;
 
 #[cfg(test)]
 mod integration_test;
+
+#[cfg(test)]
+mod property_based_tests;
 
 // Re-export commonly used items
 use admin::{AdminInitializer, AdminManager, AdminRole, AdminPermission, AdminAnalyticsResult};
