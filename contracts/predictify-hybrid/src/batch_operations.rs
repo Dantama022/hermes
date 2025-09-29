@@ -631,7 +631,7 @@ impl BatchProcessor {
     }
 
     /// Update batch statistics
-    fn update_batch_statistics(env: &Env, result: &BatchResult) -> Result<(), Error> {
+    pub fn update_batch_statistics(env: &Env, result: &BatchResult) -> Result<(), Error> {
         let mut stats = Self::get_batch_operation_statistics(env)?;
 
         stats.total_batches_processed += 1;
@@ -822,8 +822,10 @@ impl BatchUtils {
 // ===== BATCH TESTING =====
 
 /// Batch operation testing utilities
+#[cfg(test)]
 pub struct BatchTesting;
 
+#[cfg(test)]
 impl BatchTesting {
     /// Create test vote data
     pub fn create_test_vote_data(env: &Env, market_id: &Symbol) -> VoteData {

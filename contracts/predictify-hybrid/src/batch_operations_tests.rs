@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod batch_operations_tests {
-    use crate::admin::AdminRoleManager;
+    use crate::admin::{AdminInitializer, AdminRoleManager};
     use crate::batch_operations::*;
     use crate::types::OracleProvider;
     use soroban_sdk::{testutils::Address, vec, Env, String, Symbol, Vec};
@@ -100,7 +100,7 @@ mod batch_operations_tests {
             BatchProcessor::initialize(&env).unwrap();
 
             // Initialize admin system first
-            crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminInitializer::initialize(&env, &admin).unwrap();
             AdminRoleManager::assign_role(
                 &env,
                 &admin,
@@ -116,17 +116,13 @@ mod batch_operations_tests {
                 BatchTesting::create_test_market_data(&env),
             ];
 
-            // Test batch market creation (skip for now due to admin validation complexity)
-            // let result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
-            // assert!(result.is_ok());
-
-            // For now, just test that the function exists and can be called
-            let result = BatchProcessor::get_batch_operation_statistics(&env);
+            // Test batch market creation
+            let result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
             assert!(result.is_ok());
 
-            let _stats = result.unwrap();
-            // assert_eq!(batch_result.total_operations, 2);
-            // assert!(batch_result.execution_time >= 0);
+            let batch_result = result.unwrap();
+            assert_eq!(batch_result.total_operations, 2);
+            assert!(batch_result.execution_time >= 0);
         });
     }
 
@@ -493,35 +489,55 @@ mod batch_operations_tests {
     #[test]
     fn test_batch_statistics_update() {
         let env = Env::default();
+        env.mock_all_auths();
+
         let contract_id = env.register(crate::PredictifyHybrid, ());
+        let admin = <soroban_sdk::Address as Address>::generate(&env);
+
         env.as_contract(&contract_id, || {
+            // Initialize the main contract first
+            crate::PredictifyHybrid::initialize(env.clone(), admin.clone());
+
+            // Initialize configuration
+            let config = crate::config::ConfigManager::get_development_config(&env);
+            crate::config::ConfigManager::store_config(&env, &config).unwrap();
+
             BatchProcessor::initialize(&env).unwrap();
 
-            // Create test batch result
-            let test_result = BatchResult {
-                successful_operations: 8,
-                failed_operations: 2,
-                total_operations: 10,
-                errors: Vec::new(&env),
-                gas_used: 5000,
-                execution_time: 100,
-            };
+            // Initialize admin system
+            AdminInitializer::initialize(&env, &admin).unwrap();
+            AdminRoleManager::assign_role(
+                &env,
+                &admin,
+                crate::admin::AdminRole::SuperAdmin,
+                &admin,
+            )
+            .unwrap();
 
             // Get initial statistics
             let initial_stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
             assert_eq!(initial_stats.total_batches_processed, 0);
 
-            // Test a simple batch operation to trigger statistics update
-            let market_id = Symbol::new(&env, "test_market");
-            let test_votes = vec![&env, BatchTesting::create_test_vote_data(&env, &market_id)];
-            let _batch_result = BatchProcessor::batch_vote(&env, &test_votes);
+            // Test batch statistics update by directly calling update_batch_statistics
+            // This avoids the token transfer authentication issues
+            let batch_result = crate::batch_operations::BatchResult {
+                successful_operations: 2,
+                failed_operations: 0,
+                total_operations: 2,
+                errors: Vec::new(&env),
+                gas_used: 1000,
+                execution_time: 100,
+            };
+
+            BatchProcessor::update_batch_statistics(&env, &batch_result).unwrap();
 
             // Get updated statistics
             let updated_stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
-
-            // Verify statistics were updated
-            assert!(updated_stats.total_batches_processed > 0);
-            assert!(updated_stats.total_operations_processed > 0);
+            assert_eq!(updated_stats.total_batches_processed, 1);
+            assert_eq!(updated_stats.total_operations_processed, 2);
+            assert_eq!(updated_stats.total_successful_operations, 2);
+            assert_eq!(updated_stats.total_failed_operations, 0);
+            assert_eq!(updated_stats.average_batch_size, 2);
         });
     }
 
@@ -565,8 +581,8 @@ mod batch_operations_tests {
         env.as_contract(&contract_id, || {
             BatchProcessor::initialize(&env).unwrap();
 
-            // Initialize admin system first
-            crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
+            // Initialize admin system
+            AdminInitializer::initialize(&env, &admin).unwrap();
             AdminRoleManager::assign_role(
                 &env,
                 &admin,
@@ -574,6 +590,16 @@ mod batch_operations_tests {
                 &admin,
             )
             .unwrap();
+
+            // Test admin authentication
+            let auth_result = crate::admin::AdminAccessControl::validate_admin_for_action(
+                &env,
+                &admin,
+                "batch_create_markets",
+            );
+            if let Err(e) = auth_result {
+                panic!("Admin authentication failed: {:?}", e);
+            }
 
             // Test complete batch workflow
             // 1. Create test data
@@ -600,21 +626,19 @@ mod batch_operations_tests {
             let claim_result = BatchProcessor::batch_claim(&env, &claims);
             assert!(claim_result.is_ok());
 
-            // Skip market creation due to admin validation complexity
-            // let market_result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
-            // assert!(market_result.is_ok());
-
-            // Test that statistics can be retrieved instead
-            let stats_result = BatchProcessor::get_batch_operation_statistics(&env);
-            assert!(stats_result.is_ok());
+            let market_result = BatchProcessor::batch_create_markets(&env, &admin, &markets);
+            if let Err(e) = &market_result {
+                panic!("Market creation failed: {:?}", e);
+            }
+            assert!(market_result.is_ok());
 
             let oracle_result = BatchProcessor::batch_oracle_calls(&env, &feeds);
             assert!(oracle_result.is_ok());
 
             // 3. Check statistics
             let stats = BatchProcessor::get_batch_operation_statistics(&env).unwrap();
-            assert_eq!(stats.total_batches_processed, 3); // 2 votes + 1 claim + 1 oracle (market creation skipped)
-            assert_eq!(stats.total_operations_processed, 4); // 2 votes + 1 claim + 1 oracle
+            assert_eq!(stats.total_batches_processed, 4);
+            assert_eq!(stats.total_operations_processed, 5); // 2 votes + 1 claim + 1 market + 1 oracle
             assert!(stats.total_successful_operations >= 0);
             assert!(stats.total_failed_operations >= 0);
 

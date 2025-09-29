@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod circuit_breaker_tests {
-    use crate::admin::AdminRoleManager;
+    use crate::admin::{AdminInitializer, AdminRoleManager};
     use crate::circuit_breaker::*;
     use crate::errors::Error;
+    use alloc::format;
     use soroban_sdk::{testutils::Address, vec, Env, String, Vec};
 
     #[test]
@@ -36,10 +37,12 @@ mod circuit_breaker_tests {
     fn test_emergency_pause() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
+        env.mock_all_auths();
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
+            AdminInitializer::initialize(&env, &admin).unwrap();
             AdminRoleManager::assign_role(
                 &env,
                 &admin,
@@ -69,11 +72,12 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_recovery() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
-
+        env.mock_all_auths();
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
+            AdminInitializer::initialize(&env, &admin).unwrap();
             AdminRoleManager::assign_role(
                 &env,
                 &admin,
@@ -154,14 +158,11 @@ mod circuit_breaker_tests {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
         env.mock_all_auths();
-        let admin = <soroban_sdk::Address as Address>::generate(&env);
-
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
 
-            // Configure shorter recovery timeout for testing
-            // Initialize admin system first
-            crate::admin::AdminInitializer::initialize(&env, &admin).unwrap();
+            let admin = <soroban_sdk::Address as Address>::generate(&env);
+            AdminInitializer::initialize(&env, &admin).unwrap();
             AdminRoleManager::assign_role(
                 &env,
                 &admin,
@@ -170,11 +171,11 @@ mod circuit_breaker_tests {
             )
             .unwrap();
 
-            // Skip config update due to admin validation complexity
-            // let mut config = CircuitBreaker::get_config(&env).unwrap();
-            // config.recovery_timeout = 1; // 1 second
-            // config.half_open_max_requests = 2;
-            // CircuitBreaker::update_config(&env, &admin, &config).unwrap();
+            // Configure shorter recovery timeout for testing
+            let mut config = CircuitBreaker::get_config(&env).unwrap();
+            config.recovery_timeout = 1; // 1 second
+            config.half_open_max_requests = 2;
+            CircuitBreaker::update_config(&env, &admin, &config).unwrap();
 
             // Open the circuit breaker
             let reason = String::from_str(&env, "Test pause");
@@ -234,10 +235,12 @@ mod circuit_breaker_tests {
     fn test_event_history() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
+        env.mock_all_auths();
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
+            AdminInitializer::initialize(&env, &admin).unwrap();
             AdminRoleManager::assign_role(
                 &env,
                 &admin,
@@ -344,6 +347,7 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_scenarios() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
+        env.mock_all_auths();
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
 
@@ -412,13 +416,11 @@ mod circuit_breaker_tests {
             // Initialize
             CircuitBreaker::initialize(&env).unwrap();
 
-            // Test unauthorized access (inside contract context but without proper admin role)
-            // Note: This test is skipped because env.mock_all_auths() bypasses all auth checks
-            // In a real scenario, this would fail without proper admin permissions
-            // let unauthorized_admin = <soroban_sdk::Address as Address>::generate(&env);
-            // let reason = String::from_str(&env, "Test");
-            // assert!(CircuitBreaker::emergency_pause(&env, &unauthorized_admin, &reason).is_err());
-            // assert!(CircuitBreaker::circuit_breaker_recovery(&env, &unauthorized_admin).is_err());
+            // Test unauthorized access
+            let unauthorized_admin = <soroban_sdk::Address as Address>::generate(&env);
+            let reason = String::from_str(&env, "Test");
+            assert!(CircuitBreaker::emergency_pause(&env, &unauthorized_admin, &reason).is_err());
+            assert!(CircuitBreaker::circuit_breaker_recovery(&env, &unauthorized_admin).is_err());
         });
     }
 
@@ -426,10 +428,12 @@ mod circuit_breaker_tests {
     fn test_circuit_breaker_integration() {
         let env = Env::default();
         let contract_id = env.register(crate::PredictifyHybrid, ());
+        env.mock_all_auths();
         env.as_contract(&contract_id, || {
             CircuitBreaker::initialize(&env).unwrap();
 
             let admin = <soroban_sdk::Address as Address>::generate(&env);
+            AdminInitializer::initialize(&env, &admin).unwrap();
             AdminRoleManager::assign_role(
                 &env,
                 &admin,
