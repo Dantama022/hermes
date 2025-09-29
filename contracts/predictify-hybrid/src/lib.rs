@@ -22,6 +22,7 @@ mod markets;
 mod oracles;
 mod reentrancy_guard;
 mod resolution;
+mod recovery;
 mod storage;
 mod types;
 mod utils;
@@ -40,6 +41,9 @@ mod batch_operations_tests;
 
 #[cfg(test)]
 mod integration_test;
+
+#[cfg(test)]
+mod recovery_tests;
 
 // Re-export commonly used items
 use admin::AdminInitializer;
@@ -63,6 +67,7 @@ const FEE_PERCENTAGE: i128 = 2; // 2% fee for the platform
 
 #[contractimpl]
 impl PredictifyHybrid {
+    // Recovery methods appended later in file after existing functions to maintain readability.
     /// Initializes the Predictify Hybrid smart contract with an administrator.
     ///
     /// This function must be called once after contract deployment to set up the initial
@@ -1320,6 +1325,51 @@ impl PredictifyHybrid {
         limits: MarketLimits,
     ) -> Result<ContractConfig, Error> {
         ConfigManager::update_market_limits(&env, admin, limits)
+    }
+
+    // ===== RECOVERY PUBLIC METHODS =====
+    /// Initiates or performs recovery of a potentially corrupted market state. Only admin.
+    pub fn recover_market_state(env: Env, admin: Address, market_id: Symbol) -> bool {
+        admin.require_auth();
+        if let Err(e) = crate::recovery::RecoveryManager::assert_is_admin(&env, &admin) {
+            panic_with_error!(env, e);
+        }
+        match crate::recovery::RecoveryManager::recover_market_state(&env, &market_id) {
+            Ok(res) => res,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    /// Executes partial refund mechanism for selected users in a failed/corrupted market. Only admin.
+    pub fn partial_refund_mechanism(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        users: Vec<Address>,
+    ) -> i128 {
+        admin.require_auth();
+        if let Err(e) = crate::recovery::RecoveryManager::assert_is_admin(&env, &admin) {
+            panic_with_error!(env, e);
+        }
+        match crate::recovery::RecoveryManager::partial_refund_mechanism(&env, &market_id, &users) {
+            Ok(total_refunded) => total_refunded,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    /// Validates market state integrity; returns true if consistent.
+    pub fn validate_market_state_integrity(env: Env, market_id: Symbol) -> bool {
+        match crate::recovery::RecoveryValidator::validate_market_state_integrity(&env, &market_id)
+        {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    /// Returns recovery status for a market.
+    pub fn get_recovery_status(env: Env, market_id: Symbol) -> String {
+        crate::recovery::RecoveryManager::get_recovery_status(&env, &market_id)
+            .unwrap_or_else(|_| String::from_str(&env, "unknown"))
     }
 }
 
