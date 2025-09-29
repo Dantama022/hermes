@@ -42,7 +42,7 @@ mod batch_operations_tests;
 mod integration_test;
 
 // Re-export commonly used items
-use admin::AdminInitializer;
+use admin::{AdminInitializer, AdminManager, AdminRole, AdminPermission, AdminAnalyticsResult};
 pub use errors::Error;
 pub use types::*;
 
@@ -1321,6 +1321,79 @@ impl PredictifyHybrid {
     ) -> Result<ContractConfig, Error> {
         ConfigManager::update_market_limits(&env, admin, limits)
     }
+
+    // ===== MULTI-ADMIN MANAGEMENT FUNCTIONS =====
+
+/// Add a new admin with specified role (SuperAdmin only)
+pub fn add_admin(
+    env: Env,
+    current_admin: Address,
+    new_admin: Address,
+    role: AdminRole,
+) -> Result<(), Error> {
+    current_admin.require_auth();
+    AdminManager::add_admin(&env, &current_admin, &new_admin, role)
+}
+
+/// Remove an admin from the system (SuperAdmin only)
+pub fn remove_admin(
+    env: Env,
+    current_admin: Address,
+    admin_to_remove: Address,
+) -> Result<(), Error> {
+    current_admin.require_auth();
+    AdminManager::remove_admin(&env, &current_admin, &admin_to_remove)
+}
+
+/// Update an admin's role (SuperAdmin only)
+pub fn update_admin_role(
+    env: Env,
+    current_admin: Address,
+    target_admin: Address,
+    new_role: AdminRole,
+) -> Result<(), Error> {
+    current_admin.require_auth();
+    AdminManager::update_admin_role(&env, &current_admin, &target_admin, new_role)
+}
+
+/// Validate admin permission for specific action
+pub fn validate_admin_permission(
+    env: Env,
+    admin: Address,
+    permission: AdminPermission,
+) -> Result<(), Error> {
+    AdminManager::validate_admin_permission(&env, &admin, permission)
+}
+
+/// Get all admin roles in the system
+pub fn get_admin_roles(env: Env) -> Map<Address, AdminRole> {
+    AdminManager::get_admin_roles(&env)
+}
+
+/// Get comprehensive admin analytics
+pub fn get_admin_analytics(env: Env) -> AdminAnalyticsResult {
+    admin::EnhancedAdminAnalytics::get_admin_analytics(&env)
+}
+
+/// Migrate from single-admin to multi-admin system
+pub fn migrate_to_multi_admin(env: Env, admin: Address) -> Result<(), Error> {
+    admin.require_auth();
+    admin::AdminSystemIntegration::migrate_to_multi_admin(&env)
+}
+
+/// Check if multi-admin migration is complete
+pub fn is_multi_admin_migrated(env: Env) -> bool {
+    admin::AdminSystemIntegration::is_migrated(&env)
+}
+
+/// Check role permissions against a specific permission
+pub fn check_role_permissions(
+    env: Env,
+    role: AdminRole,
+    permission: AdminPermission,
+) -> bool {
+    AdminManager::check_role_permissions(&env, role, permission)
+}
 }
 
 mod test;
