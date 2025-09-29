@@ -68,7 +68,6 @@ use soroban_sdk::{
 pub struct PredictifyHybrid;
 
 const PERCENTAGE_DENOMINATOR: i128 = 100;
-const FEE_PERCENTAGE: i128 = 2; // 2% fee for the platform
 
 #[contractimpl]
 impl PredictifyHybrid {
@@ -1069,7 +1068,6 @@ impl PredictifyHybrid {
         market_id: Symbol,
         additional_days: u32,
         reason: String,
-        fee_amount: i128,
     ) -> Result<(), Error> {
         if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
             return Err(e);
@@ -1375,6 +1373,7 @@ impl PredictifyHybrid {
     pub fn get_recovery_status(env: Env, market_id: Symbol) -> String {
         crate::recovery::RecoveryManager::get_recovery_status(&env, &market_id)
             .unwrap_or_else(|_| String::from_str(&env, "unknown"))
+    }
 
     // ===== VERSIONING FUNCTIONS =====
 
