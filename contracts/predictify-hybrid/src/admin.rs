@@ -2,12 +2,11 @@ extern crate alloc;
 use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 // use alloc::string::ToString; // Unused import
 
-use crate::config::FeeConfig;
 use crate::config::{ConfigManager, ConfigUtils, ContractConfig, Environment};
 use crate::errors::Error;
 use crate::events::EventEmitter;
 use crate::extensions::ExtensionManager;
-use crate::fees::FeeManager;
+use crate::fees::{FeeConfig, FeeManager};
 use crate::markets::MarketStateManager;
 use crate::resolution::MarketResolutionManager;
 
@@ -520,8 +519,6 @@ impl AdminAccessControl {
     /// - **Emergency Functions**: Ensure only authorized emergency actions
     pub fn require_admin_auth(env: &Env, admin: &Address) -> Result<(), Error> {
         // Verify admin authentication
-        // Skip require_auth in test environment
-        #[cfg(not(test))]
         admin.require_auth();
 
         // Validate admin exists
@@ -711,7 +708,6 @@ impl AdminAccessControl {
         match action {
             "initialize" => Ok(AdminPermission::Initialize),
             "create_market" => Ok(AdminPermission::CreateMarket),
-            "batch_create_markets" => Ok(AdminPermission::CreateMarket), // Batch operations use same permission as single market creation
             "close_market" => Ok(AdminPermission::CloseMarket),
             "finalize_market" => Ok(AdminPermission::FinalizeMarket),
             "extend_market" => Ok(AdminPermission::ExtendMarket),
@@ -722,9 +718,6 @@ impl AdminAccessControl {
             "manage_disputes" => Ok(AdminPermission::ManageDisputes),
             "view_analytics" => Ok(AdminPermission::ViewAnalytics),
             "emergency_actions" => Ok(AdminPermission::EmergencyActions),
-            "emergency_pause" => Ok(AdminPermission::EmergencyActions),
-            "circuit_breaker_recovery" => Ok(AdminPermission::EmergencyActions),
-            "update_circuit_breaker_config" => Ok(AdminPermission::UpdateConfig),
             _ => Err(Error::InvalidInput),
         }
     }
