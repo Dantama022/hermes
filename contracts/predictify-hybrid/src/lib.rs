@@ -12,6 +12,7 @@ mod batch_operations;
 mod circuit_breaker;
 mod config;
 mod disputes;
+mod edge_cases;
 mod errors;
 mod events;
 mod extensions;
@@ -1181,6 +1182,53 @@ impl PredictifyHybrid {
         errors::ErrorHandler::document_error_recovery_procedures(&env)
     }
 
+    // ===== EDGE CASE HANDLING ENTRY POINTS =====
+
+    /// Handle zero stake scenario for a specific market
+    pub fn handle_zero_stake_scenario(env: Env, market_id: Symbol) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::handle_zero_stake_scenario(&env, market_id)
+    }
+
+    /// Implement tie-breaking mechanism for equal outcomes
+    pub fn implement_tie_breaking_mechanism(
+        env: Env,
+        outcomes: Vec<String>,
+    ) -> Result<String, Error> {
+        edge_cases::EdgeCaseHandler::implement_tie_breaking_mechanism(&env, outcomes)
+    }
+
+    /// Detect orphaned markets and return their IDs
+    pub fn detect_orphaned_markets(env: Env) -> Result<Vec<Symbol>, Error> {
+        edge_cases::EdgeCaseHandler::detect_orphaned_markets(&env)
+    }
+
+    /// Handle partial resolution with incomplete data
+    pub fn handle_partial_resolution(
+        env: Env,
+        market_id: Symbol,
+        partial_data: edge_cases::PartialData,
+    ) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::handle_partial_resolution(&env, market_id, partial_data)
+    }
+
+    /// Validate edge case handling scenario
+    pub fn validate_edge_case_handling(
+        env: Env,
+        scenario: edge_cases::EdgeCaseScenario,
+    ) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::validate_edge_case_handling(&env, scenario)
+    }
+
+    /// Run comprehensive edge case testing scenarios
+    pub fn test_edge_case_scenarios(env: Env) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::test_edge_case_scenarios(&env)
+    }
+
+    /// Get comprehensive edge case statistics
+    pub fn get_edge_case_statistics(env: Env) -> Result<edge_cases::EdgeCaseStats, Error> {
+        edge_cases::EdgeCaseHandler::get_edge_case_statistics(&env)
+    }
+
     // ===== VERSIONING FUNCTIONS =====
 
     /// Track contract version for versioning system
@@ -1194,7 +1242,11 @@ impl PredictifyHybrid {
         old_version: versioning::Version,
         new_version: versioning::Version,
     ) -> Result<versioning::VersionMigration, Error> {
-        versioning::VersionManager::new(&env).migrate_data_between_versions(&env, old_version, new_version)
+        versioning::VersionManager::new(&env).migrate_data_between_versions(
+            &env,
+            old_version,
+            new_version,
+        )
     }
 
     /// Validate version compatibility
@@ -1203,7 +1255,11 @@ impl PredictifyHybrid {
         old_version: versioning::Version,
         new_version: versioning::Version,
     ) -> Result<bool, Error> {
-        versioning::VersionManager::new(&env).validate_version_compatibility(&env, &old_version, &new_version)
+        versioning::VersionManager::new(&env).validate_version_compatibility(
+            &env,
+            &old_version,
+            &new_version,
+        )
     }
 
     /// Upgrade to a specific version
@@ -1222,44 +1278,68 @@ impl PredictifyHybrid {
     }
 
     /// Test version migration
-    pub fn test_version_migration(env: Env, migration: versioning::VersionMigration) -> Result<bool, Error> {
+    pub fn test_version_migration(
+        env: Env,
+        migration: versioning::VersionMigration,
+    ) -> Result<bool, Error> {
         versioning::VersionManager::new(&env).test_version_migration(&env, migration)
     }
 
     // ===== MONITORING FUNCTIONS =====
 
     /// Monitor market health for a specific market
-    pub fn monitor_market_health(env: Env, market_id: Symbol) -> Result<monitoring::MarketHealthMetrics, Error> {
+    pub fn monitor_market_health(
+        env: Env,
+        market_id: Symbol,
+    ) -> Result<monitoring::MarketHealthMetrics, Error> {
         monitoring::ContractMonitor::monitor_market_health(&env, market_id)
     }
 
     /// Monitor oracle health for a specific oracle provider
-    pub fn monitor_oracle_health(env: Env, oracle: OracleProvider) -> Result<monitoring::OracleHealthMetrics, Error> {
+    pub fn monitor_oracle_health(
+        env: Env,
+        oracle: OracleProvider,
+    ) -> Result<monitoring::OracleHealthMetrics, Error> {
         monitoring::ContractMonitor::monitor_oracle_health(&env, oracle)
     }
 
     /// Monitor fee collection performance
-    pub fn monitor_fee_collection(env: Env, timeframe: monitoring::TimeFrame) -> Result<monitoring::FeeCollectionMetrics, Error> {
+    pub fn monitor_fee_collection(
+        env: Env,
+        timeframe: monitoring::TimeFrame,
+    ) -> Result<monitoring::FeeCollectionMetrics, Error> {
         monitoring::ContractMonitor::monitor_fee_collection(&env, timeframe)
     }
 
     /// Monitor dispute resolution performance
-    pub fn monitor_dispute_resolution(env: Env, market_id: Symbol) -> Result<monitoring::DisputeResolutionMetrics, Error> {
+    pub fn monitor_dispute_resolution(
+        env: Env,
+        market_id: Symbol,
+    ) -> Result<monitoring::DisputeResolutionMetrics, Error> {
         monitoring::ContractMonitor::monitor_dispute_resolution(&env, market_id)
     }
 
     /// Get comprehensive contract performance metrics
-    pub fn get_contract_performance_metrics(env: Env, timeframe: monitoring::TimeFrame) -> Result<monitoring::PerformanceMetrics, Error> {
+    pub fn get_contract_performance_metrics(
+        env: Env,
+        timeframe: monitoring::TimeFrame,
+    ) -> Result<monitoring::PerformanceMetrics, Error> {
         monitoring::ContractMonitor::get_contract_performance_metrics(&env, timeframe)
     }
 
     /// Emit monitoring alert
-    pub fn emit_monitoring_alert(env: Env, alert: monitoring::MonitoringAlert) -> Result<(), Error> {
+    pub fn emit_monitoring_alert(
+        env: Env,
+        alert: monitoring::MonitoringAlert,
+    ) -> Result<(), Error> {
         monitoring::ContractMonitor::emit_monitoring_alert(&env, alert)
     }
 
     /// Validate monitoring data integrity
-    pub fn validate_monitoring_data(env: Env, data: monitoring::MonitoringData) -> Result<bool, Error> {
+    pub fn validate_monitoring_data(
+        env: Env,
+        data: monitoring::MonitoringData,
+    ) -> Result<bool, Error> {
         monitoring::ContractMonitor::validate_monitoring_data(&env, &data)
     }
 }
