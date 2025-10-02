@@ -6,6 +6,7 @@ use crate::errors::Error;
 use crate::markets::{MarketStateManager};
 // ReentrancyGuard module not required here; removed stale import.
 use crate::types::*;
+use crate::reentrancy_guard::ReentrancyGuard;
 
 /// Edge case management system for Predictify Hybrid contract
 ///
@@ -156,8 +157,7 @@ impl EdgeCaseHandler {
     /// ```
     pub fn handle_zero_stake_scenario(env: &Env, market_id: Symbol) -> Result<(), Error> {
         // Check reentrancy protection
-    // Reentrancy check removed: edge case recommendation function does not modify external state.
-
+        ReentrancyGuard::check_reentrancy_state(env);
         // Get market data
         let market = MarketStateManager::get_market(env, &market_id)?;
 

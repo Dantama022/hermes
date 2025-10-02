@@ -20,6 +20,8 @@ mod fees;
 mod markets;
 mod monitoring;
 mod oracles;
+mod rate_limiter;
+mod reentrancy_guard;
 mod resolution;
 mod recovery;
 mod storage;
