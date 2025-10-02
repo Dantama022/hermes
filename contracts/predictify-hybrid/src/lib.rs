@@ -8,11 +8,11 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 // Module declarations - all modules enabled
 mod admin;
-mod audit;
 mod batch_operations;
 mod circuit_breaker;
 mod config;
 mod disputes;
+mod edge_cases;
 mod errors;
 mod events;
 mod extensions;
@@ -22,8 +22,10 @@ mod graceful_degradation;
 mod markets;
 mod monitoring;
 mod oracles;
+mod rate_limiter;
 mod reentrancy_guard;
 mod resolution;
+mod recovery;
 mod storage;
 mod types;
 mod utils;
@@ -31,9 +33,6 @@ mod validation;
 mod validation_tests;
 mod versioning;
 mod voting;
-
-#[cfg(test)]
-mod audit_tests;
 
 #[cfg(test)]
 mod circuit_breaker_tests;
@@ -45,10 +44,13 @@ mod batch_operations_tests;
 mod integration_test;
 
 #[cfg(test)]
+mod recovery_tests;
+
+#[cfg(test)]
 mod property_based_tests;
 
 // Re-export commonly used items
-use admin::AdminInitializer;
+use admin::{AdminInitializer, AdminManager, AdminRole, AdminPermission, AdminAnalyticsResult};
 pub use errors::Error;
 pub use types::*;
 
@@ -66,10 +68,10 @@ use soroban_sdk::{
 pub struct PredictifyHybrid;
 
 const PERCENTAGE_DENOMINATOR: i128 = 100;
-const FEE_PERCENTAGE: i128 = 2; // 2% fee for the platform
 
 #[contractimpl]
 impl PredictifyHybrid {
+    // Recovery methods appended later in file after existing functions to maintain readability.
     /// Initializes the Predictify Hybrid smart contract with an administrator.
     ///
     /// This function must be called once after contract deployment to set up the initial
@@ -298,9 +300,6 @@ impl PredictifyHybrid {
     /// - Current time must be before market end time
     /// - Market must not be cancelled or resolved
     pub fn vote(env: Env, user: Address, market_id: Symbol, outcome: String, stake: i128) {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            panic_with_error!(env, e);
-        }
         user.require_auth();
 
         let mut market: Market = env
@@ -391,9 +390,6 @@ impl PredictifyHybrid {
     /// - User must have voted for the winning outcome
     /// - User must not have previously claimed winnings
     pub fn claim_winnings(env: Env, user: Address, market_id: Symbol) {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            panic_with_error!(env, e);
-        }
         user.require_auth();
 
         let mut market: Market = env
@@ -434,14 +430,14 @@ impl PredictifyHybrid {
             }
 
             if winning_total > 0 {
-                // Use dynamic platform fee percentage from configuration
-                let cfg = match ConfigManager::get_config(&env) {
+                // Retrieve dynamic platform fee percentage from configuration
+                let cfg = match crate::config::ConfigManager::get_config(&env) {
                     Ok(c) => c,
                     Err(_) => panic_with_error!(env, Error::ConfigurationNotFound),
                 };
                 let fee_percent = cfg.fees.platform_fee_percentage;
-                let user_share =
-                    (user_stake * (PERCENTAGE_DENOMINATOR - fee_percent)) / PERCENTAGE_DENOMINATOR;
+                let user_share = (user_stake * (PERCENTAGE_DENOMINATOR - fee_percent))
+                    / PERCENTAGE_DENOMINATOR;
                 let total_pool = market.total_staked;
                 let _payout = (user_share * total_pool) / winning_total;
 
@@ -576,9 +572,6 @@ impl PredictifyHybrid {
         market_id: Symbol,
         winning_outcome: String,
     ) {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            panic_with_error!(env, e);
-        }
         admin.require_auth();
 
         // Verify admin
@@ -618,6 +611,9 @@ impl PredictifyHybrid {
         market.state = MarketState::Resolved;
         env.storage().persistent().set(&market_id, &market);
     }
+
+
+
 
     /// Fetches oracle result for a market from external oracle contracts.
     ///
@@ -705,17 +701,14 @@ impl PredictifyHybrid {
             return Err(Error::MarketClosed);
         }
 
-        // Guard external oracle invocation
-        ReentrancyGuard::check_reentrancy_state(&env)?;
-        ReentrancyGuard::before_external_call(&env)?;
-        let result = resolution::OracleResolutionManager::fetch_oracle_result(
+        // Get oracle result using the resolution module
+        let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
             &env,
             &market_id,
             &oracle_contract,
-        );
-        ReentrancyGuard::after_external_call(&env);
+        )?;
 
-        result.map(|oracle_resolution| oracle_resolution.oracle_result)
+        Ok(oracle_resolution.oracle_result)
     }
 
     /// Resolves a market automatically using oracle data and community consensus.
@@ -788,9 +781,6 @@ impl PredictifyHybrid {
     /// - Users can claim winnings
     /// - Market statistics are finalized
     pub fn resolve_market(env: Env, market_id: Symbol) -> Result<(), Error> {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            return Err(e);
-        }
         // Use the resolution module to resolve the market
         let _resolution = resolution::MarketResolutionManager::resolve_market(&env, &market_id)?;
         Ok(())
@@ -983,9 +973,6 @@ impl PredictifyHybrid {
         stake: i128,
         reason: Option<String>,
     ) -> Result<(), Error> {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            return Err(e);
-        }
         user.require_auth();
         disputes::DisputeManager::process_dispute(&env, user, market_id, stake, reason)
     }
@@ -1000,9 +987,6 @@ impl PredictifyHybrid {
         stake: i128,
         reason: Option<String>,
     ) -> Result<(), Error> {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            return Err(e);
-        }
         user.require_auth();
         disputes::DisputeManager::vote_on_dispute(
             &env, user, market_id, dispute_id, vote, stake, reason,
@@ -1015,9 +999,6 @@ impl PredictifyHybrid {
         admin: Address,
         market_id: Symbol,
     ) -> Result<disputes::DisputeResolution, Error> {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            return Err(e);
-        }
         admin.require_auth();
 
         // Verify admin
@@ -1038,9 +1019,6 @@ impl PredictifyHybrid {
 
     /// Collect fees from a market (admin only)
     pub fn collect_fees(env: Env, admin: Address, market_id: Symbol) -> Result<i128, Error> {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            return Err(e);
-        }
         admin.require_auth();
 
         // Verify admin
@@ -1066,11 +1044,8 @@ impl PredictifyHybrid {
         market_id: Symbol,
         additional_days: u32,
         reason: String,
-        fee_amount: i128,
+        _fee_amount: i128,
     ) -> Result<(), Error> {
-        if let Err(e) = ReentrancyGuard::check_reentrancy_state(&env) {
-            return Err(e);
-        }
         admin.require_auth();
 
         // Verify admin
@@ -1093,20 +1068,19 @@ impl PredictifyHybrid {
             additional_days,
             reason,
         )
+
+
     }
 
     // ===== STORAGE OPTIMIZATION FUNCTIONS =====
 
     /// Compress market data for storage optimization
-    pub fn compress_market_data(
-        env: Env,
-        market_id: Symbol,
-    ) -> Result<storage::CompressedMarket, Error> {
+    pub fn compress_market_data(env: Env, market_id: Symbol) -> Result<storage::CompressedMarket, Error> {
         let market = match markets::MarketStateManager::get_market(&env, &market_id) {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-
+        
         storage::StorageOptimizer::compress_market_data(&env, &market)
     }
 
@@ -1140,10 +1114,7 @@ impl PredictifyHybrid {
     }
 
     /// Validate storage integrity for a specific market
-    pub fn validate_storage_integrity(
-        env: Env,
-        market_id: Symbol,
-    ) -> Result<storage::StorageIntegrityResult, Error> {
+    pub fn validate_storage_integrity(env: Env, market_id: Symbol) -> Result<storage::StorageIntegrityResult, Error> {
         storage::StorageOptimizer::validate_storage_integrity(&env, &market_id)
     }
 
@@ -1163,7 +1134,7 @@ impl PredictifyHybrid {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-
+        
         Ok(storage::StorageUtils::calculate_storage_cost(&market))
     }
 
@@ -1173,7 +1144,7 @@ impl PredictifyHybrid {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-
+        
         Ok(storage::StorageUtils::get_storage_efficiency_score(&market))
     }
 
@@ -1183,150 +1154,143 @@ impl PredictifyHybrid {
             Ok(m) => m,
             Err(e) => return Err(e),
         };
-
+        
         Ok(storage::StorageUtils::get_storage_recommendations(&market))
+
     }
 
-    // ===== AUDIT FUNCTIONS =====
+    // ===== ERROR RECOVERY FUNCTIONS =====
 
-    /// Initialize the audit system
-    pub fn initialize_audit_system(env: Env) -> Result<(), Error> {
-        audit::AuditManager::initialize(&env)
-    }
-
-    /// Create an audit checklist for a specific audit type
-    pub fn create_audit_checklist(
+    /// Recover from an error using appropriate recovery strategy
+    pub fn recover_from_error(
         env: Env,
-        audit_type: audit::AuditType,
-        auditor: Address,
-    ) -> Result<audit::AuditChecklist, Error> {
-        audit::AuditManager::create_audit_checklist(&env, audit_type, auditor)
+        error: Error,
+        context: errors::ErrorContext,
+    ) -> Result<errors::ErrorRecovery, Error> {
+        errors::ErrorHandler::recover_from_error(&env, error, context)
     }
 
-    /// Get an existing audit checklist
-    pub fn get_audit_checklist(
+    /// Validate error recovery configuration and state
+    pub fn validate_error_recovery(
         env: Env,
-        audit_type: audit::AuditType,
-    ) -> Result<audit::AuditChecklist, Error> {
-        audit::AuditManager::get_audit_checklist(&env, &audit_type)
-    }
-
-    /// Update an audit item in a checklist
-    pub fn update_audit_item(
-        env: Env,
-        audit_type: audit::AuditType,
-        item_id: String,
-        status: audit::AuditStatus,
-        notes: Option<String>,
-        evidence: Option<String>,
-    ) -> Result<(), Error> {
-        audit::AuditManager::update_audit_item(&env, &audit_type, &item_id, status, notes, evidence)
-    }
-
-    /// Get audit status for all audit types
-    pub fn get_audit_status(env: Env) -> Result<Map<String, String>, Error> {
-        audit::AuditManager::get_audit_status(&env)
-    }
-
-    /// Validate audit completion for a checklist
-    pub fn validate_audit_completion(
-        env: Env,
-        checklist: audit::AuditChecklist,
+        recovery: errors::ErrorRecovery,
     ) -> Result<bool, Error> {
-        audit::AuditManager::validate_audit_completion(&env, &checklist)
+        errors::ErrorHandler::validate_error_recovery(&env, &recovery)
     }
 
-    /// Get security audit checklist
-    pub fn get_security_audit_checklist(env: Env) -> Result<Vec<audit::AuditItem>, Error> {
-        audit::AuditManager::security_audit_checklist(&env)
+    /// Get current error recovery status and statistics
+    pub fn get_error_recovery_status(env: Env) -> Result<errors::ErrorRecoveryStatus, Error> {
+        errors::ErrorHandler::get_error_recovery_status(&env)
     }
 
-    /// Get code review audit checklist
-    pub fn get_code_review_audit_checklist(env: Env) -> Result<Vec<audit::AuditItem>, Error> {
-        audit::AuditManager::code_review_checklist(&env)
+    /// Emit error recovery event for monitoring and logging
+    pub fn emit_error_recovery_event(env: Env, recovery: errors::ErrorRecovery) {
+        errors::ErrorHandler::emit_error_recovery_event(&env, &recovery);
     }
 
-    /// Get testing audit checklist
-    pub fn get_testing_audit_checklist(env: Env) -> Result<Vec<audit::AuditItem>, Error> {
-        audit::AuditManager::testing_audit_checklist(&env)
+    /// Validate resilience patterns configuration
+    pub fn validate_resilience_patterns(
+        env: Env,
+        patterns: Vec<errors::ResiliencePattern>,
+    ) -> Result<bool, Error> {
+        errors::ErrorHandler::validate_resilience_patterns(&env, &patterns)
     }
 
-    /// Get documentation audit checklist
-    pub fn get_doc_audit_checklist(env: Env) -> Result<Vec<audit::AuditItem>, Error> {
-        audit::AuditManager::documentation_audit_checklist(&env)
+    /// Document error recovery procedures and best practices
+    pub fn document_error_recovery(env: Env) -> Result<soroban_sdk::Map<String, String>, Error> {
+        errors::ErrorHandler::document_error_recovery_procedures(&env)
     }
 
-    /// Get deployment audit checklist
-    pub fn get_deployment_audit_checklist(env: Env) -> Result<Vec<audit::AuditItem>, Error> {
-        audit::AuditManager::deployment_audit_checklist(&env)
+    // ===== EDGE CASE HANDLING ENTRY POINTS =====
+
+    /// Handle zero stake scenario for a specific market
+    pub fn handle_zero_stake_scenario(env: Env, market_id: Symbol) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::handle_zero_stake_scenario(&env, market_id)
     }
 
-    /// Get comprehensive audit checklist (all types combined)
-    pub fn get_comp_audit_checklist(env: Env) -> Result<Vec<audit::AuditItem>, Error> {
-        audit::AuditManager::comprehensive_audit_checklist(&env)
+    /// Implement tie-breaking mechanism for equal outcomes
+    pub fn implement_tie_breaking_mechanism(
+        env: Env,
+        outcomes: Vec<String>,
+    ) -> Result<String, Error> {
+        edge_cases::EdgeCaseHandler::implement_tie_breaking_mechanism(&env, outcomes)
     }
 
-    /// Update audit configuration
-    pub fn update_audit_config(env: Env, config: audit::AuditConfig) -> Result<(), Error> {
-        audit::AuditManager::update_config(&env, &config)
+    /// Detect orphaned markets and return their IDs
+    pub fn detect_orphaned_markets(env: Env) -> Result<Vec<Symbol>, Error> {
+        edge_cases::EdgeCaseHandler::detect_orphaned_markets(&env)
     }
 
-    /// Get audit configuration
-    pub fn get_audit_config(env: Env) -> Result<audit::AuditConfig, Error> {
-        audit::AuditManager::get_config(&env)
+    /// Handle partial resolution with incomplete data
+    pub fn handle_partial_resolution(
+        env: Env,
+        market_id: Symbol,
+        partial_data: edge_cases::PartialData,
+    ) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::handle_partial_resolution(&env, market_id, partial_data)
     }
 
-    // ===== Configuration Entry Points =====
-
-    /// Get the current contract configuration
-    pub fn get_current_configuration(env: Env) -> Result<ContractConfig, Error> {
-        ConfigManager::get_current_configuration(&env)
+    /// Validate edge case handling scenario
+    pub fn validate_edge_case_handling(
+        env: Env,
+        scenario: edge_cases::EdgeCaseScenario,
+    ) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::validate_edge_case_handling(&env, scenario)
     }
 
-    /// Get configuration update history
-    pub fn get_configuration_history(env: Env) -> Result<Vec<ConfigUpdateRecord>, Error> {
-        ConfigManager::get_configuration_history(&env)
+    /// Run comprehensive edge case testing scenarios
+    pub fn test_edge_case_scenarios(env: Env) -> Result<(), Error> {
+        edge_cases::EdgeCaseHandler::test_edge_case_scenarios(&env)
     }
 
-    /// Validate a set of configuration changes without persisting
-    pub fn validate_configuration_changes(env: Env, changes: ConfigChanges) -> Result<(), Error> {
-        ConfigManager::validate_configuration_changes(&env, &changes)
+    /// Get comprehensive edge case statistics
+    pub fn get_edge_case_statistics(env: Env) -> Result<edge_cases::EdgeCaseStats, Error> {
+        edge_cases::EdgeCaseHandler::get_edge_case_statistics(&env)
     }
 
-    /// Update platform fee percentage (admin-only)
-    pub fn update_fee_percentage(
+    // ===== RECOVERY PUBLIC METHODS =====
+    /// Initiates or performs recovery of a potentially corrupted market state. Only admin.
+    pub fn recover_market_state(env: Env, admin: Address, market_id: Symbol) -> bool {
+        admin.require_auth();
+        if let Err(e) = crate::recovery::RecoveryManager::assert_is_admin(&env, &admin) {
+            panic_with_error!(env, e);
+        }
+        match crate::recovery::RecoveryManager::recover_market_state(&env, &market_id) {
+            Ok(res) => res,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    /// Executes partial refund mechanism for selected users in a failed/corrupted market. Only admin.
+    pub fn partial_refund_mechanism(
         env: Env,
         admin: Address,
-        new_fee: i128,
-    ) -> Result<ContractConfig, Error> {
-        ConfigManager::update_fee_percentage(&env, admin, new_fee)
+        market_id: Symbol,
+        users: Vec<Address>,
+    ) -> i128 {
+        admin.require_auth();
+        if let Err(e) = crate::recovery::RecoveryManager::assert_is_admin(&env, &admin) {
+            panic_with_error!(env, e);
+        }
+        match crate::recovery::RecoveryManager::partial_refund_mechanism(&env, &market_id, &users) {
+            Ok(total_refunded) => total_refunded,
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
-    /// Update base dispute threshold (admin-only)
-    pub fn update_dispute_threshold(
-        env: Env,
-        admin: Address,
-        new_threshold: i128,
-    ) -> Result<ContractConfig, Error> {
-        ConfigManager::update_dispute_threshold(&env, admin, new_threshold)
+    /// Validates market state integrity; returns true if consistent.
+    pub fn validate_market_state_integrity(env: Env, market_id: Symbol) -> bool {
+        match crate::recovery::RecoveryValidator::validate_market_state_integrity(&env, &market_id)
+        {
+            Ok(_) => true,
+            Err(_) => false,
+        }
     }
 
-    /// Update oracle timeout seconds (admin-only)
-    pub fn update_oracle_timeout(
-        env: Env,
-        admin: Address,
-        timeout_seconds: u32,
-    ) -> Result<ContractConfig, Error> {
-        ConfigManager::update_oracle_timeout(&env, admin, timeout_seconds)
-    }
-
-    /// Update market limits (admin-only)
-    pub fn update_market_limits(
-        env: Env,
-        admin: Address,
-        limits: MarketLimits,
-    ) -> Result<ContractConfig, Error> {
-        ConfigManager::update_market_limits(&env, admin, limits)
+    /// Returns recovery status for a market.
+    pub fn get_recovery_status(env: Env, market_id: Symbol) -> String {
+        crate::recovery::RecoveryManager::get_recovery_status(&env, &market_id)
+            .unwrap_or_else(|_| String::from_str(&env, "unknown"))
     }
 
     // ===== VERSIONING FUNCTIONS =====
@@ -1342,7 +1306,11 @@ impl PredictifyHybrid {
         old_version: versioning::Version,
         new_version: versioning::Version,
     ) -> Result<versioning::VersionMigration, Error> {
-        versioning::VersionManager::new(&env).migrate_data_between_versions(&env, old_version, new_version)
+        versioning::VersionManager::new(&env).migrate_data_between_versions(
+            &env,
+            old_version,
+            new_version,
+        )
     }
 
     /// Validate version compatibility
@@ -1351,7 +1319,11 @@ impl PredictifyHybrid {
         old_version: versioning::Version,
         new_version: versioning::Version,
     ) -> Result<bool, Error> {
-        versioning::VersionManager::new(&env).validate_version_compatibility(&env, &old_version, &new_version)
+        versioning::VersionManager::new(&env).validate_version_compatibility(
+            &env,
+            &old_version,
+            &new_version,
+        )
     }
 
     /// Upgrade to a specific version
@@ -1370,44 +1342,68 @@ impl PredictifyHybrid {
     }
 
     /// Test version migration
-    pub fn test_version_migration(env: Env, migration: versioning::VersionMigration) -> Result<bool, Error> {
+    pub fn test_version_migration(
+        env: Env,
+        migration: versioning::VersionMigration,
+    ) -> Result<bool, Error> {
         versioning::VersionManager::new(&env).test_version_migration(&env, migration)
     }
 
     // ===== MONITORING FUNCTIONS =====
 
     /// Monitor market health for a specific market
-    pub fn monitor_market_health(env: Env, market_id: Symbol) -> Result<monitoring::MarketHealthMetrics, Error> {
+    pub fn monitor_market_health(
+        env: Env,
+        market_id: Symbol,
+    ) -> Result<monitoring::MarketHealthMetrics, Error> {
         monitoring::ContractMonitor::monitor_market_health(&env, market_id)
     }
 
     /// Monitor oracle health for a specific oracle provider
-    pub fn monitor_oracle_health(env: Env, oracle: OracleProvider) -> Result<monitoring::OracleHealthMetrics, Error> {
+    pub fn monitor_oracle_health(
+        env: Env,
+        oracle: OracleProvider,
+    ) -> Result<monitoring::OracleHealthMetrics, Error> {
         monitoring::ContractMonitor::monitor_oracle_health(&env, oracle)
     }
 
     /// Monitor fee collection performance
-    pub fn monitor_fee_collection(env: Env, timeframe: monitoring::TimeFrame) -> Result<monitoring::FeeCollectionMetrics, Error> {
+    pub fn monitor_fee_collection(
+        env: Env,
+        timeframe: monitoring::TimeFrame,
+    ) -> Result<monitoring::FeeCollectionMetrics, Error> {
         monitoring::ContractMonitor::monitor_fee_collection(&env, timeframe)
     }
 
     /// Monitor dispute resolution performance
-    pub fn monitor_dispute_resolution(env: Env, market_id: Symbol) -> Result<monitoring::DisputeResolutionMetrics, Error> {
+    pub fn monitor_dispute_resolution(
+        env: Env,
+        market_id: Symbol,
+    ) -> Result<monitoring::DisputeResolutionMetrics, Error> {
         monitoring::ContractMonitor::monitor_dispute_resolution(&env, market_id)
     }
 
     /// Get comprehensive contract performance metrics
-    pub fn get_contract_performance_metrics(env: Env, timeframe: monitoring::TimeFrame) -> Result<monitoring::PerformanceMetrics, Error> {
+    pub fn get_contract_performance_metrics(
+        env: Env,
+        timeframe: monitoring::TimeFrame,
+    ) -> Result<monitoring::PerformanceMetrics, Error> {
         monitoring::ContractMonitor::get_contract_performance_metrics(&env, timeframe)
     }
 
     /// Emit monitoring alert
-    pub fn emit_monitoring_alert(env: Env, alert: monitoring::MonitoringAlert) -> Result<(), Error> {
+    pub fn emit_monitoring_alert(
+        env: Env,
+        alert: monitoring::MonitoringAlert,
+    ) -> Result<(), Error> {
         monitoring::ContractMonitor::emit_monitoring_alert(&env, alert)
     }
 
     /// Validate monitoring data integrity
-    pub fn validate_monitoring_data(env: Env, data: monitoring::MonitoringData) -> Result<bool, Error> {
+    pub fn validate_monitoring_data(
+        env: Env,
+        data: monitoring::MonitoringData,
+    ) -> Result<bool, Error> {
         monitoring::ContractMonitor::validate_monitoring_data(&env, &data)
     }
 
@@ -1472,6 +1468,80 @@ impl PredictifyHybrid {
             OracleHealth::Working => String::from_str(&env, "working"),
             OracleHealth::Broken => String::from_str(&env, "broken"),
         }
+    }
+
+    // ===== MULTI-ADMIN MANAGEMENT FUNCTIONS =====
+
+    /// Add a new admin with specified role (SuperAdmin only)
+    pub fn add_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+        role: AdminRole,
+    ) -> Result<(), Error> {
+        current_admin.require_auth();
+        AdminManager::add_admin(&env, &current_admin, &new_admin, role)
+    }
+
+    /// Remove an admin from the system (SuperAdmin only)
+    pub fn remove_admin(
+        env: Env,
+        current_admin: Address,
+        admin_to_remove: Address,
+    ) -> Result<(), Error> {
+        current_admin.require_auth();
+        AdminManager::remove_admin(&env, &current_admin, &admin_to_remove)
+    }
+
+    /// Update an admin's role (SuperAdmin only)
+    pub fn update_admin_role(
+        env: Env,
+        current_admin: Address,
+        target_admin: Address,
+        new_role: AdminRole,
+    ) -> Result<(), Error> {
+        current_admin.require_auth();
+        AdminManager::update_admin_role(&env, &current_admin, &target_admin, new_role)
+    }
+
+    /// Validate admin permission for specific action
+    pub fn validate_admin_permission(
+        env: Env,
+        admin: Address,
+        permission: AdminPermission,
+    ) -> Result<(), Error> {
+        AdminManager::validate_admin_permission(&env, &admin, permission)
+    }
+
+    /// Get all admin roles in the system
+    pub fn get_admin_roles(env: Env) -> Map<Address, AdminRole> {
+        AdminManager::get_admin_roles(&env)
+    }
+
+    /// Get comprehensive admin analytics
+    pub fn get_admin_analytics(env: Env) -> AdminAnalyticsResult {
+        admin::EnhancedAdminAnalytics::get_admin_analytics(&env)
+    }
+
+    /// Migrate from single-admin to multi-admin system
+    pub fn migrate_to_multi_admin(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        admin::AdminSystemIntegration::migrate_to_multi_admin(&env)
+    }
+
+    /// Check if multi-admin migration is complete
+    pub fn is_multi_admin_migrated(env: Env) -> bool {
+        admin::AdminSystemIntegration::is_migrated(&env)
+    }
+
+    /// Check role permissions against a specific permission
+    pub fn check_role_permissions(
+        env: Env,
+        role: AdminRole,
+        permission: AdminPermission,
+    ) -> bool {
+        AdminManager::check_role_permissions(&env, role, permission)
+    }
     }
 }
 
