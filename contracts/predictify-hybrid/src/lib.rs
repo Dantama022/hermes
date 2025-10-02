@@ -1542,7 +1542,6 @@ impl PredictifyHybrid {
     ) -> bool {
         AdminManager::check_role_permissions(&env, role, permission)
     }
-    }
 }
 
 mod test;
