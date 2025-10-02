@@ -421,7 +421,13 @@ impl PredictifyHybrid {
             }
 
             if winning_total > 0 {
-                let user_share = (user_stake * (PERCENTAGE_DENOMINATOR - FEE_PERCENTAGE))
+                // Retrieve dynamic platform fee percentage from configuration
+                let cfg = match crate::config::ConfigManager::get_config(&env) {
+                    Ok(c) => c,
+                    Err(_) => panic_with_error!(env, Error::ConfigurationNotFound),
+                };
+                let fee_percent = cfg.fees.platform_fee_percentage;
+                let user_share = (user_stake * (PERCENTAGE_DENOMINATOR - fee_percent))
                     / PERCENTAGE_DENOMINATOR;
                 let total_pool = market.total_staked;
                 let _payout = (user_share * total_pool) / winning_total;
