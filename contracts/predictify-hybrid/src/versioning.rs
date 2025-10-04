@@ -483,9 +483,8 @@ impl VersionManager {
         };
 
         // If this is the first version (replacing initial 0.0.0), replace it
-        if history.versions.len() == 1 && history.current_version.version_number() == 0 {
+        if history.versions.len() == 0 && history.current_version.version_number() == 0 {
             history.current_version = version.clone();
-            history.versions = Vec::new(env);
             history.versions.push_back(version);
             history.last_updated = env.ledger().timestamp();
         } else {
@@ -586,17 +585,9 @@ impl VersionManager {
     pub fn get_version_history(&self, env: &Env) -> Result<VersionHistory, Error> {
         // Read version history from persistent storage
         let storage_key = Symbol::new(env, "VERSION_HISTORY");
-        #[cfg(test)]
-        {
-            // For tests, always return a new history since we can't use persistent storage
-            Ok(VersionHistory::new(env))
-        }
-        #[cfg(not(test))]
-        {
-            match env.storage().persistent().get(&storage_key) {
-                Some(history) => Ok(history),
-                None => Ok(VersionHistory::new(env)),
-            }
+        match env.storage().persistent().get(&storage_key) {
+            Some(history) => Ok(history),
+            None => Ok(VersionHistory::new(env)),
         }
     }
 
@@ -625,17 +616,8 @@ impl VersionManager {
     fn store_version_history(&self, env: &Env, history: &VersionHistory) -> Result<(), Error> {
         // Store version history in persistent storage
         let storage_key = Symbol::new(env, "VERSION_HISTORY");
-        // In test environment, we can't use persistent storage, so we'll use temporary storage
-        #[cfg(test)]
-        {
-            // For tests, we'll use a different approach
-            Ok(())
-        }
-        #[cfg(not(test))]
-        {
-            env.storage().persistent().set(&storage_key, history);
-            Ok(())
-        }
+        env.storage().persistent().set(&storage_key, history);
+        Ok(())
     }
 
     /// Execute migration logic
