@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, IntoVal, String, Symbol, Vec};
-
+use crate::bandprotocol;
 use crate::errors::Error;
+use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, IntoVal, String, Symbol, Vec};
 // use crate::reentrancy_guard::ReentrancyGuard; // Removed - module no longer exists
 use crate::types::*;
 
@@ -1278,6 +1278,7 @@ impl OracleFactory {
 pub enum OracleInstance {
     Pyth(PythOracle),           // Placeholder - not supported on Stellar
     Reflector(ReflectorOracle), // Primary oracle for Stellar
+    Band(BandProtocolOracle),   //  Band Protocole oracle
 }
 
 impl OracleInstance {
@@ -1286,6 +1287,7 @@ impl OracleInstance {
         match self {
             OracleInstance::Pyth(oracle) => oracle.get_price(env, feed_id),
             OracleInstance::Reflector(oracle) => oracle.get_price(env, feed_id),
+            OracleInstance::Band(oracle) => oracle.get_price(env, feed_id),
         }
     }
 
@@ -1294,6 +1296,7 @@ impl OracleInstance {
         match self {
             OracleInstance::Pyth(_) => OracleProvider::Pyth,
             OracleInstance::Reflector(_) => OracleProvider::Reflector,
+            OracleInstance::Band(_) => OracleProvider::BandProtocol,
         }
     }
 
@@ -1302,6 +1305,7 @@ impl OracleInstance {
         match self {
             OracleInstance::Pyth(oracle) => oracle.contract_id(),
             OracleInstance::Reflector(oracle) => oracle.contract_id(),
+            OracleInstance::Band(oracle) => oracle.contract_id(),
         }
     }
 
@@ -1310,6 +1314,7 @@ impl OracleInstance {
         match self {
             OracleInstance::Pyth(oracle) => oracle.is_healthy(env),
             OracleInstance::Reflector(oracle) => oracle.is_healthy(env),
+            OracleInstance::Band(oracle) => oracle.is_healthy(env),
         }
     }
 }
@@ -1478,6 +1483,105 @@ impl OracleUtils {
         }
 
         Ok(())
+    }
+}
+
+// ===== BAND PROTOCOLE ORACLE CLIENT =====
+
+pub struct BandProtocolClient<'a> {
+    env: &'a Env,
+    contract_id: Address,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub(crate) enum BandDataKey {
+    StdReferenceAddress,
+}
+
+impl<'a> BandProtocolClient<'a> {
+    pub fn new(env: &'a Env, contract_id: Address) -> Self {
+        Self { env, contract_id }
+    }
+
+    pub fn get_price_of(&self, symbol_pair: (Symbol, Symbol)) -> u128 {
+        let client = bandprotocol::Client::new(&self.env, &self.contract_id);
+        client
+            .get_reference_data(&Vec::from_array(&self.env, [symbol_pair]))
+            .get_unchecked(0)
+            .rate
+    }
+}
+
+/// Band Protocol Oracle implementation
+
+#[derive(Debug)]
+pub struct BandProtocolOracle {
+    contract_id: Address,
+}
+
+impl BandProtocolOracle {
+    pub fn new(contract_id: Address) -> Self {
+        Self { contract_id }
+    }
+
+    pub fn contract_id(&self) -> Address {
+        self.contract_id.clone()
+    }
+
+    pub fn parse_feed_id(&self, env: &Env, feed_id: &String) -> Result<(Symbol, Symbol), Error> {
+        if feed_id.is_empty() {
+            return Err(Error::InvalidOracleFeed);
+        }
+
+        if feed_id == &String::from_str(env, "BTC/USD") || feed_id == &String::from_str(env, "BTC")
+        {
+            Ok((Symbol::new(env, "BTC"), Symbol::new(env, "USD")))
+        } else if feed_id == &String::from_str(env, "ETH/USD")
+            || feed_id == &String::from_str(env, "ETH")
+        {
+            Ok((Symbol::new(env, "ETH"), Symbol::new(env, "USD")))
+        } else if feed_id == &String::from_str(env, "XLM/USD")
+            || feed_id == &String::from_str(env, "XLM")
+        {
+            Ok((Symbol::new(env, "XLM"), Symbol::new(env, "USD")))
+        } else if feed_id == &String::from_str(env, "USDC/USD")
+            || feed_id == &String::from_str(env, "USDC")
+        {
+            Ok((Symbol::new(env, "USDC"), Symbol::new(env, "USD")))
+        } else {
+            return Err(Error::InvalidOracleFeed);
+        }
+    }
+
+    /// Fetch price from Band client
+    fn get_band_price(&self, env: &Env, feed_id: &String) -> Result<i128, Error> {
+        let pair = self.parse_feed_id(env, feed_id).unwrap();
+        let client = BandProtocolClient::new(env, self.contract_id.clone());
+        let rate = client.get_price_of(pair);
+        Ok(rate as i128)
+    }
+}
+
+impl OracleInterface for BandProtocolOracle {
+    fn get_price(&self, env: &Env, feed_id: &String) -> Result<i128, Error> {
+        self.get_band_price(env, feed_id)
+    }
+
+    fn contract_id(&self) -> Address {
+        self.contract_id.clone()
+    }
+
+    fn provider(&self) -> OracleProvider {
+        OracleProvider::BandProtocol
+    }
+
+    fn is_healthy(&self, env: &Env) -> Result<bool, Error> {
+        let asset = String::from_str(env, "BTC/USD");
+        match self.get_band_price(env, &asset) {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
     }
 }
 
