@@ -25,6 +25,7 @@ mod markets;
 mod monitoring;
 mod oracles;
 mod performance_benchmarks;
+mod queries;
 mod rate_limiter;
 mod recovery;
 mod reentrancy_guard;
@@ -60,9 +61,13 @@ mod property_based_tests;
 #[cfg(test)]
 mod upgrade_manager_tests;
 
+#[cfg(test)]
+mod query_tests;
+
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
 pub use errors::Error;
+pub use queries::QueryManager;
 pub use types::*;
 
 use crate::config::{
@@ -2376,6 +2381,205 @@ impl PredictifyHybrid {
             &env, metrics, thresholds,
         )
     }
+
+    // ===== QUERY FUNCTIONS =====
+    // Gas-efficient read-only queries for event/market data, user bets, and contract state
+
+    /// Query comprehensive details about a specific market/event.
+    ///
+    /// Returns complete market information including question, outcomes, status,
+    /// oracle configuration, and current statistics. This is a read-only function
+    /// suitable for frequent client-side queries.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment for blockchain operations
+    /// * `market_id` - The ID of the market to query
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(EventDetailsQuery)` - Complete market details
+    /// * `Err(Error::MarketNotFound)` - If market doesn't exist
+    /// * `Err(Error::InvalidMarket)` - If market data is corrupted
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let details = PredictifyHybrid::query_event_details(env, market_id)?;
+    /// println!("Question: {}", details.question);
+    /// println!("Status: {:?}", details.status);
+    /// ```
+    pub fn query_event_details(env: Env, market_id: Symbol) -> Result<EventDetailsQuery, Error> {
+        QueryManager::query_event_details(&env, market_id)
+    }
+
+    /// Query market status and end time.
+    ///
+    /// Lightweight query returning only status and end time for quick status checks.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    /// * `market_id` - Market ID to query
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((MarketStatus, u64))` - Market status and end timestamp
+    /// * `Err(Error::MarketNotFound)` - Market not found
+    pub fn query_event_status(env: Env, market_id: Symbol) -> Result<(MarketStatus, u64), Error> {
+        QueryManager::query_event_status(&env, market_id)
+    }
+
+    /// Query all market IDs in the contract.
+    ///
+    /// Returns list of all market identifiers created on this contract.
+    /// Useful for discovering available markets.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Symbol>)` - List of all market IDs
+    pub fn get_all_markets(env: Env) -> Result<Vec<Symbol>, Error> {
+        QueryManager::get_all_markets(&env)
+    }
+
+    /// Query user's bet details for a specific market.
+    ///
+    /// Returns comprehensive information about a user's participation in a market
+    /// including voted outcome, stake amount, payout eligibility, and claim status.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    /// * `user` - User address to query
+    /// * `market_id` - Market ID to query
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(UserBetQuery)` - Complete bet details
+    /// * `Err(Error::MarketNotFound)` - Market doesn't exist
+    /// * `Err(Error::UserNotFound)` - User hasn't participated in market
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let bet = PredictifyHybrid::query_user_bet(env, user, market_id)?;
+    /// println!("Staked: {} stroops", bet.stake_amount);
+    /// println!("Winning: {}", bet.is_winning);
+    /// ```
+    pub fn query_user_bet(
+        env: Env,
+        user: Address,
+        market_id: Symbol,
+    ) -> Result<UserBetQuery, Error> {
+        QueryManager::query_user_bet(&env, user, market_id)
+    }
+
+    /// Query all bets for a user across all markets.
+    ///
+    /// Returns user's participation in all markets with aggregated statistics
+    /// including total stake, total potential payout, and winning bet count.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    /// * `user` - User address to query
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(MultipleBetsQuery)` - All user bets with aggregates
+    pub fn query_user_bets(env: Env, user: Address) -> Result<MultipleBetsQuery, Error> {
+        QueryManager::query_user_bets(&env, user)
+    }
+
+    /// Query user's account balance and participation metrics.
+    ///
+    /// Returns comprehensive view of user's account including available balance,
+    /// total staked amount, total winnings, and participation counts.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    /// * `user` - User address to query
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(UserBalanceQuery)` - Complete balance information
+    pub fn query_user_balance(env: Env, user: Address) -> Result<UserBalanceQuery, Error> {
+        QueryManager::query_user_balance(&env, user)
+    }
+
+    /// Query market pool distribution and implied probabilities.
+    ///
+    /// Returns stake distribution across outcomes and calculated implied probabilities.
+    /// Useful for price discovery, liquidity analysis, and probability assessment.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    /// * `market_id` - Market ID to query
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(MarketPoolQuery)` - Pool distribution and probabilities
+    /// * `Err(Error::MarketNotFound)` - Market not found
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let pool = PredictifyHybrid::query_market_pool(env, market_id)?;
+    /// println!("Total pool: {} stroops", pool.total_pool);
+    /// println!("Implied prob (yes): {}%", pool.implied_probability_yes);
+    /// ```
+    pub fn query_market_pool(env: Env, market_id: Symbol) -> Result<MarketPoolQuery, Error> {
+        QueryManager::query_market_pool(&env, market_id)
+    }
+
+    /// Query total pool size across all markets.
+    ///
+    /// Returns aggregate liquidity and total value locked across the entire platform.
+    /// Useful for platform-level monitoring and dashboards.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(i128)` - Total value locked in stroops
+    pub fn query_total_pool_size(env: Env) -> Result<i128, Error> {
+        QueryManager::query_total_pool_size(&env)
+    }
+
+    /// Query global contract state and statistics.
+    ///
+    /// Returns system-level metrics including total markets, active markets,
+    /// total value locked, and user statistics. Useful for platform dashboards
+    /// and monitoring systems.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - Soroban environment
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(ContractStateQuery)` - Global contract state and metrics
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let state = PredictifyHybrid::query_contract_state(env)?;
+    /// println!("Total markets: {}", state.total_markets);
+    /// println!("Total value locked: {} stroops", state.total_value_locked);
+    /// println!("Active markets: {}", state.active_markets);
+    /// ```
+    pub fn query_contract_state(env: Env) -> Result<ContractStateQuery, Error> {
+        QueryManager::query_contract_state(&env)
+    }
+
 }
 
 mod test;
