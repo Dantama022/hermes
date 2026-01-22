@@ -46,7 +46,7 @@ impl IntegrationTestSuite {
         // Initialize contract
         let contract_id = env.register(PredictifyHybrid, ());
         let client = PredictifyHybridClient::new(&env, &contract_id);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         // Set token for staking
         env.as_contract(&contract_id, || {

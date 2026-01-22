@@ -704,6 +704,28 @@ pub struct AdminInitializedEvent {
     pub timestamp: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractInitializedEvent {
+    /// Admin address
+    pub admin: Address,
+    /// Platform fee percentage
+    pub platform_fee_percentage: i128,
+    /// Initialization timestamp
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformFeeSetEvent {
+    /// Fee percentage
+    pub fee_percentage: i128,
+    /// Set by admin
+    pub set_by: Address,
+    /// Set timestamp
+    pub timestamp: u64,
+}
+
 /// Dispute timeout set event
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1340,6 +1362,28 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("adm_init"), &event);
+    }
+
+    /// Emit contract initialized event (full initialization with platform fee)
+    pub fn emit_contract_initialized(env: &Env, admin: &Address, platform_fee_percentage: i128) {
+        let event = ContractInitializedEvent {
+            admin: admin.clone(),
+            platform_fee_percentage,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("init"), &event);
+    }
+
+    /// Emit platform fee set event
+    pub fn emit_platform_fee_set(env: &Env, fee_percentage: i128, set_by: &Address) {
+        let event = PlatformFeeSetEvent {
+            fee_percentage,
+            set_by: set_by.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("fee_set"), &event);
     }
 
     /// Emit config initialized event

@@ -70,7 +70,7 @@ impl PredictifyTest {
         // Initialize contract
         let contract_id = env.register(PredictifyHybrid, ());
         let client = PredictifyHybridClient::new(&env, &contract_id);
-        client.initialize(&admin);
+        client.initialize(&admin, &None);
 
         // Set token for staking
         env.as_contract(&contract_id, || {
@@ -738,5 +738,180 @@ fn test_error_recovery_scenarios() {
         let validation_result =
             errors::ErrorHandler::validate_resilience_patterns(&env, &patterns).unwrap();
         assert!(validation_result);
+    });
+}
+
+// ===== INITIALIZATION TESTS =====
+
+#[test]
+fn test_initialize_with_default_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Initialize with None (default 2% fee)
+    client.initialize(&admin, &None);
+
+    // Verify admin is set
+    let stored_admin: Address = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap()
+    });
+    assert_eq!(stored_admin, admin);
+
+    // Verify platform fee is default 2%
+    let stored_fee: i128 = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap()
+    });
+    assert_eq!(stored_fee, 2);
+}
+
+#[test]
+fn test_initialize_with_custom_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Initialize with custom 5% fee
+    client.initialize(&admin, &Some(5));
+
+    // Verify platform fee is 5%
+    let stored_fee: i128 = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap()
+    });
+    assert_eq!(stored_fee, 5);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #504)")] // AlreadyInitialized = 504
+fn test_reinitialize_prevention() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // First initialization - should succeed
+    client.initialize(&admin, &None);
+
+    // Second initialization - should panic with AlreadyInitialized
+    client.initialize(&admin, &Some(3));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #402)")] // InvalidFeeConfig = 402
+fn test_initialize_invalid_fee_negative() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Initialize with negative fee - should panic
+    client.initialize(&admin, &Some(-1));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #402)")] // InvalidFeeConfig = 402
+fn test_initialize_invalid_fee_too_high() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Initialize with fee exceeding max 10% - should panic
+    client.initialize(&admin, &Some(11));
+}
+
+#[test]
+fn test_initialize_valid_fee_bounds() {
+    // Test minimum fee (0%)
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(PredictifyHybrid, ());
+        let client = PredictifyHybridClient::new(&env, &contract_id);
+
+        client.initialize(&admin, &Some(0));
+
+        let stored_fee: i128 = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&Symbol::new(&env, "platform_fee"))
+                .unwrap()
+        });
+        assert_eq!(stored_fee, 0);
+    }
+
+    // Test maximum fee (10%)
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(PredictifyHybrid, ());
+        let client = PredictifyHybridClient::new(&env, &contract_id);
+
+        client.initialize(&admin, &Some(10));
+
+        let stored_fee: i128 = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&Symbol::new(&env, "platform_fee"))
+                .unwrap()
+        });
+        assert_eq!(stored_fee, 10);
+    }
+}
+
+#[test]
+fn test_initialize_storage_verification() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &Some(3));
+
+    // Verify admin address is in persistent storage
+    env.as_contract(&contract_id, || {
+        let has_admin = env.storage().persistent().has(&Symbol::new(&env, "Admin"));
+        assert!(has_admin);
+    });
+
+    // Verify platform fee is in persistent storage
+    env.as_contract(&contract_id, || {
+        let has_fee = env
+            .storage()
+            .persistent()
+            .has(&Symbol::new(&env, "platform_fee"));
+        assert!(has_fee);
+    });
+
+    // Verify initialization flag (admin existence serves as initialization flag)
+    env.as_contract(&contract_id, || {
+        let admin_result: Option<Address> =
+            env.storage().persistent().get(&Symbol::new(&env, "Admin"));
+        assert!(admin_result.is_some());
     });
 }

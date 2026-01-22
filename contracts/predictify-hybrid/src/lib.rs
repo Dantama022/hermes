@@ -67,6 +67,7 @@ pub use types::*;
 
 use crate::config::{
     ConfigChanges, ConfigManager, ConfigUpdateRecord, ContractConfig, MarketLimits,
+    DEFAULT_PLATFORM_FEE_PERCENTAGE, MAX_PLATFORM_FEE_PERCENTAGE, MIN_PLATFORM_FEE_PERCENTAGE,
 };
 use crate::events::EventEmitter;
 use crate::graceful_degradation::{OracleBackup, OracleHealth};
@@ -85,22 +86,25 @@ const PERCENTAGE_DENOMINATOR: i128 = 100;
 #[contractimpl]
 impl PredictifyHybrid {
     // Recovery methods appended later in file after existing functions to maintain readability.
-    /// Initializes the Predictify Hybrid smart contract with an administrator.
+    /// Initializes the Predictify Hybrid smart contract with administrator and platform configuration.
     ///
     /// This function must be called once after contract deployment to set up the initial
-    /// administrative configuration. It establishes the contract admin who will have
-    /// privileges to create markets and perform administrative functions.
+    /// administrative configuration and platform fee structure. It establishes the contract admin who
+    /// will have privileges to create markets and perform administrative functions, and configures
+    /// the platform fee percentage for market operations.
     ///
     /// # Parameters
     ///
     /// * `env` - The Soroban environment for blockchain operations
     /// * `admin` - The address that will be granted administrative privileges
+    /// * `platform_fee_percentage` - Optional platform fee percentage (0-10%). If `None`, defaults to 2%
     ///
     /// # Panics
     ///
     /// This function will panic if:
-    /// - The contract has already been initialized
+    /// - The contract has already been initialized (Error code 504: AlreadyInitialized)
     /// - The admin address is invalid
+    /// - The platform fee percentage is negative or exceeds 10%
     /// - Storage operations fail
     ///
     /// # Example
@@ -111,19 +115,58 @@ impl PredictifyHybrid {
     /// # let env = Env::default();
     /// # let admin_address = Address::generate(&env);
     ///
-    /// // Initialize the contract with an admin
-    /// PredictifyHybrid::initialize(env.clone(), admin_address);
+    /// // Initialize with default 2% platform fee
+    /// PredictifyHybrid::initialize(env.clone(), admin_address.clone(), None);
+    ///
+    /// // Or initialize with custom 5% platform fee
+    /// PredictifyHybrid::initialize(env.clone(), admin_address, Some(5));
     /// ```
+    ///
+    /// # Platform Fee
+    ///
+    /// The platform fee is a percentage (0-10%) taken from winning payouts to support
+    /// platform operations. Fee is applied during payout calculation:
+    /// - Default: 2% (200 basis points)
+    /// - Minimum: 0% (no fee)
+    /// - Maximum: 10% (1000 basis points)
     ///
     /// # Security
     ///
     /// The admin address should be carefully chosen as it will have significant
     /// control over the contract's operation, including market creation and resolution.
-    pub fn initialize(env: Env, admin: Address) {
+    /// Consider using a multi-signature wallet or governance contract for production.
+    ///
+    /// # Re-initialization Prevention
+    ///
+    /// This function can only be called once. Any subsequent calls will panic with
+    /// `Error::AlreadyInitialized` to prevent admin takeover attacks.
+    pub fn initialize(env: Env, admin: Address, platform_fee_percentage: Option<i128>) {
+        // Determine platform fee (default 2% if not specified)
+        let fee_percentage = platform_fee_percentage.unwrap_or(DEFAULT_PLATFORM_FEE_PERCENTAGE);
+
+        // Validate fee percentage bounds (0-10%)
+        if fee_percentage < MIN_PLATFORM_FEE_PERCENTAGE
+            || fee_percentage > MAX_PLATFORM_FEE_PERCENTAGE
+        {
+            panic_with_error!(env, Error::InvalidFeeConfig);
+        }
+
+        // Initialize admin (includes re-initialization check)
         match AdminInitializer::initialize(&env, &admin) {
-            Ok(_) => (), // Success
+            Ok(_) => (),
             Err(e) => panic_with_error!(env, e),
         }
+
+        // Store platform fee configuration in persistent storage
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "platform_fee"), &fee_percentage);
+
+        // Emit contract initialized event
+        EventEmitter::emit_contract_initialized(&env, &admin, fee_percentage);
+
+        // Emit platform fee set event
+        EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
     }
 
     /// Creates a new prediction market with specified parameters and oracle configuration.

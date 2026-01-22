@@ -201,6 +201,9 @@ impl AdminInitializer {
     /// control over the contract. Consider using a multi-signature wallet
     /// or governance contract for production deployments.
     pub fn initialize(env: &Env, admin: &Address) -> Result<(), Error> {
+        // Check for re-initialization attempt (critical security check)
+        AdminValidator::validate_contract_not_initialized(env)?;
+
         // Validate admin address
         AdminValidator::validate_admin_address(env, admin)?;
 
@@ -2342,7 +2345,7 @@ impl AdminValidator {
         let admin_exists = env.storage().persistent().has(&Symbol::new(env, "Admin"));
 
         if admin_exists {
-            return Err(Error::InvalidState);
+            return Err(Error::AlreadyInitialized);
         }
 
         Ok(())
