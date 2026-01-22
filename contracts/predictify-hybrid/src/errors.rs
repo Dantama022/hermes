@@ -104,6 +104,8 @@ pub enum Error {
     InvalidOutcome = 108,
     /// User has already voted in this market
     AlreadyVoted = 109,
+    /// User has already placed a bet on this market
+    AlreadyBet = 110,
 
     // ===== ORACLE ERRORS =====
     /// Oracle is unavailable
@@ -877,6 +879,7 @@ impl ErrorHandler {
             Error::MarketNotFound => 1,
             Error::ConfigurationNotFound => 1,
             Error::AlreadyVoted => 0,
+            Error::AlreadyBet => 0,
             Error::AlreadyClaimed => 0,
             Error::FeeAlreadyCollected => 0,
             Error::Unauthorized => 0,
@@ -911,6 +914,7 @@ impl ErrorHandler {
             Error::MarketNotFound => String::from_str(&Env::default(), "alternative_method"),
             Error::ConfigurationNotFound => String::from_str(&Env::default(), "alternative_method"),
             Error::AlreadyVoted => String::from_str(&Env::default(), "skip"),
+            Error::AlreadyBet => String::from_str(&Env::default(), "skip"),
             Error::AlreadyClaimed => String::from_str(&Env::default(), "skip"),
             Error::FeeAlreadyCollected => String::from_str(&Env::default(), "skip"),
             Error::Unauthorized => String::from_str(&Env::default(), "abort"),
@@ -992,6 +996,11 @@ impl ErrorHandler {
 
             // Low severity errors
             Error::AlreadyVoted => (
+                ErrorSeverity::Low,
+                ErrorCategory::UserOperation,
+                RecoveryStrategy::Skip,
+            ),
+            Error::AlreadyBet => (
                 ErrorSeverity::Low,
                 ErrorCategory::UserOperation,
                 RecoveryStrategy::Skip,
@@ -1143,6 +1152,7 @@ impl Error {
             Error::InsufficientStake => "Insufficient stake amount",
             Error::InvalidOutcome => "Invalid outcome choice",
             Error::AlreadyVoted => "User has already voted",
+            Error::AlreadyBet => "User has already placed a bet on this market",
             Error::OracleUnavailable => "Oracle is unavailable",
             Error::InvalidOracleConfig => "Invalid oracle configuration",
             Error::InvalidQuestion => "Invalid question format",
@@ -1259,6 +1269,7 @@ impl Error {
             Error::InsufficientStake => "INSUFFICIENT_STAKE",
             Error::InvalidOutcome => "INVALID_OUTCOME",
             Error::AlreadyVoted => "ALREADY_VOTED",
+            Error::AlreadyBet => "ALREADY_BET",
             Error::OracleUnavailable => "ORACLE_UNAVAILABLE",
             Error::InvalidOracleConfig => "INVALID_ORACLE_CONFIG",
             Error::InvalidQuestion => "INVALID_QUESTION",
