@@ -70,6 +70,12 @@ impl BetTestSetup {
         stellar_client.mint(&user, &1000_0000000);    // 1,000 XLM
         stellar_client.mint(&user2, &1000_0000000);   // 1,000 XLM
 
+        // Approve contract to spend tokens on behalf of users (for bet placement)
+        let token_client = soroban_sdk::token::Client::new(&env, &token_id);
+        token_client.approve(&user, &contract_id, &i128::MAX, &1000000);
+        token_client.approve(&user2, &contract_id, &i128::MAX, &1000000);
+        token_client.approve(&admin, &contract_id, &i128::MAX, &1000000);
+
         // Create a test market
         let market_id = Self::create_test_market_static(&env, &contract_id, &admin);
 
