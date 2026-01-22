@@ -51,6 +51,14 @@ pub struct MarketBetsKey {
     pub market_id: Symbol,
 }
 
+/// Storage key for market bet registry
+#[contracttype]
+#[derive(Clone)]
+pub struct BetRegistryKey {
+    pub tag: Symbol,
+    pub market_id: Symbol,
+}
+
 // ===== BET MANAGER =====
 
 /// Comprehensive bet manager for prediction market betting operations.
@@ -487,7 +495,7 @@ impl BetStorage {
         let mut registry: soroban_sdk::Vec<Address> = env
             .storage()
             .persistent()
-            .get::<Symbol, soroban_sdk::Vec<Address>>(&key)
+            .get::<BetRegistryKey, soroban_sdk::Vec<Address>>(&key)
             .unwrap_or(soroban_sdk::Vec::new(env));
 
         // Only add if not already present
@@ -512,7 +520,7 @@ impl BetStorage {
         let key = Self::get_bet_registry_key(env, market_id);
         env.storage()
             .persistent()
-            .get::<Symbol, soroban_sdk::Vec<Address>>(&key)
+            .get::<BetRegistryKey, soroban_sdk::Vec<Address>>(&key)
             .unwrap_or(soroban_sdk::Vec::new(env))
     }
 
@@ -533,10 +541,11 @@ impl BetStorage {
     }
 
     /// Generate storage key for market bet registry.
-    fn get_bet_registry_key(_env: &Env, market_id: &Symbol) -> Symbol {
-        // Use a composite key approach: prefix + market_id hash
-        // For now, we use the market_id directly as the registry is per-market
-        market_id.clone()
+    fn get_bet_registry_key(env: &Env, market_id: &Symbol) -> BetRegistryKey {
+        BetRegistryKey {
+            tag: Symbol::new(env, "Registry"),
+            market_id: market_id.clone(),
+        }
     }
 }
 
