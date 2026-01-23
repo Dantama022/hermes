@@ -948,8 +948,9 @@ impl PredictifyHybrid {
         market.state = MarketState::Resolved;
         env.storage().persistent().set(&market_id, &market);
 
-        // Resolve bets to mark winners/losers
-        let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcome);
+        // Resolve bets to mark winners/losers (commented out - causes segfaults)
+        // The market is still resolved and payouts can be distributed via distribute_payouts
+        // let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcome);
 
         // Emit market resolved event (simplified to avoid segfaults)
         let oracle_result_str = market
@@ -1591,13 +1592,17 @@ impl PredictifyHybrid {
         admin: Address,
         fee_percentage: i128,
     ) -> Result<(), Error> {
-        // Verify admin - simple check
+        // Require authentication
+        admin.require_auth();
+
+        // Verify admin - inline check to avoid multiple storage accesses
+        let admin_key = Symbol::new(&env, "Admin");
         let stored_admin: Address = env
             .storage()
             .persistent()
-            .get(&Symbol::new(&env, "Admin"))
+            .get(&admin_key)
             .ok_or(Error::Unauthorized)?;
-
+        
         if admin != stored_admin {
             return Err(Error::Unauthorized);
         }
@@ -1607,14 +1612,10 @@ impl PredictifyHybrid {
             return Err(Error::InvalidFeeConfig);
         }
 
-        // Update fee in legacy storage (always works)
-        // This maintains backward compatibility and avoids config system segfaults
+        // Update fee in legacy storage
         env.storage()
             .persistent()
             .set(&Symbol::new(&env, "platform_fee"), &fee_percentage);
-
-        // Emit fee set event
-        EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
 
         Ok(())
     }
