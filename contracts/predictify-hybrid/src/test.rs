@@ -975,14 +975,6 @@ fn test_automatic_payout_distribution() {
         max_entry_ttl: 10000,
     });
 
-    // Initialize config if it doesn't exist (required for distribute_payouts)
-    test.env.as_contract(&test.contract_id, || {
-        if crate::config::ConfigManager::get_config(&test.env).is_err() {
-            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
-            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
-        }
-    });
-
     // Resolve market manually
     test.env.mock_all_auths();
     client.resolve_market_manual(
@@ -1347,14 +1339,6 @@ fn test_manual_dispute_resolution() {
         max_entry_ttl: 10000,
     });
 
-    // Initialize config if it doesn't exist (required for resolve_market_manual which calls distribute_payouts)
-    test.env.as_contract(&test.contract_id, || {
-        if crate::config::ConfigManager::get_config(&test.env).is_err() {
-            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
-            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
-        }
-    });
-
     // Manually resolve market (simulating dispute resolution)
     test.env.mock_all_auths();
     client.resolve_market_manual(
@@ -1503,14 +1487,6 @@ fn test_manual_dispute_resolution_triggers_payout() {
         min_temp_entry_ttl: 1,
         min_persistent_entry_ttl: 1,
         max_entry_ttl: 10000,
-    });
-
-    // Initialize config if it doesn't exist (required for resolve_market_manual which calls distribute_payouts)
-    test.env.as_contract(&test.contract_id, || {
-        if crate::config::ConfigManager::get_config(&test.env).is_err() {
-            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
-            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
-        }
     });
 
     // Manually resolve (this should trigger payout distribution)

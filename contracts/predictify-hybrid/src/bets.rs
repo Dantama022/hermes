@@ -203,6 +203,12 @@ impl BetManager {
 
         // Update market's total staked (for payout pool calculation)
         market.total_staked += amount;
+        
+        // Also update votes and stakes for backward compatibility with payout distribution
+        // This allows distribute_payouts to work with both bets and votes
+        market.votes.set(user.clone(), outcome.clone());
+        market.stakes.set(user.clone(), amount);
+        
         MarketStateManager::update_market(env, &market_id, &market);
 
         // Emit bet placed event

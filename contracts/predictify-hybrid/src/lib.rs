@@ -977,10 +977,8 @@ impl PredictifyHybrid {
             &String::from_str(&env, "Manual resolution by admin"),
         );
 
-        // Trigger automatic payout distribution for dispute resolution
-        // Note: This can be called separately, but we include it here for convenience
-        // In production, you might want to make this optional or separate
-        let _ = Self::distribute_payouts(env.clone(), market_id.clone());
+        // Note: Payout distribution should be called separately via distribute_payouts()
+        // We don't call it here to avoid potential issues and allow explicit control
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
@@ -1474,101 +1472,63 @@ impl PredictifyHybrid {
             None => return Err(Error::MarketNotResolved),
         };
 
-        // Get fee configuration
-        let cfg = match crate::config::ConfigManager::get_config(&env) {
-            Ok(c) => c,
-            Err(_) => return Err(Error::ConfigurationNotFound),
-        };
-        let fee_percent = cfg.fees.platform_fee_percentage;
+        // Get fee from legacy storage (backward compatible)
+        let fee_percent = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap_or(200); // Default 2% if not set
 
-        // Check for bets first (bets are separate from votes)
-        let bet_users = bets::BetStorage::get_all_bets_for_market(&env, &market_id);
+        // Since place_bet now updates market.votes and market.stakes,
+        // we can use the vote-based payout system for both bets and votes
         let mut total_distributed = 0;
-
-        // Distribute payouts for bets if they exist
-        if bet_users.len() > 0 {
-            let bet_stats = bets::BetStorage::get_market_bet_stats(&env, &market_id);
-            let winning_total = bet_stats.outcome_totals.get(winning_outcome.clone()).unwrap_or(0);
-            let total_pool = bet_stats.total_amount_locked;
-
-            if winning_total > 0 && total_pool > 0 {
-                for bet_user in bet_users.iter() {
-                    if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &bet_user) {
-                        // Check if bet is on winning outcome and is active
-                        if bet.outcome == *winning_outcome && bet.is_active() {
-                            // Skip if already claimed
-                            if market.claimed.get(bet_user.clone()).unwrap_or(false) {
-                                continue;
-                            }
-
-                            // Calculate payout directly
-                            let fee_denominator = 10000i128;
-                            let user_share = (bet.amount * (fee_denominator - fee_percent)) / fee_denominator;
-                            let payout = (user_share * total_pool) / winning_total;
-
-                            if payout > 0 {
-                                // Mark as claimed in market
-                                market.claimed.set(bet_user.clone(), true);
-                                total_distributed += payout;
-
-                                // Emit winnings claimed event
-                                EventEmitter::emit_winnings_claimed(&env, &market_id, &bet_user, payout);
-                            }
-                        }
-                    }
-                }
-                // Update market state after bet payouts
-                env.storage().persistent().set(&market_id, &market);
-            }
-        } else {
-            // Fall back to votes if no bets
-            // Check if payouts have already been distributed
-            let mut has_unclaimed_winners = false;
-            for (user, outcome) in market.votes.iter() {
-                if &outcome == winning_outcome {
-                    if !market.claimed.get(user.clone()).unwrap_or(false) {
-                        has_unclaimed_winners = true;
-                        break;
-                    }
+        
+        // Check if payouts have already been distributed
+        let mut has_unclaimed_winners = false;
+        for (user, outcome) in market.votes.iter() {
+            if &outcome == winning_outcome {
+                if !market.claimed.get(user.clone()).unwrap_or(false) {
+                    has_unclaimed_winners = true;
+                    break;
                 }
             }
+        }
 
-            if !has_unclaimed_winners {
-                return Ok(0);
+        if !has_unclaimed_winners {
+            return Ok(0);
+        }
+
+        // Calculate total winning stakes
+        let mut winning_total = 0;
+        for (voter, outcome) in market.votes.iter() {
+            if &outcome == winning_outcome {
+                winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
             }
+        }
 
-            // Calculate total winning stakes
-            let mut winning_total = 0;
-            for (voter, outcome) in market.votes.iter() {
-                if &outcome == winning_outcome {
-                    winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
+        if winning_total == 0 {
+            return Ok(0);
+        }
+
+        let total_pool = market.total_staked;
+
+        // Distribute payouts to all winners
+        for (user, outcome) in market.votes.iter() {
+            if &outcome == winning_outcome {
+                if market.claimed.get(user.clone()).unwrap_or(false) {
+                    continue;
                 }
-            }
 
-            if winning_total == 0 {
-                return Ok(0);
-            }
+                let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
+                if user_stake > 0 {
+                    let fee_denominator = 10000i128;
+                    let user_share = (user_stake * (fee_denominator - fee_percent)) / fee_denominator;
+                    let payout = (user_share * total_pool) / winning_total;
 
-            let total_pool = market.total_staked;
-
-            // Distribute payouts to all winners
-            for (user, outcome) in market.votes.iter() {
-                if &outcome == winning_outcome {
-                    if market.claimed.get(user.clone()).unwrap_or(false) {
-                        continue;
-                    }
-
-                    let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
-                    if user_stake > 0 {
-                        let fee_denominator = 10000i128;
-                        let user_share = (user_stake * (fee_denominator - fee_percent)) / fee_denominator;
-                        let payout = (user_share * total_pool) / winning_total;
-
-                        if payout > 0 {
-                            market.claimed.set(user.clone(), true);
-                            total_distributed += payout;
-                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
-                        }
+                    if payout > 0 {
+                        market.claimed.set(user.clone(), true);
+                        total_distributed += payout;
+                        EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
                     }
                 }
             }
