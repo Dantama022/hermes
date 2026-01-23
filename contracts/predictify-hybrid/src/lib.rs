@@ -1648,19 +1648,11 @@ impl PredictifyHybrid {
             return Err(Error::InvalidFeeConfig);
         }
 
-        // Update fee configuration
-        let mut cfg = match crate::config::ConfigManager::get_config(&env) {
-            Ok(c) => c,
-            Err(_) => {
-                // If config doesn't exist, create a default one
-                let default_config = crate::config::ConfigManager::get_development_config(&env);
-                crate::config::ConfigManager::store_config(&env, &default_config)?;
-                default_config
-            }
-        };
-
-        cfg.fees.platform_fee_percentage = fee_percentage;
-        crate::config::ConfigManager::update_config(&env, &cfg)?;
+        // Update fee in legacy storage (always works)
+        // This maintains backward compatibility and avoids config system segfaults
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "platform_fee"), &fee_percentage);
 
         // Emit fee set event
         EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
