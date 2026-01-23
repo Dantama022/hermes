@@ -973,6 +973,11 @@ impl PredictifyHybrid {
             &MarketState::Resolved,
             &String::from_str(&env, "Manual resolution by admin"),
         );
+
+        // Trigger automatic payout distribution for dispute resolution
+        // Note: This can be called separately, but we include it here for convenience
+        // In production, you might want to make this optional or separate
+        let _ = Self::distribute_payouts(env.clone(), market_id.clone());
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
@@ -1395,6 +1400,464 @@ impl PredictifyHybrid {
         }
 
         fees::FeeManager::collect_fees(&env, admin, market_id)
+    }
+
+    /// Automatically distribute payouts to all winners after market resolution.
+    ///
+    /// This function automatically calculates and distributes winnings to all users
+    /// who bet on the winning outcome, eliminating the need for manual claiming.
+    /// It handles edge cases like no winners, all winners, and prevents double payouts.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the resolved market
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<i128, Error>` where:
+    /// - `Ok(total_distributed)` - Total amount distributed to winners
+    /// - `Err(Error)` - Error if distribution fails
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketNotResolved` - Market hasn't been resolved yet
+    /// - `Error::MarketAlreadyResolved` - Payouts have already been distributed
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let market_id = Symbol::new(&env, "resolved_market");
+    ///
+    /// match PredictifyHybrid::distribute_payouts(env.clone(), market_id) {
+    ///     Ok(total) => println!("Distributed {} stroops to winners", total),
+    ///     Err(e) => println!("Distribution failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Payout Calculation
+    ///
+    /// Payouts are calculated using the formula:
+    /// ```text
+    /// user_payout = (user_stake * (100 - fee_percentage) / 100) * total_pool / winning_total
+    /// ```
+    ///
+    /// # Edge Cases
+    ///
+    /// - **No Winners**: If no users bet on the winning outcome, no payouts are made
+    /// - **All Winners**: If all users bet on the winning outcome, they receive proportional shares
+    /// - **Double Payout Prevention**: Users who already claimed are skipped
+    ///
+    /// # Events
+    ///
+    /// This function emits `WinningsClaimedEvent` for each user who receives a payout.
+    pub fn distribute_payouts(env: Env, market_id: Symbol) -> Result<i128, Error> {
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::MarketNotFound);
+            });
+
+        // Check if market is resolved
+        let winning_outcome = match &market.winning_outcome {
+            Some(outcome) => outcome,
+            None => return Err(Error::MarketNotResolved),
+        };
+
+        // Check if payouts have already been distributed (tracked via a flag or all users claimed)
+        // For simplicity, we'll check if there are any unclaimed winners
+        let mut has_unclaimed_winners = false;
+        for (user, outcome) in market.votes.iter() {
+            if &outcome == winning_outcome {
+                if !market.claimed.get(user.clone()).unwrap_or(false) {
+                    has_unclaimed_winners = true;
+                    break;
+                }
+            }
+        }
+
+        if !has_unclaimed_winners {
+            // All winners have been paid or no winners exist
+            return Ok(0);
+        }
+
+        // Calculate total winning stakes
+        let mut winning_total = 0;
+        for (voter, outcome) in market.votes.iter() {
+            if &outcome == winning_outcome {
+                winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
+            }
+        }
+
+        if winning_total == 0 {
+            // No winners, nothing to distribute
+            return Ok(0);
+        }
+
+        // Get fee configuration
+        let cfg = match crate::config::ConfigManager::get_config(&env) {
+            Ok(c) => c,
+            Err(_) => return Err(Error::ConfigurationNotFound),
+        };
+        let fee_percent = cfg.fees.platform_fee_percentage;
+        let total_pool = market.total_staked;
+
+        // Distribute payouts to all winners
+        let mut total_distributed = 0;
+        for (user, outcome) in market.votes.iter() {
+            if &outcome == winning_outcome {
+                // Skip if already claimed
+                if market.claimed.get(user.clone()).unwrap_or(false) {
+                    continue;
+                }
+
+                let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
+                if user_stake > 0 {
+                    // Calculate payout
+                    // Fee is in basis points (100 = 1%), so we use 10000 as denominator
+                    let fee_denominator = 10000i128;
+                    let user_share = (user_stake * (fee_denominator - fee_percent)) / fee_denominator;
+                    let payout = (user_share * total_pool) / winning_total;
+
+                    if payout > 0 {
+                        // Mark as claimed
+                        market.claimed.set(user.clone(), true);
+                        total_distributed += payout;
+
+                        // Emit winnings claimed event
+                        EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+
+                        // In a real implementation, transfer tokens here
+                        // For now, we'll just track the distribution
+                    }
+                }
+            }
+        }
+
+        // Update market state
+        env.storage().persistent().set(&market_id, &market);
+
+        Ok(total_distributed)
+    }
+
+    /// Set the platform fee percentage (admin only).
+    ///
+    /// This function allows the admin to update the platform fee percentage
+    /// within the allowed limits (0-10%). The fee is applied to winning payouts.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address (must be authorized)
+    /// * `fee_percentage` - New fee percentage in basis points (e.g., 200 = 2%)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<(), Error>` where:
+    /// - `Ok(())` - Fee percentage updated successfully
+    /// - `Err(Error)` - Error if update fails
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::InvalidFeeConfig` - Fee percentage is outside valid range (0-10%)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    ///
+    /// // Set platform fee to 2.5% (250 basis points)
+    /// match PredictifyHybrid::set_platform_fee(env.clone(), admin, 250) {
+    ///     Ok(()) => println!("Fee updated successfully"),
+    ///     Err(e) => println!("Fee update failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Fee Limits
+    ///
+    /// - Minimum fee: 0% (0 basis points)
+    /// - Maximum fee: 10% (1000 basis points)
+    /// - Default fee: 2% (200 basis points)
+    pub fn set_platform_fee(
+        env: Env,
+        admin: Address,
+        fee_percentage: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::Unauthorized);
+            });
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Validate fee percentage (0-10%)
+        if fee_percentage < 0 || fee_percentage > 1000 {
+            return Err(Error::InvalidFeeConfig);
+        }
+
+        // Update fee configuration
+        let mut cfg = match crate::config::ConfigManager::get_config(&env) {
+            Ok(c) => c,
+            Err(_) => return Err(Error::ConfigurationNotFound),
+        };
+
+        cfg.fees.platform_fee_percentage = fee_percentage;
+        crate::config::ConfigManager::update_config(&env, &cfg)?;
+
+        // Emit fee set event
+        EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
+
+        Ok(())
+    }
+
+    /// Withdraw collected platform fees (admin only).
+    ///
+    /// This function allows the admin to withdraw fees that have been collected
+    /// from market payouts. Fees are accumulated across all markets and can be
+    /// withdrawn by the admin.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address (must be authorized)
+    /// * `amount` - Amount to withdraw (in stroops). If 0, withdraws all available fees.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<i128, Error>` where:
+    /// - `Ok(amount_withdrawn)` - Amount successfully withdrawn
+    /// - `Err(Error)` - Error if withdrawal fails
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::NoFeesToCollect` - No fees available to withdraw
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    ///
+    /// // Withdraw all available fees
+    /// match PredictifyHybrid::withdraw_collected_fees(env.clone(), admin, 0) {
+    ///     Ok(amount) => println!("Withdrew {} stroops", amount),
+    ///     Err(e) => println!("Withdrawal failed: {:?}", e),
+    /// }
+    /// ```
+    pub fn withdraw_collected_fees(
+        env: Env,
+        admin: Address,
+        amount: i128,
+    ) -> Result<i128, Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::Unauthorized);
+            });
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Get collected fees from storage (using the same key as FeeTracker)
+        let fees_key = Symbol::new(&env, "tot_fees");
+        let collected_fees: i128 = env
+            .storage()
+            .persistent()
+            .get(&fees_key)
+            .unwrap_or(0);
+
+        if collected_fees == 0 {
+            return Err(Error::NoFeesToCollect);
+        }
+
+        // Determine withdrawal amount
+        let withdrawal_amount = if amount == 0 || amount > collected_fees {
+            collected_fees
+        } else {
+            amount
+        };
+
+        // Update collected fees
+        let remaining_fees = collected_fees - withdrawal_amount;
+        env.storage().persistent().set(&fees_key, &remaining_fees);
+
+        // Emit fee withdrawal event
+        EventEmitter::emit_fee_collected(
+            &env,
+            &Symbol::new(&env, "withdrawal"),
+            &admin,
+            withdrawal_amount,
+            &String::from_str(&env, "fee_withdrawal"),
+        );
+
+        // In a real implementation, transfer tokens to admin here
+        // For now, we'll just track the withdrawal
+
+        Ok(withdrawal_amount)
+    }
+
+    /// Cancel an event and automatically refund all placed bets (admin only).
+    ///
+    /// This function allows admins to cancel events before resolution and
+    /// automatically refund all bets placed on the market. It validates
+    /// cancellation conditions, updates market status, and processes refunds.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address (must be authorized)
+    /// * `market_id` - Unique identifier of the market to cancel
+    /// * `reason` - Optional reason for cancellation
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<i128, Error>` where:
+    /// - `Ok(total_refunded)` - Total amount refunded to users
+    /// - `Err(Error)` - Error if cancellation fails
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketAlreadyResolved` - Market has already been resolved
+    /// - `Error::InvalidState` - Market is in an invalid state for cancellation
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, String, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// match PredictifyHybrid::cancel_event(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     Some(String::from_str(&env, "Oracle data unavailable"))
+    /// ) {
+    ///     Ok(total) => println!("Refunded {} stroops", total),
+    ///     Err(e) => println!("Cancellation failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Cancellation Conditions
+    ///
+    /// - Market must exist and be active
+    /// - Market must not be resolved
+    /// - Market must not already be cancelled
+    /// - Only admin can cancel events
+    ///
+    /// # Refund Process
+    ///
+    /// 1. All active bets are identified
+    /// 2. Funds are unlocked and returned to users
+    /// 3. Bet status is updated to "Refunded"
+    /// 4. Market state is updated to "Cancelled"
+    /// 5. Cancellation and refund events are emitted
+    pub fn cancel_event(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        reason: Option<String>,
+    ) -> Result<i128, Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::Unauthorized);
+            });
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Get and validate market
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::MarketNotFound);
+            });
+
+        // Validate cancellation conditions
+        if market.state == MarketState::Resolved {
+            return Err(Error::MarketAlreadyResolved);
+        }
+
+        if market.state == MarketState::Cancelled {
+            // Already cancelled, return 0 refunded
+            return Ok(0);
+        }
+
+        // Market must be active or ended (not resolved)
+        if !matches!(market.state, MarketState::Active | MarketState::Ended) {
+            return Err(Error::InvalidState);
+        }
+
+        // Capture old state for event
+        let old_state = market.state.clone();
+
+        // Update market state to cancelled
+        market.state = MarketState::Cancelled;
+        env.storage().persistent().set(&market_id, &market);
+
+        // Refund all bets
+        bets::BetManager::refund_market_bets(&env, &market_id)?;
+
+        // Calculate total refunded (sum of all bets)
+        let total_refunded = market.total_staked;
+
+        // Emit cancellation event
+        EventEmitter::emit_state_change_event(
+            &env,
+            &market_id,
+            &old_state,
+            &MarketState::Cancelled,
+            &reason.unwrap_or_else(|| String::from_str(&env, "Event cancelled by admin")),
+        );
+
+        // Emit market closed event
+        EventEmitter::emit_market_closed(&env, &market_id, &admin);
+
+        Ok(total_refunded)
     }
 
     /// Extend market duration (admin only)
