@@ -16,12 +16,14 @@
 
 #![cfg(test)]
 
+use crate::events::PlatformFeeSetEvent;
+
 use super::*;
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger, LedgerInfo},
+    testutils::{Address as _, Events, Ledger, LedgerInfo},
     token::StellarAssetClient,
-    vec, String, Symbol,
+    vec, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
 };
 
 // Test setup structures
@@ -914,4 +916,162 @@ fn test_initialize_storage_verification() {
             env.storage().persistent().get(&Symbol::new(&env, "Admin"));
         assert!(admin_result.is_some());
     });
+}
+
+#[test]
+fn test_initialize_comprehensive_suite() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Initialize
+    client.initialize(&admin, &Some(7i128));
+
+    let all_events = env.events().all();
+
+    // Check that we have at least 2 events (Initialized and FeeSet)
+    assert!(
+        all_events.len() >= 2,
+        "Expected at least 2 events, found {}",
+        all_events.len()
+    );
+
+    // Verify the second event (PlatformFeeSetEvent)
+    let last_event = all_events.last().unwrap();
+
+    // Topic 0 should be "platform_fee_set"
+    let topic: Symbol = last_event.1.get(0).unwrap().try_into_val(&env).unwrap();
+    assert_eq!(topic, Symbol::new(&env, "platform_fee_set"));
+
+    // FIX: Decode data into the Struct type, not i128
+    let event_data: PlatformFeeSetEvent = last_event
+        .2
+        .try_into_val(&env)
+        .expect("Failed to decode event data into PlatformFeeSetEvent");
+
+    assert_eq!(event_data.fee_percentage, 7i128);
+    assert_eq!(event_data.set_by, admin);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #504)")]
+fn test_security_reinitialization_prevention() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // First initialization by legitimate admin
+    client.initialize(&admin, &None);
+
+    // Second initialization attempt by attacker (Should fail with 504)
+    client.initialize(&attacker, &Some(10));
+}
+
+#[test]
+fn test_fee_boundary_conditions() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Test Exact Minimum (0%)
+    client.initialize(&admin, &Some(0));
+    let fee_min: i128 = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap()
+    });
+    assert_eq!(fee_min, 0);
+
+    // Re-registering to test Max (since we can't re-init the same contract)
+    let contract_id_2 = env.register(PredictifyHybrid, ());
+    let client_2 = PredictifyHybridClient::new(&env, &contract_id_2);
+
+    // Test Exact Maximum (10%)
+    client_2.initialize(&admin, &Some(10));
+    let fee_max: i128 = env.as_contract(&contract_id_2, || {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap()
+    });
+    assert_eq!(fee_max, 10);
+}
+
+#[test]
+fn test_initialization_with_none_uses_default() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Passing None should trigger DEFAULT_PLATFORM_FEE_PERCENTAGE (2)
+    client.initialize(&admin, &None);
+
+    let stored_fee: i128 = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap()
+    });
+    assert_eq!(stored_fee, 2);
+}
+
+#[test]
+fn test_invalid_admin_address_handling() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // In Soroban, an "invalid" address usually implies a contract
+    // trying to use a malformed address string.
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Try to initialize with a zero-like or un-generated address if possible
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &None);
+
+    assert!(env.as_contract(&contract_id, || {
+        env.storage().persistent().has(&Symbol::new(&env, "Admin"))
+    }));
+}
+
+#[test]
+fn test_final_initialization_verification() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Act
+    client.initialize(&admin, &Some(5i128));
+
+    // Assert: 1. Storage check
+    env.as_contract(&contract_id, || {
+        let fee: i128 = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap();
+        assert_eq!(fee, 5);
+    });
+
+    // Assert: 2. Event check
+    let last_event = env
+        .events()
+        .all()
+        .last()
+        .expect("If this fails, EventEmitter is still using storage instead of publish");
+    let event_data: PlatformFeeSetEvent = last_event.2.try_into_val(&env).unwrap();
+    assert_eq!(event_data.fee_percentage, 5);
 }

@@ -193,7 +193,13 @@ impl BetManager {
         BetUtils::lock_funds(env, &user, amount)?;
 
         // Create bet
-        let bet = Bet::new(env, user.clone(), market_id.clone(), outcome.clone(), amount);
+        let bet = Bet::new(
+            env,
+            user.clone(),
+            market_id.clone(),
+            outcome.clone(),
+            amount,
+        );
 
         // Store bet
         BetStorage::store_bet(env, &bet)?;
@@ -758,11 +764,7 @@ impl BetAnalytics {
     /// # Returns
     ///
     /// Returns the implied probability as a percentage (0-100).
-    pub fn calculate_implied_probability(
-        env: &Env,
-        market_id: &Symbol,
-        outcome: &String,
-    ) -> i128 {
+    pub fn calculate_implied_probability(env: &Env, market_id: &Symbol, outcome: &String) -> i128 {
         let stats = BetStorage::get_market_bet_stats(env, market_id);
 
         if stats.total_amount_locked == 0 {
@@ -840,8 +842,8 @@ mod tests {
 
     #[test]
     fn test_bet_status_transitions() {
-        use soroban_sdk::Env;
         use soroban_sdk::testutils::Address as _;
+        use soroban_sdk::Env;
 
         let env = Env::default();
         let user = Address::generate(&env);
