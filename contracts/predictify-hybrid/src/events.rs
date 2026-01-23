@@ -178,6 +178,131 @@ pub struct VoteCastEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a user places a bet on a prediction market event.
+///
+/// This event captures all details of bet placement activity, including bettor identity,
+/// selected outcome, locked amount, and timing. Critical for tracking market
+/// activity, calculating payouts, and maintaining betting transparency.
+///
+/// # Bet vs Vote Distinction
+///
+/// - **Bet**: Financial wager on predicted outcome with locked funds for payout
+/// - **Vote**: Participation in community consensus for market resolution
+///
+/// Bets represent a user's prediction and financial commitment, while votes
+/// contribute to the community resolution mechanism.
+///
+/// # Bet Information
+///
+/// Records complete betting context:
+/// - Market and bettor identification
+/// - Selected outcome prediction
+/// - Amount of funds locked in the contract
+/// - Precise timing for chronological analysis
+///
+/// # Example Usage
+///
+/// ```rust
+/// # use soroban_sdk::{Env, Address, Symbol, String};
+/// # use predictify_hybrid::events::BetPlacedEvent;
+/// # let env = Env::default();
+/// # let bettor = Address::generate(&env);
+///
+/// // Bet placement event data
+/// let event = BetPlacedEvent {
+///     market_id: Symbol::new(&env, "btc_50k_2024"),
+///     bettor: bettor.clone(),
+///     outcome: String::from_str(&env, "Yes"),
+///     amount: 10_000_000, // 1.0 XLM locked
+///     timestamp: env.ledger().timestamp(),
+/// };
+///
+/// // Event provides complete betting context
+/// println!("Bet placed by: {}", event.bettor.to_string());
+/// println!("Market: {}", event.market_id.to_string());
+/// println!("Outcome prediction: {}", event.outcome.to_string());
+/// println!("Amount locked: {} XLM", event.amount / 10_000_000);
+/// ```
+///
+/// # Fund Locking
+///
+/// When a bet is placed:
+/// 1. User's funds are transferred to the contract
+/// 2. Funds remain locked until market resolution
+/// 3. Upon resolution:
+///    - Winners receive proportional share of betting pool (minus fees)
+///    - Losers forfeit their locked funds
+///    - Refunds issued if market is cancelled
+///
+/// # Economic Tracking
+///
+/// Enables comprehensive economic analysis:
+/// - **Pool Distribution**: Track total locked funds across outcomes
+/// - **Bettor Activity**: Analyze betting patterns and amounts
+/// - **Market Liquidity**: Monitor total bets and participation levels
+/// - **Implied Odds**: Calculate implied probabilities from bet amounts
+///
+/// # Integration Applications
+///
+/// - **Real-time Updates**: Live market activity feeds
+/// - **Analytics Dashboards**: Betting pattern analysis and visualization
+/// - **Payout Calculation**: Amount-weighted payout distributions
+/// - **User Portfolios**: Track individual betting history and performance
+/// - **Market Sentiment**: Aggregate betting trends and momentum analysis
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BetPlacedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Bettor address
+    pub bettor: Address,
+    /// Selected outcome
+    pub outcome: String,
+    /// Amount locked
+    pub amount: i128,
+    /// Bet placement timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when a bet's status is updated (won, lost, refunded).
+///
+/// This event tracks bet resolution status changes, providing transparency
+/// for payout processing and user notification.
+///
+/// # Example Usage
+///
+/// ```rust
+/// # use soroban_sdk::{Env, Address, Symbol, String};
+/// # use predictify_hybrid::events::BetStatusUpdatedEvent;
+/// # let env = Env::default();
+/// # let bettor = Address::generate(&env);
+///
+/// let event = BetStatusUpdatedEvent {
+///     market_id: Symbol::new(&env, "btc_50k_2024"),
+///     bettor: bettor.clone(),
+///     old_status: String::from_str(&env, "Active"),
+///     new_status: String::from_str(&env, "Won"),
+///     payout_amount: Some(15_000_000), // 1.5 XLM payout
+///     timestamp: env.ledger().timestamp(),
+/// };
+/// ```
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BetStatusUpdatedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Bettor address
+    pub bettor: Address,
+    /// Previous bet status
+    pub old_status: String,
+    /// New bet status
+    pub new_status: String,
+    /// Payout amount (if won)
+    pub payout_amount: Option<i128>,
+    /// Status update timestamp
+    pub timestamp: u64,
+}
+
 /// Event emitted when oracle data is successfully fetched for market resolution.
 ///
 /// This event captures comprehensive oracle data retrieval information, including
@@ -1129,6 +1254,94 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("vote"), &event);
+    }
+
+    /// Emit bet placed event when a user places a bet on a market
+    ///
+    /// This function emits an event when a user successfully places a bet,
+    /// locking their funds in the contract for the duration of the market.
+    ///
+    /// # Parameters
+    ///
+    /// - `env` - Soroban environment
+    /// - `market_id` - Market identifier
+    /// - `bettor` - Address of the user placing the bet
+    /// - `outcome` - The outcome the user is betting on
+    /// - `amount` - The amount of funds locked for this bet
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// EventEmitter::emit_bet_placed(
+    ///     &env,
+    ///     &market_id,
+    ///     &user_address,
+    ///     &String::from_str(&env, "Yes"),
+    ///     10_000_000 // 1.0 XLM
+    /// );
+    /// ```
+    pub fn emit_bet_placed(
+        env: &Env,
+        market_id: &Symbol,
+        bettor: &Address,
+        outcome: &String,
+        amount: i128,
+    ) {
+        let event = BetPlacedEvent {
+            market_id: market_id.clone(),
+            bettor: bettor.clone(),
+            outcome: outcome.clone(),
+            amount,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("bet_plc"), &event);
+    }
+
+    /// Emit bet status updated event when a bet's status changes
+    ///
+    /// This function emits an event when a bet's status is updated
+    /// (e.g., Active → Won, Active → Lost, Active → Refunded).
+    ///
+    /// # Parameters
+    ///
+    /// - `env` - Soroban environment
+    /// - `market_id` - Market identifier
+    /// - `bettor` - Address of the bettor
+    /// - `old_status` - Previous bet status
+    /// - `new_status` - New bet status
+    /// - `payout_amount` - Optional payout amount (if bet won)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// EventEmitter::emit_bet_status_updated(
+    ///     &env,
+    ///     &market_id,
+    ///     &user_address,
+    ///     &String::from_str(&env, "Active"),
+    ///     &String::from_str(&env, "Won"),
+    ///     Some(15_000_000) // 1.5 XLM payout
+    /// );
+    /// ```
+    pub fn emit_bet_status_updated(
+        env: &Env,
+        market_id: &Symbol,
+        bettor: &Address,
+        old_status: &String,
+        new_status: &String,
+        payout_amount: Option<i128>,
+    ) {
+        let event = BetStatusUpdatedEvent {
+            market_id: market_id.clone(),
+            bettor: bettor.clone(),
+            old_status: old_status.clone(),
+            new_status: new_status.clone(),
+            payout_amount,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("bet_upd"), &event);
     }
 
     /// Emit oracle result event

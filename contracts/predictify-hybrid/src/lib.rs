@@ -9,6 +9,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 // Module declarations - all modules enabled
 mod admin;
 mod batch_operations;
+mod bets;
 mod circuit_breaker;
 mod config;
 mod disputes;
@@ -59,6 +60,9 @@ mod property_based_tests;
 
 #[cfg(test)]
 mod upgrade_manager_tests;
+
+#[cfg(test)]
+mod bet_tests;
 
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
@@ -389,6 +393,272 @@ impl PredictifyHybrid {
 
         // Emit vote cast event
         EventEmitter::emit_vote_cast(&env, &market_id, &user, &outcome, stake);
+    }
+
+    /// Places a bet on a prediction market event by locking user funds.
+    ///
+    /// This function enables users to place bets on active prediction markets,
+    /// selecting an outcome they predict will occur and locking funds as their wager.
+    /// Bets are distinct from votes - bets represent financial wagers while votes
+    /// participate in community resolution consensus.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `user` - The address of the user placing the bet (must be authenticated)
+    /// * `market_id` - Unique identifier of the market to bet on
+    /// * `outcome` - The outcome the user predicts will occur
+    /// * `amount` - Amount of tokens to lock for this bet (in base token units)
+    ///
+    /// # Returns
+    ///
+    /// Returns the created `Bet` struct containing bet details on success.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketClosed` - Market betting period has ended or market is not active
+    /// - `Error::MarketAlreadyResolved` - Market has already been resolved
+    /// - `Error::InvalidOutcome` - Outcome doesn't match any market outcomes
+    /// - `Error::AlreadyBet` - User has already placed a bet on this market
+    /// - `Error::InsufficientStake` - Bet amount is below minimum (0.1 XLM)
+    /// - `Error::InvalidInput` - Bet amount exceeds maximum (10,000 XLM)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, String, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "btc_50k");
+    ///
+    /// // Place a bet of 1 XLM on "Yes" outcome
+    /// let bet = PredictifyHybrid::place_bet(
+    ///     env.clone(),
+    ///     user,
+    ///     market_id,
+    ///     String::from_str(&env, "Yes"),
+    ///     10_000_000 // 1.0 XLM in stroops
+    /// );
+    /// ```
+    ///
+    /// # Fund Locking
+    ///
+    /// When a bet is placed:
+    /// 1. User's funds (XLM or Stellar tokens) are transferred to the contract
+    /// 2. Funds remain locked until market resolution
+    /// 3. Upon resolution:
+    ///    - Winners receive proportional share of total bet pool (minus fees)
+    ///    - Losers forfeit their locked funds
+    ///    - Refunds issued if market is cancelled
+    ///
+    /// # Double Betting Prevention
+    ///
+    /// Users can only place ONE bet per market. Attempting to bet again will
+    /// result in an `Error::AlreadyBet` error. This ensures fair distribution
+    /// of rewards and prevents manipulation.
+    ///
+    /// # Market State Requirements
+    ///
+    /// - Market must be in `Active` state
+    /// - Current time must be before market end time
+    /// - Market must not be resolved or cancelled
+    ///
+    /// # Security
+    ///
+    /// - User authentication via `require_auth()`
+    /// - Balance validation before fund transfer
+    /// - Atomic fund locking with bet creation
+    /// - Reentrancy protection via Soroban's design
+    pub fn place_bet(
+        env: Env,
+        user: Address,
+        market_id: Symbol,
+        outcome: String,
+        amount: i128,
+    ) -> crate::types::Bet {
+        // Use the BetManager to handle the bet placement
+        match bets::BetManager::place_bet(&env, user, market_id, outcome, amount) {
+            Ok(bet) => bet,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    /// Retrieves a user's bet on a specific market.
+    ///
+    /// This function provides read-only access to a user's bet details including
+    /// the selected outcome, locked amount, and bet status.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    /// * `user` - Address of the user whose bet to retrieve
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(Bet)` if the user has placed a bet on this market,
+    /// `None` if no bet exists.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "btc_50k");
+    ///
+    /// match PredictifyHybrid::get_bet(env.clone(), market_id, user) {
+    ///     Some(bet) => {
+    ///         // User has a bet
+    ///         println!("Bet amount: {}", bet.amount);
+    ///         println!("Selected outcome: {:?}", bet.outcome);
+    ///         println!("Status: {:?}", bet.status);
+    ///     },
+    ///     None => {
+    ///         // User has not placed a bet on this market
+    ///     }
+    /// }
+    /// ```
+    pub fn get_bet(env: Env, market_id: Symbol, user: Address) -> Option<crate::types::Bet> {
+        bets::BetManager::get_bet(&env, &market_id, &user)
+    }
+
+    /// Checks if a user has already placed a bet on a specific market.
+    ///
+    /// This function provides a quick check to determine if a user has
+    /// an existing bet on a market before attempting to place a new bet.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    /// * `user` - Address of the user to check
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the user has already placed a bet, `false` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "btc_50k");
+    ///
+    /// if PredictifyHybrid::has_user_bet(env.clone(), market_id.clone(), user.clone()) {
+    ///     println!("User has already placed a bet on this market");
+    /// } else {
+    ///     println!("User can place a bet");
+    /// }
+    /// ```
+    pub fn has_user_bet(env: Env, market_id: Symbol, user: Address) -> bool {
+        bets::BetManager::has_user_bet(&env, &market_id, &user)
+    }
+
+    /// Retrieves betting statistics for a specific market.
+    ///
+    /// This function provides aggregate information about betting activity
+    /// on a market, including total bets, locked amounts, and per-outcome totals.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    ///
+    /// # Returns
+    ///
+    /// Returns `BetStats` with comprehensive betting statistics.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let market_id = Symbol::new(&env, "btc_50k");
+    ///
+    /// let stats = PredictifyHybrid::get_market_bet_stats(env.clone(), market_id);
+    /// println!("Total bets: {}", stats.total_bets);
+    /// println!("Total locked: {} stroops", stats.total_amount_locked);
+    /// println!("Unique bettors: {}", stats.unique_bettors);
+    /// ```
+    pub fn get_market_bet_stats(env: Env, market_id: Symbol) -> crate::types::BetStats {
+        bets::BetManager::get_market_bet_stats(&env, &market_id)
+    }
+
+    /// Calculates the implied probability for an outcome based on bet distribution.
+    ///
+    /// The implied probability indicates the market's collective prediction for
+    /// an outcome based on the distribution of bets.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `market_id` - Unique identifier of the market
+    /// * `outcome` - The outcome to calculate probability for
+    ///
+    /// # Returns
+    ///
+    /// Returns the implied probability as a percentage (0-100).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let market_id = Symbol::new(&env, "btc_50k");
+    ///
+    /// let prob = PredictifyHybrid::get_implied_probability(
+    ///     env.clone(),
+    ///     market_id,
+    ///     String::from_str(&env, "Yes")
+    /// );
+    /// println!("Implied probability for 'Yes': {}%", prob);
+    /// ```
+    pub fn get_implied_probability(env: Env, market_id: Symbol, outcome: String) -> i128 {
+        bets::BetAnalytics::calculate_implied_probability(&env, &market_id, &outcome)
+    }
+
+    /// Calculates the potential payout multiplier for an outcome.
+    ///
+    /// The multiplier indicates how much a bet would pay out relative to
+    /// the bet amount if the selected outcome wins.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `market_id` - Unique identifier of the market
+    /// * `outcome` - The outcome to calculate multiplier for
+    ///
+    /// # Returns
+    ///
+    /// Returns the payout multiplier scaled by 100 (e.g., 250 = 2.5x).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let market_id = Symbol::new(&env, "btc_50k");
+    ///
+    /// let multiplier = PredictifyHybrid::get_payout_multiplier(
+    ///     env.clone(),
+    ///     market_id,
+    ///     String::from_str(&env, "Yes")
+    /// );
+    /// let actual_multiplier = multiplier as f64 / 100.0;
+    /// println!("Payout multiplier for 'Yes': {:.2}x", actual_multiplier);
+    /// ```
+    pub fn get_payout_multiplier(env: Env, market_id: Symbol, outcome: String) -> i128 {
+        bets::BetAnalytics::calculate_payout_multiplier(&env, &market_id, &outcome)
     }
 
     /// Allows users to claim their winnings from resolved prediction markets.
