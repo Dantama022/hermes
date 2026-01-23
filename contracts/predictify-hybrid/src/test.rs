@@ -929,6 +929,13 @@ fn test_automatic_payout_distribution() {
     let user2 = Address::generate(&test.env);
     let user3 = Address::generate(&test.env);
 
+    // Fund users with tokens before placing bets
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user1, &1000_0000000); // Mint 1000 XLM to user1
+    stellar_client.mint(&user2, &1000_0000000); // Mint 1000 XLM to user2
+    stellar_client.mint(&user3, &1000_0000000); // Mint 1000 XLM to user3
+
     test.env.mock_all_auths();
     client.place_bet(
         &user1,
@@ -966,6 +973,14 @@ fn test_automatic_payout_distribution() {
         min_temp_entry_ttl: 1,
         min_persistent_entry_ttl: 1,
         max_entry_ttl: 10000,
+    });
+
+    // Initialize config if it doesn't exist (required for distribute_payouts)
+    test.env.as_contract(&test.contract_id, || {
+        if crate::config::ConfigManager::get_config(&test.env).is_err() {
+            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
+            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
+        }
     });
 
     // Resolve market manually
@@ -1048,6 +1063,14 @@ fn test_automatic_payout_distribution_no_winners() {
 fn test_set_platform_fee() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Initialize config if it doesn't exist
+    test.env.as_contract(&test.contract_id, || {
+        if crate::config::ConfigManager::get_config(&test.env).is_err() {
+            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
+            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
+        }
+    });
 
     // Set fee to 3% (300 basis points)
     test.env.mock_all_auths();
@@ -1132,6 +1155,12 @@ fn test_cancel_event_successful() {
     // Users place bets
     let user1 = Address::generate(&test.env);
     let user2 = Address::generate(&test.env);
+
+    // Fund users with tokens before placing bets
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user1, &1000_0000000); // Mint 1000 XLM to user1
+    stellar_client.mint(&user2, &1000_0000000); // Mint 1000 XLM to user2
 
     test.env.mock_all_auths();
     client.place_bet(
@@ -1290,6 +1319,12 @@ fn test_manual_dispute_resolution() {
     let user1 = Address::generate(&test.env);
     let user2 = Address::generate(&test.env);
 
+    // Fund users with tokens before placing bets
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user1, &1000_0000000); // Mint 1000 XLM to user1
+    stellar_client.mint(&user2, &1000_0000000); // Mint 1000 XLM to user2
+
     test.env.mock_all_auths();
     client.place_bet(
         &user1,
@@ -1321,6 +1356,14 @@ fn test_manual_dispute_resolution() {
         min_temp_entry_ttl: 1,
         min_persistent_entry_ttl: 1,
         max_entry_ttl: 10000,
+    });
+
+    // Initialize config if it doesn't exist (required for resolve_market_manual which calls distribute_payouts)
+    test.env.as_contract(&test.contract_id, || {
+        if crate::config::ConfigManager::get_config(&test.env).is_err() {
+            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
+            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
+        }
     });
 
     // Manually resolve market (simulating dispute resolution)
@@ -1440,6 +1483,12 @@ fn test_manual_dispute_resolution_triggers_payout() {
 
     // User places bet
     let user1 = Address::generate(&test.env);
+    
+    // Fund user with tokens before placing bet
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user1, &1000_0000000); // Mint 1000 XLM to user1
+
     test.env.mock_all_auths();
     client.place_bet(
         &user1,
@@ -1465,6 +1514,14 @@ fn test_manual_dispute_resolution_triggers_payout() {
         min_temp_entry_ttl: 1,
         min_persistent_entry_ttl: 1,
         max_entry_ttl: 10000,
+    });
+
+    // Initialize config if it doesn't exist (required for resolve_market_manual which calls distribute_payouts)
+    test.env.as_contract(&test.contract_id, || {
+        if crate::config::ConfigManager::get_config(&test.env).is_err() {
+            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
+            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
+        }
     });
 
     // Manually resolve (this should trigger payout distribution)
