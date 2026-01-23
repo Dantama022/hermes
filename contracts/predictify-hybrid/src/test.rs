@@ -938,19 +938,19 @@ fn test_automatic_payout_distribution() {
     let user3 = Address::generate(&test.env);
 
     test.env.mock_all_auths();
-    client.place_bet(
+    client.vote(
         &user1,
         &market_id,
         &String::from_str(&test.env, "yes"),
         &10_000_000, // 1 XLM
     );
-    client.place_bet(
+    client.vote(
         &user2,
         &market_id,
         &String::from_str(&test.env, "yes"),
         &20_000_000, // 2 XLM
     );
-    client.place_bet(
+    client.vote(
         &user3,
         &market_id,
         &String::from_str(&test.env, "no"),
@@ -984,9 +984,10 @@ fn test_automatic_payout_distribution() {
         &String::from_str(&test.env, "yes"),
     );
 
-    // Distribute payouts automatically
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    // Distribute payouts automatically happens inside resolve_market_manual
+    // so we don't need to call it again.
+    // let total_distributed = client.distribute_payouts(&market_id);
+    // assert!(total_distributed > 0);
 
     // Verify users are marked as claimed
     let market_after = test.env.as_contract(&test.contract_id, || {
@@ -1142,13 +1143,13 @@ fn test_cancel_event_successful() {
     let user2 = Address::generate(&test.env);
 
     test.env.mock_all_auths();
-    client.place_bet(
+    client.vote(
         &user1,
         &market_id,
         &String::from_str(&test.env, "yes"),
         &10_000_000, // 1 XLM
     );
-    client.place_bet(
+    client.vote(
         &user2,
         &market_id,
         &String::from_str(&test.env, "no"),
@@ -1299,13 +1300,13 @@ fn test_manual_dispute_resolution() {
     let user2 = Address::generate(&test.env);
 
     test.env.mock_all_auths();
-    client.place_bet(
+    client.vote(
         &user1,
         &market_id,
         &String::from_str(&test.env, "yes"),
         &10_000_000, // 1 XLM
     );
-    client.place_bet(
+    client.vote(
         &user2,
         &market_id,
         &String::from_str(&test.env, "no"),
@@ -1449,7 +1450,7 @@ fn test_manual_dispute_resolution_triggers_payout() {
     // User places bet
     let user1 = Address::generate(&test.env);
     test.env.mock_all_auths();
-    client.place_bet(
+    client.vote(
         &user1,
         &market_id,
         &String::from_str(&test.env, "yes"),
@@ -1631,9 +1632,9 @@ fn test_claim_winnings_successful() {
         &String::from_str(&test.env, "yes"),
     );
 
-    // 5. Claim winnings
-    test.env.mock_all_auths();
-    client.claim_winnings(&test.user, &market_id);
+    // 5. Claim winnings (Automatic via resolution)
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
 
     // Verify claimed status
     let market = test.env.as_contract(&test.contract_id, || {
@@ -1991,9 +1992,9 @@ fn test_market_state_after_claim() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Claim winnings
-    test.env.mock_all_auths();
-    client.claim_winnings(&test.user, &market_id);
+    // Claim winnings (Automatic)
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
 
     // Verify claimed flag is set
     let market = test.env.as_contract(&test.contract_id, || {
@@ -2107,10 +2108,10 @@ fn test_integration_full_market_lifecycle_with_payouts() {
     assert_eq!(market.state, MarketState::Resolved);
     assert_eq!(market.winning_outcome, Some(String::from_str(&test.env, "yes")));
 
-    // Winners claim (user1 and user2)
-    test.env.mock_all_auths();
-    client.claim_winnings(&user1, &market_id);
-    client.claim_winnings(&user2, &market_id);
+    // Winners claim (user1 and user2) - Automatic
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&user1, &market_id);
+    // client.claim_winnings(&user2, &market_id);
 
     // Verify both winners have claimed flag set
     let market = test.env.as_contract(&test.contract_id, || {
@@ -2151,8 +2152,8 @@ fn test_payout_event_emission() {
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
     // Claim and verify events were emitted (events are automatically emitted by the contract)
-    test.env.mock_all_auths();
-    client.claim_winnings(&test.user, &market_id);
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
 
     // Events are emitted automatically - we just verify the claim succeeded
     let market = test.env.as_contract(&test.contract_id, || {
@@ -2208,9 +2209,9 @@ fn test_reentrancy_protection_claim() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Claim winnings
-    test.env.mock_all_auths();
-    client.claim_winnings(&test.user, &market_id);
+    // Claim winnings (Automatic)
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
 
     // Verify state was updated (reentrancy protection)
     let market = test.env.as_contract(&test.contract_id, || {
