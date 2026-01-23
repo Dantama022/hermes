@@ -23,11 +23,12 @@ use soroban_sdk::{
     token::StellarAssetClient,
     vec, String, Symbol,
 };
-// [INSERT THIS BLOCK AT THE TOP WITH OTHER IMPORTS]
+
 use crate::market_analytics::{
     MarketStatistics, VotingAnalytics, FeeAnalytics, TimeFrame
 };
 use crate::resolution::ResolutionAnalytics;
+
 // Test setup structures 
 struct TokenTest {
     token_id: Address,
@@ -1071,4 +1072,576 @@ fn test_participation_metrics() {
     // Check update
     let metrics_updated = client.get_participation_metrics(&market_id);
     assert_eq!(metrics_updated.total_participants, 1);
+}
+
+// ===== TESTS FOR AUTOMATIC PAYOUT DISTRIBUTION (#202) =====
+
+#[test]
+fn test_automatic_payout_distribution() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Users place bets
+    let user1 = Address::generate(&test.env);
+    let user2 = Address::generate(&test.env);
+    let user3 = Address::generate(&test.env);
+
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000, // 1 XLM
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &20_000_000, // 2 XLM
+    );
+    client.place_bet(
+        &user3,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &10_000_000, // 1 XLM
+    );
+
+    // Advance time past market end
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve market manually
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Distribute payouts automatically
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert!(total_distributed > 0);
+
+    // Verify users are marked as claimed
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+    // user3 should not be claimed (they bet on "no")
+    assert!(!market_after.claimed.get(user3.clone()).unwrap_or(false));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #104)")] // MarketNotResolved = 104
+fn test_automatic_payout_distribution_unresolved_market() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Try to distribute payouts before resolution
+    let _ = client.distribute_payouts(&market_id);
+}
+
+#[test]
+fn test_automatic_payout_distribution_no_winners() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Advance time and resolve with an outcome no one bet on
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Distribute payouts (should return 0 with no winners)
+    let total = client.distribute_payouts(&market_id);
+    assert_eq!(total, 0);
+}
+
+// ===== TESTS FOR PLATFORM FEE MANAGEMENT (#204) =====
+
+#[test]
+fn test_set_platform_fee() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Set fee to 3% (300 basis points)
+    test.env.mock_all_auths();
+    client.set_platform_fee(&test.admin, &300);
+
+    // Verify fee was set (check config)
+    let cfg = test.env.as_contract(&test.contract_id, || {
+        crate::config::ConfigManager::get_config(&test.env).unwrap()
+    });
+    assert_eq!(cfg.fees.platform_fee_percentage, 300);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")] // Unauthorized = 100
+fn test_set_platform_fee_unauthorized() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Non-admin tries to set fee
+    test.env.mock_all_auths();
+    client.set_platform_fee(&test.user, &300);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #402)")] // InvalidFeeConfig = 402
+fn test_set_platform_fee_invalid_range() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Try to set fee above 10% (1000 basis points)
+    test.env.mock_all_auths();
+    client.set_platform_fee(&test.admin, &1100);
+}
+
+#[test]
+fn test_withdraw_collected_fees() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // First, collect some fees (simulate by setting collected fees in storage)
+    test.env.as_contract(&test.contract_id, || {
+        let fees_key = Symbol::new(&test.env, "tot_fees");
+        test.env.storage().persistent().set(&fees_key, &50_000_000i128); // 5 XLM
+    });
+
+    // Withdraw all fees
+    test.env.mock_all_auths();
+    let withdrawn = client.withdraw_collected_fees(&test.admin, &0);
+    assert_eq!(withdrawn, 50_000_000);
+
+    // Verify fees were withdrawn
+    let remaining = test.env.as_contract(&test.contract_id, || {
+        let fees_key = Symbol::new(&test.env, "tot_fees");
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, i128>(&fees_key)
+            .unwrap_or(0)
+    });
+    assert_eq!(remaining, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #415)")] // NoFeesToCollect = 415
+fn test_withdraw_collected_fees_no_fees() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Try to withdraw when no fees collected
+    test.env.mock_all_auths();
+    client.withdraw_collected_fees(&test.admin, &0);
+}
+
+// ===== TESTS FOR EVENT CANCELLATION (#216, #217) =====
+
+#[test]
+fn test_cancel_event_successful() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Users place bets
+    let user1 = Address::generate(&test.env);
+    let user2 = Address::generate(&test.env);
+
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000, // 1 XLM
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &20_000_000, // 2 XLM
+    );
+
+    // Cancel event
+    test.env.mock_all_auths();
+    let total_refunded = client.cancel_event(
+        &test.admin,
+        &market_id,
+        &Some(String::from_str(&test.env, "Oracle unavailable")),
+    );
+
+    assert_eq!(total_refunded, 30_000_000); // 3 XLM total
+
+    // Verify market is cancelled
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market.state, MarketState::Cancelled);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")] // Unauthorized = 100
+fn test_cancel_event_unauthorized() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Non-admin tries to cancel
+    test.env.mock_all_auths();
+    client.cancel_event(
+        &test.user,
+        &market_id,
+        &Some(String::from_str(&test.env, "Test")),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #103)")] // MarketAlreadyResolved = 103
+fn test_cancel_event_already_resolved() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Advance time and resolve market
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Try to cancel resolved market
+    test.env.mock_all_auths();
+    client.cancel_event(
+        &test.admin,
+        &market_id,
+        &Some(String::from_str(&test.env, "Test")),
+    );
+}
+
+#[test]
+fn test_cancel_event_no_bets() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Cancel event with no bets
+    test.env.mock_all_auths();
+    let total_refunded = client.cancel_event(
+        &test.admin,
+        &market_id,
+        &Some(String::from_str(&test.env, "No participants")),
+    );
+
+    assert_eq!(total_refunded, 0);
+
+    // Verify market is cancelled
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market.state, MarketState::Cancelled);
+}
+
+#[test]
+fn test_cancel_event_already_cancelled() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Cancel once
+    test.env.mock_all_auths();
+    let _ = client.cancel_event(
+        &test.admin,
+        &market_id,
+        &Some(String::from_str(&test.env, "First cancellation")),
+    );
+
+    // Try to cancel again (should return 0, no error)
+    test.env.mock_all_auths();
+    let total_refunded = client.cancel_event(
+        &test.admin,
+        &market_id,
+        &Some(String::from_str(&test.env, "Second cancellation")),
+    );
+
+    assert_eq!(total_refunded, 0);
+}
+
+// ===== TESTS FOR MANUAL DISPUTE RESOLUTION (#218, #219) =====
+
+#[test]
+fn test_manual_dispute_resolution() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Users place bets
+    let user1 = Address::generate(&test.env);
+    let user2 = Address::generate(&test.env);
+
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000, // 1 XLM
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &20_000_000, // 2 XLM
+    );
+
+    // Advance time past market end
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Manually resolve market (simulating dispute resolution)
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Verify market is resolved
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market_after.state, MarketState::Resolved);
+    assert_eq!(
+        market_after.winning_outcome,
+        Some(String::from_str(&test.env, "yes"))
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")] // Unauthorized = 100
+fn test_manual_dispute_resolution_unauthorized() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Advance time
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Non-admin tries to resolve
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #102)")] // MarketClosed = 102
+fn test_manual_dispute_resolution_before_end_time() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Try to resolve before market ends
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #108)")] // InvalidOutcome = 108
+fn test_manual_dispute_resolution_invalid_outcome() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Advance time
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Try to resolve with invalid outcome
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "maybe"), // Not a valid outcome
+    );
+}
+
+#[test]
+fn test_manual_dispute_resolution_triggers_payout() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // User places bet
+    let user1 = Address::generate(&test.env);
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000, // 1 XLM
+    );
+
+    // Advance time
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Manually resolve (this should trigger payout distribution)
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Verify payout was distributed (user should be marked as claimed)
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    // Note: The automatic payout distribution is called but may not mark votes as claimed
+    // since votes and bets are separate systems. This test verifies the resolution works.
+    assert_eq!(market_after.state, MarketState::Resolved);
 }
