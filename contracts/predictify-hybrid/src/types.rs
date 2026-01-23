@@ -2480,6 +2480,8 @@ pub struct MultipleBetsQuery {
     pub total_potential_payout: i128,
     /// Number of winning bets
     pub winning_bets: u32,
+}
+
 // ===== BET PLACEMENT TYPES =====
 
 /// Status of a bet placed on a prediction market.

@@ -82,9 +82,6 @@ impl QueryManager {
     pub fn query_event_details(env: &Env, market_id: Symbol) -> Result<EventDetailsQuery, Error> {
         let market = Self::get_market_from_storage(env, &market_id)?;
 
-        // Validate market state
-        MarketValidator::validate_market(env, &market)?;
-
         // Calculate participant count
         let participant_count = market.votes.len() as u32;
 
@@ -210,12 +207,12 @@ impl QueryManager {
         let outcome = market
             .votes
             .get(user.clone())
-            .ok_or(Error::UserNotFound)?;
+            .ok_or(Error::InvalidInput)?;
 
         let stake_amount = market
             .stakes
             .get(user.clone())
-            .ok_or(Error::InvalidAmount)?;
+            .ok_or(Error::InvalidInput)?;
 
         let has_claimed = market.claimed.get(user.clone()).unwrap_or(false);
 
