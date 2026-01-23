@@ -23,8 +23,12 @@ use soroban_sdk::{
     token::StellarAssetClient,
     vec, String, Symbol,
 };
-
-// Test setup structures
+// [INSERT THIS BLOCK AT THE TOP WITH OTHER IMPORTS]
+use crate::market_analytics::{
+    MarketStatistics, VotingAnalytics, FeeAnalytics, TimeFrame
+};
+use crate::resolution::ResolutionAnalytics;
+// Test setup structures 
 struct TokenTest {
     token_id: Address,
     env: Env,
@@ -914,4 +918,157 @@ fn test_initialize_storage_verification() {
             env.storage().persistent().get(&Symbol::new(&env, "Admin"));
         assert!(admin_result.is_some());
     });
+}
+
+// =================================================================
+// 📊 STATISTICS & ANALYTICS TEST SUITE
+// =================================================================
+
+#[test]
+fn test_comprehensive_market_statistics() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // 1. Initial State Check (Accuracy: Zero State)
+    let initial_stats = client.get_market_statistics(&market_id);
+    assert_eq!(initial_stats.total_participants, 0);
+    assert_eq!(initial_stats.total_stake, 0);
+
+    // 2. Populate Data (User 1 Votes "yes" with 100 Tokens)
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    // 3. Populate Data (User 2 Votes "no" with 200 Tokens)
+    let user2 = Address::generate(&test.env);
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    stellar_client.mint(&user2, &1000_0000000);
+    
+    test.env.mock_all_auths(); 
+    client.vote(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &200_0000000,
+    );
+
+    // 4. Verify Accuracy
+    let stats = client.get_market_statistics(&market_id);
+    
+    // Check Totals
+    assert_eq!(stats.total_participants, 2, "Should count 2 unique voters");
+    assert_eq!(stats.total_stake, 300_0000000, "Total stake should be sum of votes");
+}
+
+#[test]
+fn test_voting_analytics_tracking() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Vote 3 times with different users to test aggregation
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"), 
+        String::from_str(&test.env, "no")
+    ];
+
+    for _ in 0..3 {
+        let voter = Address::generate(&test.env);
+        let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+        stellar_client.mint(&voter, &100_0000000);
+        
+        test.env.mock_all_auths();
+        client.vote(
+            &voter,
+            &market_id,
+            &outcomes.get(0).unwrap(), // Vote "yes"
+            &10_0000000,
+        );
+    }
+
+    // Test Voting Analytics
+    let analytics = client.get_voting_analytics(&market_id);
+    
+    assert_eq!(analytics.total_votes, 3);
+    assert_eq!(analytics.unique_voters, 3);
+}
+
+#[test]
+fn test_gas_efficiency_benchmark_function() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    test.env.mock_all_auths();
+    
+    // Create input for benchmark
+    let inputs = vec![
+        &test.env, 
+        // Dummy inputs to satisfy function signature
+        String::from_str(&test.env, "market_benchmark") 
+    ];
+
+    // Reset budget to ensure clean state
+    test.env.cost_estimate().budget().reset_unlimited();
+
+    // Run the contract's internal benchmark tool
+    let result = client.benchmark_gas_usage(
+        &String::from_str(&test.env, "get_market"), // Benchmark a view function
+        &inputs
+    );
+
+    // Validate we got a result
+    assert!(result.gas_usage >= 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #101)")] // Expect MarketNotFound error
+fn test_analytics_market_not_found() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let fake_id = Symbol::new(&test.env, "ghost_market");
+    
+    // This calls the contract. Since the market doesn't exist, 
+    // the contract will panic with Error #101. The #[should_panic] attribute 
+    // tells the test runner: "We expect this to fail, so if it fails, the test PASSES."
+    client.get_market_statistics(&fake_id);
+}
+
+#[test]
+fn test_analytics_empty_fees() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    // Test Fee Analytics with empty data (should NOT panic, just return 0)
+    let fee_stats = client.get_fee_analytics(&TimeFrame::Month);
+    assert_eq!(fee_stats.total_fees_collected, 0);
+}
+
+#[test]
+fn test_participation_metrics() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Initial check
+    let metrics_initial = client.get_participation_metrics(&market_id);
+    assert_eq!(metrics_initial.total_participants, 0);
+
+    // Add participation
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user, 
+        &market_id, 
+        &String::from_str(&test.env, "yes"), 
+        &50_0000000
+    );
+
+    // Check update
+    let metrics_updated = client.get_participation_metrics(&market_id);
+    assert_eq!(metrics_updated.total_participants, 1);
 }
