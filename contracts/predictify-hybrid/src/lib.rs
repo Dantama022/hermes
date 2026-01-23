@@ -1651,7 +1651,12 @@ impl PredictifyHybrid {
         // Update fee configuration
         let mut cfg = match crate::config::ConfigManager::get_config(&env) {
             Ok(c) => c,
-            Err(_) => return Err(Error::ConfigurationNotFound),
+            Err(_) => {
+                // If config doesn't exist, create a default one
+                let default_config = crate::config::ConfigManager::get_development_config(&env);
+                crate::config::ConfigManager::store_config(&env, &default_config)?;
+                default_config
+            }
         };
 
         cfg.fees.platform_fee_percentage = fee_percentage;

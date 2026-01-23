@@ -72,6 +72,14 @@ impl PredictifyTest {
         let client = PredictifyHybridClient::new(&env, &contract_id);
         client.initialize(&admin, &None);
 
+        // Initialize config for contract operations
+        env.as_contract(&contract_id, || {
+            if crate::config::ConfigManager::get_config(&env).is_err() {
+                let default_config = crate::config::ConfigManager::get_development_config(&env);
+                let _ = crate::config::ConfigManager::store_config(&env, &default_config);
+            }
+        });
+
         // Set token for staking
         env.as_contract(&contract_id, || {
             env.storage()
@@ -1064,15 +1072,7 @@ fn test_set_platform_fee() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // Initialize config if it doesn't exist
-    test.env.as_contract(&test.contract_id, || {
-        if crate::config::ConfigManager::get_config(&test.env).is_err() {
-            let default_config = crate::config::ConfigManager::get_development_config(&test.env);
-            crate::config::ConfigManager::store_config(&test.env, &default_config).unwrap();
-        }
-    });
-
-    // Set fee to 3% (300 basis points)
+    // Set fee to 3% (300 basis points) - config will be created automatically if needed
     test.env.mock_all_auths();
     client.set_platform_fee(&test.admin, &300);
 
