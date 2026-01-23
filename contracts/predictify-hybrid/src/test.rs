@@ -1347,7 +1347,7 @@ fn test_manual_dispute_resolution() {
         &String::from_str(&test.env, "yes"),
     );
 
-    // Verify market is resolved
+    // Verify market is resolved - use defensive approach
     let market_after = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -1355,6 +1355,8 @@ fn test_manual_dispute_resolution() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
+    
+    // Verify state and outcome
     assert_eq!(market_after.state, MarketState::Resolved);
     assert_eq!(
         market_after.winning_outcome,
