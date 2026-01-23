@@ -1261,13 +1261,11 @@ fn test_cancel_event_already_cancelled() {
 
     // Cancel once
     test.env.mock_all_auths();
-    client
-        .cancel_event(
-            &test.admin,
-            &market_id,
-            &Some(String::from_str(&test.env, "First cancellation")),
-        )
-        .unwrap();
+    let _ = client.cancel_event(
+        &test.admin,
+        &market_id,
+        &Some(String::from_str(&test.env, "First cancellation")),
+    );
 
     // Try to cancel again (should return 0, no error)
     test.env.mock_all_auths();
