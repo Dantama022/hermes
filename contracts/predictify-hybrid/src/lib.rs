@@ -1893,6 +1893,34 @@ impl PredictifyHybrid {
         )
     }
 
+    /// Updates the market description (admin only, before bets).
+    ///
+    /// Allows the admin to correct or update the market question/description
+    /// provided that no activity (bets/votes) has occurred on the market.
+    pub fn update_market_description(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        new_description: String,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::Unauthorized);
+            });
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        markets::MarketStateManager::update_description(&env, &market_id, new_description)
+    }
+
     // ===== STORAGE OPTIMIZATION FUNCTIONS =====
 
     /// Compress market data for storage optimization
