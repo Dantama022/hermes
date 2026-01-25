@@ -1504,26 +1504,9 @@ impl PredictifyHybrid {
 
         // Since place_bet now updates market.votes and market.stakes,
         // we can use the vote-based payout system for both bets and votes
-        let mut total_distributed = 0;
-        
-        // Check if payouts have already been distributed
-        let mut has_unclaimed_winners = false;
-        for (user, outcome) in market.votes.iter() {
-            if &outcome == winning_outcome {
-                if !market.claimed.get(user.clone()).unwrap_or(false) {
-                    has_unclaimed_winners = true;
-                    break;
-                }
-            }
-        }
-
-        if !has_unclaimed_winners {
-            return Ok(0);
-        }
-
         // Calculate total winning stakes
         let mut winning_total = 0;
-        for (voter, outcome) in market.votes.iter() {
+        for (_, outcome) in market.votes.iter() {
             if &outcome == winning_outcome {
                 winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
             }
@@ -1548,10 +1531,12 @@ impl PredictifyHybrid {
                     let user_share = (user_stake * (fee_denominator - fee_percent)) / fee_denominator;
                     let payout = (user_share * total_pool) / winning_total;
 
-                    if payout > 0 {
+                    if payout >= 0 { // Allow 0 payout but mark as claimed
                         market.claimed.set(user.clone(), true);
-                        total_distributed += payout;
-                        EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+                        if payout > 0 {
+                            total_distributed += payout;
+                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+                        }
                     }
                 }
             }
