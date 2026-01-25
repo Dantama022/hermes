@@ -2316,6 +2316,7 @@ fn test_reentrancy_protection_claim() {
     assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
 }
 
+
 // ===== CORE FEE CALCULATION TESTS =====
 
 #[test]
@@ -2468,7 +2469,7 @@ fn test_fee_complete_flow() {
     // Setup users with tokens
     let user1 = Address::generate(&test.env);
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
-    
+
     test.env.mock_all_auths();
     stellar_client.mint(&user1, &200_000_000);
 
@@ -2496,7 +2497,7 @@ fn test_fee_complete_flow() {
         min_persistent_entry_ttl: 1,
         max_entry_ttl: 10000,
     });
-    
+
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
     // Market should be resolved
@@ -2517,7 +2518,7 @@ fn test_fee_amount_boundaries() {
     // Test maximum fee boundary
     let max_fee = 1_000_000_000; // 100 XLM
     assert_eq!(max_fee, crate::config::MAX_FEE_AMOUNT);
-    
+
     // Verify min < max
     assert!(crate::config::MIN_FEE_AMOUNT < crate::config::MAX_FEE_AMOUNT);
 }
