@@ -1505,6 +1505,7 @@ impl PredictifyHybrid {
         // Since place_bet now updates market.votes and market.stakes,
         // we can use the vote-based payout system for both bets and votes
         // Calculate total winning stakes
+        let mut total_distributed: i128 = 0;
         let mut winning_total = 0;
         for (voter, outcome) in market.votes.iter() {
             if &outcome == winning_outcome {
