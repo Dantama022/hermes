@@ -161,10 +161,19 @@ impl PredictifyHybrid {
             Err(e) => panic_with_error!(env, e),
         }
 
-        // Store platform fee configuration in persistent storage
-        env.storage()
-            .persistent()
-            .set(&Symbol::new(&env, "platform_fee"), &fee_percentage);
+        // Initialize default configuration
+        // We use development defaults as a safe baseline, then update with user provided params
+        let mut config = match crate::config::ConfigManager::reset_to_defaults(&env) {
+            Ok(c) => c,
+            Err(e) => panic_with_error!(env, e),
+        };
+
+        // Update platform fee in the configuration
+        config.fees.platform_fee_percentage = fee_percentage;
+        match crate::config::ConfigManager::update_config(&env, &config) {
+            Ok(_) => (),
+            Err(e) => panic_with_error!(env, e),
+        };
 
         // Emit contract initialized event
         EventEmitter::emit_contract_initialized(&env, &admin, fee_percentage);
@@ -977,7 +986,13 @@ impl PredictifyHybrid {
         // Trigger automatic payout distribution for dispute resolution
         // Note: This can be called separately, but we include it here for convenience
         // In production, you might want to make this optional or separate
-        let _ = Self::distribute_payouts(env.clone(), market_id.clone());
+        // Trigger automatic payout distribution for dispute resolution
+        // Note: This can be called separately, but we include it here for convenience
+        // In production, you might want to make this optional or separate
+        match Self::distribute_payouts(env.clone(), market_id.clone()) {
+            Ok(_) => (),
+            Err(e) => panic_with_error!(env, e),
+        }
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
