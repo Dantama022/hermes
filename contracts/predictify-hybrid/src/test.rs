@@ -1487,3 +1487,202 @@ fn test_manual_dispute_resolution_triggers_payout() {
     // since votes and bets are separate systems. This test verifies the resolution works.
     assert_eq!(market_after.state, MarketState::Resolved);
 }
+
+// ===== EVENT STATUS MANAGEMENT TESTS (Issue #223) =====
+mod event_status_management {
+    use super::*;
+
+    #[test]
+    fn test_extend_market_success() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        let market_before = test.env.as_contract(&test.contract_id, || {
+            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        });
+
+        test.env.mock_all_auths();
+        client.extend_market(
+            &test.admin,
+            &market_id,
+            &7,
+            &String::from_str(&test.env, "Need more time"),
+            &0
+        );
+
+        let market_after = test.env.as_contract(&test.contract_id, || {
+            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        });
+
+        // Verify end time increased by 7 days
+        assert_eq!(
+            market_after.end_time,
+            market_before.end_time + 7 * 24 * 60 * 60
+        );
+
+        // Verify total extensions
+        assert_eq!(market_after.total_extension_days, 7);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #416)")] // InvalidExtensionDays
+    fn test_extend_market_zero_days() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        test.env.mock_all_auths();
+        client.extend_market(
+            &test.admin,
+            &market_id,
+            &0,
+            &String::from_str(&test.env, "Invalid"),
+            &0
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #417)")] // ExtensionDaysExceeded
+    fn test_extend_market_too_long() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        test.env.mock_all_auths();
+        client.extend_market(
+            &test.admin,
+            &market_id,
+            &31,
+            &String::from_str(&test.env, "Too long"),
+            &0
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #103)")] // MarketAlreadyResolved
+    fn test_extend_resolved_market() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        // Resolve market first
+         // Force move time
+        let market = test.env.as_contract(&test.contract_id, || {
+            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        });
+        test.env.ledger().set(LedgerInfo {
+            timestamp: market.end_time + 1,
+            protocol_version: 22,
+            sequence_number: 100,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 1,
+            min_persistent_entry_ttl: 1,
+            max_entry_ttl: 10000,
+        });
+
+        test.env.mock_all_auths();
+        client.resolve_market_manual(
+            &test.admin,
+            &market_id,
+            &String::from_str(&test.env, "yes")
+        );
+
+        // Try to extend
+        client.extend_market(
+            &test.admin,
+            &market_id,
+            &7,
+            &String::from_str(&test.env, "Reopen"),
+            &0
+        );
+    }
+
+    #[test]
+    fn test_update_description_success() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        test.env.mock_all_auths();
+        let new_desc = String::from_str(&test.env, "Updated Question?");
+        client.update_market_description(
+            &test.admin,
+            &market_id,
+            &new_desc
+        );
+
+        let market = test.env.as_contract(&test.contract_id, || {
+            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        });
+        assert_eq!(market.question, new_desc);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #400)")] // InvalidState (Bets placed)
+    fn test_update_description_fail_after_bets() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        // Place a bet/vote
+        test.env.mock_all_auths();
+        client.vote(
+            &test.user,
+            &market_id,
+            &String::from_str(&test.env, "yes"),
+            &1_0000000
+        );
+
+        // Try update
+        client.update_market_description(
+            &test.admin,
+            &market_id,
+            &String::from_str(&test.env, "Too late")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #100)")] // Unauthorized
+    fn test_unauthorized_extension() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        test.env.mock_all_auths();
+        client.extend_market(
+            &test.user, // User trying to extend
+            &market_id,
+            &7,
+            &String::from_str(&test.env, "Hacking"),
+            &0
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #200)")] // OracleUnavailable
+    fn test_resolve_oracle_unavailable() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+
+        let market = test.env.as_contract(&test.contract_id, || {
+            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        });
+        test.env.ledger().set(LedgerInfo {
+            timestamp: market.end_time + 1,
+            protocol_version: 22,
+            sequence_number: 100,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 1,
+            min_persistent_entry_ttl: 1,
+            max_entry_ttl: 10000,
+        });
+
+        test.env.mock_all_auths();
+        // This should fail because oracle_result is missing
+        client.resolve_market(&market_id);
+    }
+}
