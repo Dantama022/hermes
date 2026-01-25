@@ -1601,16 +1601,7 @@ fn test_add_admin_successful() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let new_admin = Address::generate(&test.env);
 
-    // Assign SuperAdmin role to test.admin first (required for add_admin)
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize(), so has SuperAdmin permissions
     // Add new admin with MarketAdmin role
     test.env.mock_all_auths();
     client.add_admin(
@@ -1647,16 +1638,7 @@ fn test_add_admin_duplicate() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let new_admin = Address::generate(&test.env);
 
-    // Assign SuperAdmin role to test.admin first (required for add_admin)
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize()
     // Add admin first time
     test.env.mock_all_auths();
     client.add_admin(
@@ -1680,16 +1662,7 @@ fn test_remove_admin_successful() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let new_admin = Address::generate(&test.env);
 
-    // Assign SuperAdmin role to test.admin first (required for add_admin/remove_admin)
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize()
     // Add admin first
     test.env.mock_all_auths();
     client.add_admin(
@@ -1716,16 +1689,7 @@ fn test_remove_admin_unauthorized() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let new_admin = Address::generate(&test.env);
 
-    // Assign SuperAdmin role to test.admin first (required for add_admin)
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize()
     // Add admin first
     test.env.mock_all_auths();
     client.add_admin(
@@ -1766,16 +1730,7 @@ fn test_update_admin_role_successful() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let target_admin = Address::generate(&test.env);
 
-    // Assign SuperAdmin role to test.admin first (required for update_admin_role)
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize()
     // Add admin with MarketAdmin role
     test.env.mock_all_auths();
     client.add_admin(
@@ -1803,16 +1758,7 @@ fn test_update_admin_role_unauthorized() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let target_admin = Address::generate(&test.env);
 
-    // Assign SuperAdmin role to test.admin first (required for add_admin)
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize()
     // Add admin first
     test.env.mock_all_auths();
     client.add_admin(
@@ -1837,16 +1783,7 @@ fn test_update_admin_role_last_super_admin() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // Assign SuperAdmin role to test.admin first
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize() and is considered SuperAdmin
     // Verify admin is the only SuperAdmin
     let admin_roles = client.get_admin_roles();
     let mut super_admin_count = 0;
@@ -1882,16 +1819,7 @@ fn test_validate_admin_permission_unauthorized() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // Assign SuperAdmin role to test.admin first
-    test.env.as_contract(&test.contract_id, || {
-        admin::AdminRoleManager::assign_role(
-            &test.env,
-            &test.admin,
-            admin::AdminRole::SuperAdmin,
-            &test.admin,
-        ).unwrap();
-    });
-
+    // test.admin is the original admin from initialize()
     // Verify admin is set correctly and user is different
     let admin_roles = client.get_admin_roles();
     assert!(admin_roles.contains_key(test.admin.clone()));
