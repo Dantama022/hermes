@@ -995,13 +995,8 @@ impl PredictifyHybrid {
             &reason,
         );
 
-        // Trigger automatic payout distribution for dispute resolution
-        // Note: This can be called separately, but we include it here for convenience
-        // In production, you might want to make this optional or separate
-        match Self::distribute_payouts(env.clone(), market_id.clone()) {
-            Ok(_) => (),
-            Err(e) => panic_with_error!(env, e),
-        }
+        // Note: Payout distribution should be called separately via distribute_payouts()
+        // This allows for better control and testing of the payout process
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
@@ -1508,7 +1503,7 @@ impl PredictifyHybrid {
         let mut total_distributed: i128 = 0;
         let mut winning_total = 0;
         for (voter, outcome) in market.votes.iter() {
-            if &outcome == winning_outcome {
+            if outcome == *winning_outcome {
                 winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
             }
         }
@@ -1521,7 +1516,7 @@ impl PredictifyHybrid {
 
         // Distribute payouts to all winners
         for (user, outcome) in market.votes.iter() {
-            if &outcome == winning_outcome {
+            if outcome == *winning_outcome {
                 if market.claimed.get(user.clone()).unwrap_or(false) {
                     continue;
                 }
