@@ -1499,6 +1499,23 @@ impl PredictifyHybrid {
 
         // Since place_bet now updates market.votes and market.stakes,
         // we can use the vote-based payout system for both bets and votes
+        let mut total_distributed = 0;
+
+        // Check if payouts have already been distributed
+        let mut has_unclaimed_winners = false;
+        for (user, outcome) in market.votes.iter() {
+            if &outcome == winning_outcome {
+                if !market.claimed.get(user.clone()).unwrap_or(false) {
+                    has_unclaimed_winners = true;
+                    break;
+                }
+            }
+        }
+
+        if !has_unclaimed_winners {
+            return Ok(0);
+        }
+
         // Calculate total winning stakes
         let mut total_distributed: i128 = 0;
         let mut winning_total = 0;
@@ -1524,10 +1541,12 @@ impl PredictifyHybrid {
                 let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
                 if user_stake > 0 {
                     let fee_denominator = 10000i128;
-                    let user_share = (user_stake * (fee_denominator - fee_percent)) / fee_denominator;
+                    let user_share =
+                        (user_stake * (fee_denominator - fee_percent)) / fee_denominator;
                     let payout = (user_share * total_pool) / winning_total;
 
-                    if payout >= 0 { // Allow 0 payout but mark as claimed
+                    if payout >= 0 {
+                        // Allow 0 payout but mark as claimed
                         market.claimed.set(user.clone(), true);
                         if payout > 0 {
                             total_distributed += payout;
@@ -1587,11 +1606,7 @@ impl PredictifyHybrid {
     /// - Minimum fee: 0% (0 basis points)
     /// - Maximum fee: 10% (1000 basis points)
     /// - Default fee: 2% (200 basis points)
-    pub fn set_platform_fee(
-        env: Env,
-        admin: Address,
-        fee_percentage: i128,
-    ) -> Result<(), Error> {
+    pub fn set_platform_fee(env: Env, admin: Address, fee_percentage: i128) -> Result<(), Error> {
         // Require authentication
         admin.require_auth();
 
@@ -1600,7 +1615,7 @@ impl PredictifyHybrid {
         if !env.storage().persistent().has(&admin_key) {
             return Err(Error::Unauthorized);
         }
-        
+
         let stored_admin: Address = env.storage().persistent().get(&admin_key).unwrap();
         if admin != stored_admin {
             return Err(Error::Unauthorized);
@@ -1656,11 +1671,7 @@ impl PredictifyHybrid {
     ///     Err(e) => println!("Withdrawal failed: {:?}", e),
     /// }
     /// ```
-    pub fn withdraw_collected_fees(
-        env: Env,
-        admin: Address,
-        amount: i128,
-    ) -> Result<i128, Error> {
+    pub fn withdraw_collected_fees(env: Env, admin: Address, amount: i128) -> Result<i128, Error> {
         admin.require_auth();
 
         // Verify admin
@@ -1678,11 +1689,7 @@ impl PredictifyHybrid {
 
         // Get collected fees from storage (using the same key as FeeTracker)
         let fees_key = Symbol::new(&env, "tot_fees");
-        let collected_fees: i128 = env
-            .storage()
-            .persistent()
-            .get(&fees_key)
-            .unwrap_or(0);
+        let collected_fees: i128 = env.storage().persistent().get(&fees_key).unwrap_or(0);
 
         if collected_fees == 0 {
             return Err(Error::NoFeesToCollect);

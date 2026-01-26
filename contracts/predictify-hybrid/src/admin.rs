@@ -1404,7 +1404,11 @@ impl AdminManager {
         if let Some(admin_list) = env.storage().persistent().get::<_, Vec<Address>>(&list_key) {
             for admin_addr in admin_list.iter() {
                 let admin_key = Self::get_admin_key(env, &admin_addr);
-                if let Some(assignment) = env.storage().persistent().get::<_, AdminRoleAssignment>(&admin_key) {
+                if let Some(assignment) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, AdminRoleAssignment>(&admin_key)
+                {
                     if assignment.is_active {
                         roles.set(admin_addr.clone(), assignment.role);
                     }
@@ -1424,7 +1428,11 @@ impl AdminManager {
 
         // Check multi-admin storage
         let admin_key = Self::get_admin_key(env, admin);
-        if let Some(assignment) = env.storage().persistent().get::<_, AdminRoleAssignment>(&admin_key) {
+        if let Some(assignment) = env
+            .storage()
+            .persistent()
+            .get::<_, AdminRoleAssignment>(&admin_key)
+        {
             if assignment.is_active {
                 return Some(assignment.role);
             }

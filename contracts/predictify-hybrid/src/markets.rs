@@ -816,7 +816,6 @@ impl MarketStateManager {
         Ok(())
     }
 
-
     /// Removes a market from persistent storage after proper closure.
     ///
     /// This function safely removes a market from storage, ensuring it's

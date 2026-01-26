@@ -14,7 +14,7 @@
 
 #![cfg(test)]
 
-use crate::bets::{BetManager, BetStorage, BetValidator, MIN_BET_AMOUNT, MAX_BET_AMOUNT};
+use crate::bets::{BetManager, BetStorage, BetValidator, MAX_BET_AMOUNT, MIN_BET_AMOUNT};
 use crate::types::{Bet, BetStats, BetStatus, Market, MarketState, OracleConfig, OracleProvider};
 use crate::{Error, PredictifyHybrid, PredictifyHybridClient};
 use soroban_sdk::{
@@ -67,8 +67,8 @@ impl BetTestSetup {
         // Fund users with tokens
         let stellar_client = StellarAssetClient::new(&env, &token_id);
         stellar_client.mint(&admin, &10_000_0000000); // 10,000 XLM
-        stellar_client.mint(&user, &1000_0000000);    // 1,000 XLM
-        stellar_client.mint(&user2, &1000_0000000);   // 1,000 XLM
+        stellar_client.mint(&user, &1000_0000000); // 1,000 XLM
+        stellar_client.mint(&user2, &1000_0000000); // 1,000 XLM
 
         // Approve contract to spend tokens on behalf of users (for bet placement)
         let token_client = soroban_sdk::token::Client::new(&env, &token_id);
@@ -322,14 +322,10 @@ fn test_get_implied_probability() {
     );
 
     // Get implied probabilities
-    let yes_prob = client.get_implied_probability(
-        &setup.market_id,
-        &String::from_str(&setup.env, "yes"),
-    );
-    let no_prob = client.get_implied_probability(
-        &setup.market_id,
-        &String::from_str(&setup.env, "no"),
-    );
+    let yes_prob =
+        client.get_implied_probability(&setup.market_id, &String::from_str(&setup.env, "yes"));
+    let no_prob =
+        client.get_implied_probability(&setup.market_id, &String::from_str(&setup.env, "no"));
 
     // 30 / 100 = 30%, 70 / 100 = 70%
     assert_eq!(yes_prob, 30);
@@ -357,19 +353,15 @@ fn test_get_payout_multiplier() {
     );
 
     // Get payout multiplier for "yes" (100 / 25 = 4x = 400 scaled)
-    let yes_multiplier = client.get_payout_multiplier(
-        &setup.market_id,
-        &String::from_str(&setup.env, "yes"),
-    );
+    let yes_multiplier =
+        client.get_payout_multiplier(&setup.market_id, &String::from_str(&setup.env, "yes"));
 
     // Total pool (100) / yes bets (25) = 4.0x = 400 (scaled by 100)
     assert_eq!(yes_multiplier, 400);
 
     // Get payout multiplier for "no" (100 / 75 = 1.33x = 133 scaled)
-    let no_multiplier = client.get_payout_multiplier(
-        &setup.market_id,
-        &String::from_str(&setup.env, "no"),
-    );
+    let no_multiplier =
+        client.get_payout_multiplier(&setup.market_id, &String::from_str(&setup.env, "no"));
 
     // Total pool (100) / no bets (75) = 1.33x = 133 (scaled by 100)
     assert_eq!(no_multiplier, 133);
@@ -392,7 +384,7 @@ fn test_place_bet_double_betting_prevented() {
 
     // Verify user has already bet
     assert!(client.has_user_bet(&setup.market_id, &setup.user));
-    
+
     // The contract correctly prevents double betting by checking has_user_bet
     // before allowing a second bet. We verify this by checking the bet exists
     // and was recorded correctly. Attempting a second place_bet would cause
@@ -669,7 +661,7 @@ fn test_bet_and_vote_coexistence() {
     let market = client.get_market(&setup.market_id).unwrap();
     assert!(market.votes.contains_key(setup.user.clone()));
     assert!(market.stakes.contains_key(setup.user.clone()));
-    
+
     // Verify the stake was recorded correctly
     let user_stake = market.stakes.get(setup.user.clone()).unwrap();
     assert_eq!(user_stake, 10_0000000);
@@ -694,10 +686,8 @@ fn test_implied_probability_empty_market() {
     let client = setup.client();
 
     // Get probability for market with no bets
-    let prob = client.get_implied_probability(
-        &setup.market_id,
-        &String::from_str(&setup.env, "yes"),
-    );
+    let prob =
+        client.get_implied_probability(&setup.market_id, &String::from_str(&setup.env, "yes"));
 
     // Should be 0 when no bets placed
     assert_eq!(prob, 0);
@@ -709,10 +699,8 @@ fn test_payout_multiplier_empty_market() {
     let client = setup.client();
 
     // Get multiplier for market with no bets
-    let multiplier = client.get_payout_multiplier(
-        &setup.market_id,
-        &String::from_str(&setup.env, "yes"),
-    );
+    let multiplier =
+        client.get_payout_multiplier(&setup.market_id, &String::from_str(&setup.env, "yes"));
 
     // Should be 0 when no bets placed
     assert_eq!(multiplier, 0);
@@ -727,10 +715,10 @@ fn test_place_bet_requires_authentication() {
     // which tests the vote function, but both functions use require_auth().
     // Here we verify the BetManager properly validates authentication by ensuring
     // that the require_auth() call is present in the place_bet flow.
-    
+
     let setup = BetTestSetup::new();
     let client = setup.client();
-    
+
     // Place a valid bet with authentication (BetTestSetup has mock_all_auths)
     let bet = client.place_bet(
         &setup.user,
@@ -738,11 +726,11 @@ fn test_place_bet_requires_authentication() {
         &String::from_str(&setup.env, "yes"),
         &10_0000000,
     );
-    
+
     // Verify bet was placed correctly (proves the function works with auth)
     assert_eq!(bet.user, setup.user);
     assert_eq!(bet.amount, 10_0000000);
-    
+
     // Note: Testing authentication failure with set_auths(&[]) causes SIGSEGV
     // in the Soroban test environment with complex setups. The authentication
     // requirement is verified via the successful bet placement above and
@@ -759,7 +747,13 @@ fn test_bet_new_constructor() {
     let outcome = String::from_str(&env, "yes");
     let amount = 10_000_000i128;
 
-    let bet = Bet::new(&env, user.clone(), market_id.clone(), outcome.clone(), amount);
+    let bet = Bet::new(
+        &env,
+        user.clone(),
+        market_id.clone(),
+        outcome.clone(),
+        amount,
+    );
 
     assert_eq!(bet.user, user);
     assert_eq!(bet.market_id, market_id);
@@ -777,8 +771,20 @@ fn test_bet_equality() {
     let outcome = String::from_str(&env, "yes");
     let amount = 10_000_000i128;
 
-    let bet1 = Bet::new(&env, user.clone(), market_id.clone(), outcome.clone(), amount);
-    let bet2 = Bet::new(&env, user.clone(), market_id.clone(), outcome.clone(), amount);
+    let bet1 = Bet::new(
+        &env,
+        user.clone(),
+        market_id.clone(),
+        outcome.clone(),
+        amount,
+    );
+    let bet2 = Bet::new(
+        &env,
+        user.clone(),
+        market_id.clone(),
+        outcome.clone(),
+        amount,
+    );
 
     // Note: timestamps might differ slightly, so we compare individual fields
     assert_eq!(bet1.user, bet2.user);
