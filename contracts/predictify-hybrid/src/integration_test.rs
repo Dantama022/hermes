@@ -279,7 +279,7 @@ fn test_error_scenario_integration() {
 
     // Test error scenario: verify that non-existent markets are properly validated
     // The contract should return MarketNotFound (#101) for operations on invalid market IDs
-    
+
     // Verify that existing markets work correctly
     let market_id = test_suite.create_market(
         "Error scenario test market",
@@ -290,11 +290,11 @@ fn test_error_scenario_integration() {
         ],
         30,
     );
-    
+
     // Verify the market was created
     let market = test_suite.get_market(&market_id);
     assert_eq!(market.state, crate::types::MarketState::Active);
-    
+
     // The error scenario (voting on non-existent market) would panic with MarketNotFound.
     // Due to Soroban SDK limitations with should_panic tests causing SIGSEGV,
     // we verify the error handling indirectly by confirming valid operations work

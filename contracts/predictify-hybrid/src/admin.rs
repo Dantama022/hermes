@@ -1372,8 +1372,48 @@ impl AdminManager {
             roles.set(original_admin, AdminRole::SuperAdmin);
         }
 
+        // Iterate over admin list to get all multi-admin entries
+        let list_key = Symbol::new(env, "AdminList");
+        if let Some(admin_list) = env.storage().persistent().get::<_, Vec<Address>>(&list_key) {
+            for admin_addr in admin_list.iter() {
+                let admin_key = Self::get_admin_key(env, &admin_addr);
+                if let Some(assignment) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, AdminRoleAssignment>(&admin_key)
+                {
+                    if assignment.is_active {
+                        roles.set(admin_addr.clone(), assignment.role);
+                    }
+                }
+            }
+        }
+
         roles
     }
+
+    /// Check if an admin exists in the multi-admin system
+    pub fn get_admin_role_for_address(env: &Env, admin: &Address) -> Option<AdminRole> {
+        // Check original admin first
+        if Self::is_original_admin(env, admin) {
+            return Some(AdminRole::SuperAdmin);
+        }
+
+        // Check multi-admin storage
+        let admin_key = Self::get_admin_key(env, admin);
+        if let Some(assignment) = env
+            .storage()
+            .persistent()
+            .get::<_, AdminRoleAssignment>(&admin_key)
+        {
+            if assignment.is_active {
+                return Some(assignment.role);
+            }
+        }
+
+        None
+    }
+
 
     /// Emits admin change events using existing AdminActionType
     pub fn emit_admin_change_event(env: &Env, admin: &Address, action: AdminActionType) {
@@ -1403,7 +1443,7 @@ impl AdminManager {
     }
 
     /// Check if an address is the original admin from single-admin system
-    fn is_original_admin(env: &Env, admin: &Address) -> bool {
+    pub fn is_original_admin(env: &Env, admin: &Address) -> bool {
         if let Some(original_admin) = Self::get_original_admin(env) {
             return admin == &original_admin;
         }
