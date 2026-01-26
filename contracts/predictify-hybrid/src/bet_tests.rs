@@ -403,33 +403,82 @@ fn test_place_bet_double_betting_prevented() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #102)")] // MarketClosed = 102
 fn test_place_bet_on_ended_market() {
-    // Placing bet after market ended would return MarketClosed (#102).
-    assert_eq!(crate::errors::Error::MarketClosed as i128, 102);
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Advance time past market end
+    setup.advance_past_market_end();
+
+    // Try to place bet after market ended
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &10_0000000,
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #108)")] // InvalidOutcome = 108
 fn test_place_bet_invalid_outcome() {
-    // Betting on invalid outcome would return InvalidOutcome (#108).
-    assert_eq!(crate::errors::Error::InvalidOutcome as i128, 108);
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Try to bet on invalid outcome
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "maybe"), // Not a valid outcome
+        &10_0000000,
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #107)")] // InsufficientStake = 107
 fn test_place_bet_below_minimum() {
-    // Betting below minimum would return InsufficientStake (#107).
-    assert_eq!(crate::errors::Error::InsufficientStake as i128, 107);
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Try to place bet below minimum
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &(MIN_BET_AMOUNT - 1), // Below minimum
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #401)")] // InvalidInput = 401
 fn test_place_bet_above_maximum() {
-    // Betting above maximum would return InvalidInput (#401).
-    assert_eq!(crate::errors::Error::InvalidInput as i128, 401);
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Try to place bet above maximum
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &(MAX_BET_AMOUNT + 1), // Above maximum
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #101)")] // MarketNotFound = 101
 fn test_place_bet_nonexistent_market() {
-    // Betting on non-existent market would return MarketNotFound (#101).
-    assert_eq!(crate::errors::Error::MarketNotFound as i128, 101);
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Try to bet on non-existent market
+    let fake_market_id = Symbol::new(&setup.env, "fake_market");
+    client.place_bet(
+        &setup.user,
+        &fake_market_id,
+        &String::from_str(&setup.env, "yes"),
+        &10_0000000,
+    );
 }
 
 // ===== BET STATUS TESTS =====

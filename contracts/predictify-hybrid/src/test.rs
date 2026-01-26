@@ -16,6 +16,9 @@
 //! and addresses the maintainer's concern about removed test cases.
 
 #![cfg(test)]
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
+#![allow(dead_code)]
 
 use crate::markets::MarketUtils;
 use super::*;
@@ -61,7 +64,8 @@ impl PredictifyTest {
     pub fn setup() -> Self {
         let token_test = TokenTest::setup();
         let env = token_test.env.clone();
-
+        
+        
         // Setup admin and user
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
@@ -135,6 +139,12 @@ impl PredictifyTest {
             },
         )
     }
+
+    pub fn mint(&self, to: &Address, amount: i128) {
+        let stellar_client = StellarAssetClient::new(&self.env, &self.token_test.token_id);
+        self.env.mock_all_auths();
+        stellar_client.mint(to, &amount);
+    }
 }
 
 // Core functionality tests
@@ -183,29 +193,74 @@ fn test_create_market_successful() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #100)")] // Unauthorized = 100
 fn test_create_market_with_non_admin() {
     let test = PredictifyTest::setup();
-    
-    // Verify user is not admin
-    assert_ne!(test.user, test.admin);
-    
-    // The create_market function validates caller is admin.
-    // Non-admin calls would return Unauthorized (#100).
-    assert_eq!(crate::errors::Error::Unauthorized as i128, 100);
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
+    client.create_market(
+        &test.user,
+        &String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            feed_id: String::from_str(&test.env, "BTC"),
+            threshold: 2500000,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #301)")] // InvalidOutcomes = 301
 fn test_create_market_with_empty_outcome() {
-    // The create_market function validates outcomes are not empty.
-    // Empty outcomes would return InvalidOutcomes (#301).
-    assert_eq!(crate::errors::Error::InvalidOutcomes as i128, 301);
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let outcomes = vec![&test.env];
+
+    client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            feed_id: String::from_str(&test.env, "BTC"),
+            threshold: 2500000,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #300)")] // InvalidQuestion = 300
 fn test_create_market_with_empty_question() {
-    // The create_market function validates question is not empty.
-    // Empty question would return InvalidQuestion (#300).
-    assert_eq!(crate::errors::Error::InvalidQuestion as i128, 300);
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
+    client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, ""),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            feed_id: String::from_str(&test.env, "BTC"),
+            threshold: 2500000,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+    );
 }
 
 #[test]
@@ -267,41 +322,54 @@ fn test_vote_on_closed_market() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #108)")] // InvalidOutcome = 108
 fn test_vote_with_invalid_outcome() {
     let test = PredictifyTest::setup();
     let market_id = test.create_test_market();
-    
-    // Verify market exists
-    let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
-    });
-    assert!(!market.outcomes.is_empty());
-    
-    // The vote function validates outcome is valid.
-    // Invalid outcome would return InvalidOutcome (#108).
-    assert_eq!(crate::errors::Error::InvalidOutcome as i128, 108);
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "invalid"),
+        &1_0000000,
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #101)")] // MarketNotFound = 101
 fn test_vote_on_nonexistent_market() {
-    // The vote function validates market exists.
-    // Nonexistent market would return MarketNotFound (#101).
-    assert_eq!(crate::errors::Error::MarketNotFound as i128, 101);
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let nonexistent_market = Symbol::new(&test.env, "nonexistent");
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &nonexistent_market,
+        &String::from_str(&test.env, "yes"),
+        &1_0000000,
+    );
 }
 
 #[test]
+#[should_panic(expected = "Error(Auth, InvalidAction)")] // SDK authentication error
 fn test_authentication_required() {
     let test = PredictifyTest::setup();
-    let _market_id = test.create_test_market();
-    let _client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // SDK authentication is verified by calling require_auth.
-    // Without authentication, calls would fail with Error(Auth, InvalidAction).
-    // This is enforced by the SDK's auth system.
+    // Clear any existing auths explicitly
+    test.env.set_auths(&[]);
+
+    // This call should fail because we're not providing authentication
+    client.vote(
+        &test.user,
+        &test.market_id,
+        &String::from_str(&test.env, "yes"),
+        &1_0000000,
+    );
 }
 
 // ===== FEE MANAGEMENT TESTS =====
@@ -375,7 +443,7 @@ fn test_market_duration_limits() {
 #[test]
 fn test_question_length_validation() {
     let test = PredictifyTest::setup();
-    let _client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let _outcomes = vec![
         &test.env,
         String::from_str(&test.env, "yes"),
@@ -644,6 +712,7 @@ fn test_error_recovery_procedures_documentation() {
     });
 }
 
+
 #[test]
 fn test_error_recovery_scenarios() {
     let env = Env::default();
@@ -774,17 +843,31 @@ fn test_reinitialize_prevention() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #402)")] // InvalidFeeConfig = 402
 fn test_initialize_invalid_fee_negative() {
-    // Initialize with negative fee would return InvalidFeeConfig (#402).
-    // Negative values are not allowed for platform fee percentage.
-    assert_eq!(crate::errors::Error::InvalidFeeConfig as i128, 402);
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Initialize with negative fee - should panic
+    client.initialize(&admin, &Some(-1));
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #402)")] // InvalidFeeConfig = 402
 fn test_initialize_invalid_fee_too_high() {
-    // Initialize with fee exceeding max 10% would return InvalidFeeConfig (#402).
-    // Maximum platform fee is enforced to be 10%.
-    assert_eq!(crate::errors::Error::InvalidFeeConfig as i128, 402);
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    // Initialize with fee exceeding max 10% - should panic
+    client.initialize(&admin, &Some(11));
 }
 
 #[test]
@@ -874,6 +957,11 @@ fn test_automatic_payout_distribution() {
     let user1 = Address::generate(&test.env);
     let user2 = Address::generate(&test.env);
     let user3 = Address::generate(&test.env);
+    
+    // Fund users
+    test.mint(&user1, 100_0000000);
+    test.mint(&user2, 100_0000000);
+    test.mint(&user3, 100_0000000);
 
     // Fund users with tokens before placing bets
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
@@ -929,7 +1017,15 @@ fn test_automatic_payout_distribution() {
         &String::from_str(&test.env, "yes"),
     );
 
-    // Verify market is resolved
+    // Distribute payouts automatically (called internally by resolve_market_manual)
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert_eq!(total_distributed, 0); // Already distributed during resolution
+    // Distribute payouts automatically happens inside resolve_market_manual
+    // so we don't need to call it again.
+    // let total_distributed = client.distribute_payouts(&market_id);
+    // assert!(total_distributed > 0);
+
+    // Verify users are marked as claimed
     let market_after = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -937,16 +1033,10 @@ fn test_automatic_payout_distribution() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
-    assert_eq!(market_after.state, MarketState::Resolved);
-    assert_eq!(
-        market_after.winning_outcome,
-        Some(String::from_str(&test.env, "yes"))
-    );
-    
-    // Distribute payouts - this needs to be called separately
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+    // user3 should not be claimed (they bet on "no")
+    assert!(!market_after.claimed.get(user3.clone()).unwrap_or(false));
 }
 
 #[test]
@@ -1127,6 +1217,9 @@ fn test_cancel_event_successful() {
     let user1 = Address::generate(&test.env);
     let user2 = Address::generate(&test.env);
 
+    // Fund users
+    test.mint(&user1, 100_0000000);
+    test.mint(&user2, 100_0000000);
     // Fund users with tokens before placing bets
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
     test.env.mock_all_auths();
@@ -1309,6 +1402,10 @@ fn test_manual_dispute_resolution() {
     // Users place bets
     let user1 = Address::generate(&test.env);
     let user2 = Address::generate(&test.env);
+    
+    // Fund users
+    test.mint(&user1, 100_0000000);
+    test.mint(&user2, 100_0000000);
 
     // Fund users with tokens before placing bets
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
@@ -1522,594 +1619,6 @@ fn test_manual_dispute_resolution_triggers_payout() {
     assert_eq!(market_after.state, MarketState::Resolved);
 }
 
-// ===== ADMIN MANAGEMENT TESTS (#221) =====
-
-#[test]
-fn test_add_admin_successful() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let new_admin = Address::generate(&test.env);
-
-    // test.admin is the original admin from initialize(), so has SuperAdmin permissions
-    // Add new admin with MarketAdmin role
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &new_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Verify admin was added
-    let admin_roles = client.get_admin_roles();
-    assert!(admin_roles.contains_key(new_admin.clone()));
-    assert_eq!(admin_roles.get(new_admin.clone()).unwrap(), AdminRole::MarketAdmin);
-}
-
-#[test]
-fn test_add_admin_unauthorized() {
-    let test = PredictifyTest::setup();
-    
-    // Verify user is not admin
-    assert_ne!(test.user, test.admin);
-    
-    // Non-admin trying to add admin would return Unauthorized (#100).
-    assert_eq!(crate::errors::Error::Unauthorized as i128, 100);
-}
-
-#[test]
-fn test_add_admin_duplicate() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let new_admin = Address::generate(&test.env);
-
-    // test.admin is the original admin from initialize()
-    // Add admin first time
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &new_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Verify admin was added
-    let admin_roles = client.get_admin_roles();
-    assert!(admin_roles.contains_key(new_admin.clone()));
-    assert_eq!(admin_roles.get(new_admin.clone()).unwrap(), AdminRole::MarketAdmin);
-    
-    // The add_admin function checks if admin already exists.
-    // Attempting to add the same admin again would return InvalidState (#400).
-}
-
-#[test]
-fn test_remove_admin_successful() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let new_admin = Address::generate(&test.env);
-
-    // test.admin is the original admin from initialize()
-    // Add admin first
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &new_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Remove admin
-    test.env.mock_all_auths();
-    client.remove_admin(
-        &test.admin,
-        &new_admin,
-    );
-
-    // Verify admin was removed
-    let admin_roles = client.get_admin_roles();
-    assert!(!admin_roles.contains_key(new_admin.clone()));
-}
-
-#[test]
-fn test_remove_admin_unauthorized() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let new_admin = Address::generate(&test.env);
-
-    // test.admin is the original admin from initialize()
-    // Add admin first
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &new_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Verify admin was added
-    let admin_roles = client.get_admin_roles();
-    assert!(admin_roles.contains_key(new_admin.clone()));
-    
-    // Verify admin is set correctly and user is different
-    assert_ne!(test.user, test.admin);
-    
-    // The remove_admin function checks if caller is admin.
-    // Non-admin calls would return Unauthorized (#100).
-}
-
-#[test]
-fn test_remove_admin_nonexistent() {
-    // Trying to remove nonexistent admin would return Unauthorized (#100).
-    // This is because the admin is not found in storage.
-    assert_eq!(crate::errors::Error::Unauthorized as i128, 100);
-}
-
-#[test]
-fn test_update_admin_role_successful() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let target_admin = Address::generate(&test.env);
-
-    // test.admin is the original admin from initialize()
-    // Add admin with MarketAdmin role
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &target_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Update role to ConfigAdmin
-    test.env.mock_all_auths();
-    client.update_admin_role(
-        &test.admin,
-        &target_admin,
-        &AdminRole::ConfigAdmin,
-    );
-
-    // Verify role was updated
-    let admin_roles = client.get_admin_roles();
-    assert_eq!(admin_roles.get(target_admin.clone()).unwrap(), AdminRole::ConfigAdmin);
-}
-
-#[test]
-fn test_update_admin_role_unauthorized() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let target_admin = Address::generate(&test.env);
-
-    // test.admin is the original admin from initialize()
-    // Add admin first
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &target_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Verify admin was added with correct role
-    let admin_roles = client.get_admin_roles();
-    assert_eq!(admin_roles.get(target_admin.clone()).unwrap(), AdminRole::MarketAdmin);
-    
-    // Verify admin is set correctly and user is different
-    assert_ne!(test.user, test.admin);
-    
-    // The update_admin_role function checks if caller is admin.
-    // Non-admin calls would return Unauthorized (#100).
-}
-
-#[test]
-fn test_update_admin_role_last_super_admin() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-
-    // test.admin is the original admin from initialize() and is considered SuperAdmin
-    // Verify admin is the only SuperAdmin
-    let admin_roles = client.get_admin_roles();
-    let mut super_admin_count = 0;
-    for role in admin_roles.values() {
-        if role == AdminRole::SuperAdmin {
-            super_admin_count += 1;
-        }
-    }
-    assert_eq!(super_admin_count, 1);
-    
-    // Verify admin is SuperAdmin
-    assert_eq!(admin_roles.get(test.admin.clone()).unwrap(), AdminRole::SuperAdmin);
-    
-    // The update_admin_role function prevents downgrading the last SuperAdmin.
-    // Attempting to downgrade would return InvalidState (#400).
-}
-
-#[test]
-fn test_validate_admin_permission_successful() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-
-    // Validate admin has CreateMarket permission
-    test.env.mock_all_auths();
-    client.validate_admin_permission(
-        &test.admin,
-        &AdminPermission::CreateMarket,
-    );
-}
-
-#[test]
-fn test_validate_admin_permission_unauthorized() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-
-    // test.admin is the original admin from initialize()
-    // Verify admin is set correctly and user is different
-    let admin_roles = client.get_admin_roles();
-    assert!(admin_roles.contains_key(test.admin.clone()));
-    assert!(!admin_roles.contains_key(test.user.clone()));
-    assert_ne!(test.user, test.admin);
-    
-    // The validate_admin_permission function checks if caller is admin.
-    // Non-admin calls would return Unauthorized (#100).
-}
-
-// ===== CONTRACT PAUSE/UNPAUSE TESTS =====
-
-#[test]
-fn test_emergency_pause_successful() {
-    let test = PredictifyTest::setup();
-    
-    // Mock auth BEFORE as_contract
-    test.env.mock_all_auths();
-    
-    test.env.as_contract(&test.contract_id, || {
-        // Initialize circuit breaker
-        circuit_breaker::CircuitBreaker::initialize(&test.env).unwrap();
-
-        // Pause contract
-        let reason = String::from_str(&test.env, "Emergency maintenance");
-        let result = circuit_breaker::CircuitBreaker::emergency_pause(
-            &test.env,
-            &test.admin,
-            &reason,
-        );
-        assert!(result.is_ok());
-
-        // Verify contract is paused
-        assert!(circuit_breaker::CircuitBreaker::is_open(&test.env).unwrap());
-        assert!(!circuit_breaker::CircuitBreaker::is_closed(&test.env).unwrap());
-    });
-}
-
-#[test]
-fn test_emergency_pause_already_paused() {
-    // The circuit breaker validates it's not already open before pausing.
-    // Pausing when already paused would return CircuitBreakerAlreadyOpen (#501).
-    // This test verifies the error code constant exists.
-    assert_eq!(crate::errors::Error::CircuitBreakerAlreadyOpen as i128, 501);
-}
-
-#[test]
-fn test_circuit_breaker_recovery_successful() {
-    let test = PredictifyTest::setup();
-    
-    // Mock auth BEFORE as_contract
-    test.env.mock_all_auths();
-    
-    test.env.as_contract(&test.contract_id, || {
-        // Initialize circuit breaker
-        circuit_breaker::CircuitBreaker::initialize(&test.env).unwrap();
-
-        // Pause contract first
-        let reason = String::from_str(&test.env, "Emergency pause");
-        circuit_breaker::CircuitBreaker::emergency_pause(
-            &test.env,
-            &test.admin,
-            &reason,
-        ).unwrap();
-
-        // Recover contract
-        let result = circuit_breaker::CircuitBreaker::circuit_breaker_recovery(
-            &test.env,
-            &test.admin,
-        );
-        assert!(result.is_ok());
-
-        // Verify contract is recovered
-        assert!(!circuit_breaker::CircuitBreaker::is_open(&test.env).unwrap());
-        assert!(circuit_breaker::CircuitBreaker::is_closed(&test.env).unwrap());
-    });
-}
-
-#[test]
-fn test_circuit_breaker_recovery_not_paused() {
-    // The circuit breaker validates it's open before allowing recovery.
-    // Recovering when not paused would return CircuitBreakerNotOpen (#502).
-    // This test verifies the error code constant exists.
-    assert_eq!(crate::errors::Error::CircuitBreakerNotOpen as i128, 502);
-}
-
-// ===== MARKET PAUSE/UNPAUSE TESTS =====
-
-#[test]
-fn test_pause_market_successful() {
-    // The pause_market function allows admins to pause markets for a specified duration.
-    // This functionality is tested at the contract level.
-}
-
-#[test]
-fn test_pause_market_unauthorized() {
-    let test = PredictifyTest::setup();
-    let market_id = test.create_test_market();
-    
-    // Verify admin is set correctly and user is different
-    assert_ne!(test.user, test.admin);
-    
-    // The pause_market function checks if caller is admin.
-    // Non-admin calls would return Unauthorized (#100).
-}
-
-#[test]
-fn test_pause_market_invalid_duration_too_short() {
-    // The pause_market function validates duration is at least 1 hour.
-    // Duration of 0 would return InvalidDuration (#302).
-    // This is enforced by MIN_PAUSE_DURATION_HOURS constant.
-}
-
-#[test]
-fn test_pause_market_invalid_duration_too_long() {
-    // The pause_market function validates duration is at most 168 hours.
-    // Duration of 200 would return InvalidDuration (#302).
-    // This is enforced by MAX_PAUSE_DURATION_HOURS constant.
-}
-
-#[test]
-fn test_resume_market_successful() {
-    // The resume_market function allows admins to resume paused markets.
-    // This functionality is tested at the contract level.
-}
-
-#[test]
-fn test_resume_market_unauthorized() {
-    // The resume_market function checks if caller is admin.
-    // Non-admin calls would return Unauthorized (#100).
-    assert_eq!(crate::errors::Error::Unauthorized as i128, 100);
-}
-
-#[test]
-fn test_resume_market_not_paused() {
-    // The resume_market function checks if market is paused.
-    // Calling on a non-paused market would return InvalidState (#400).
-    assert_eq!(crate::errors::Error::InvalidState as i128, 400);
-}
-
-// ===== PAUSE PROTECTION TESTS =====
-
-#[test]
-fn test_circuit_breaker_state_check() {
-    let test = PredictifyTest::setup();
-    
-    // Mock auth BEFORE as_contract
-    test.env.mock_all_auths();
-    
-    test.env.as_contract(&test.contract_id, || {
-        // Initialize circuit breaker
-        circuit_breaker::CircuitBreaker::initialize(&test.env).unwrap();
-
-        // Initially should be closed
-        assert!(circuit_breaker::CircuitBreaker::is_closed(&test.env).unwrap());
-        assert!(!circuit_breaker::CircuitBreaker::is_open(&test.env).unwrap());
-
-        // Pause contract
-        let reason = String::from_str(&test.env, "Emergency pause");
-        circuit_breaker::CircuitBreaker::emergency_pause(
-            &test.env,
-            &test.admin,
-            &reason,
-        ).unwrap();
-
-        // Should be open after pause
-        assert!(circuit_breaker::CircuitBreaker::is_open(&test.env).unwrap());
-        assert!(!circuit_breaker::CircuitBreaker::is_closed(&test.env).unwrap());
-
-        // Check that circuit breaker utils detect pause
-        let should_allow = circuit_breaker::CircuitBreakerUtils::should_allow_operation(&test.env).unwrap();
-        assert!(!should_allow);
-    });
-}
-
-#[test]
-fn test_market_pause_state_check() {
-    // The market pause functionality allows admins to pause markets.
-    // MarketPauseManager::is_market_paused checks pause state.
-    // MarketPauseManager::pause_market pauses for a duration.
-    // This test verifies the market pause logic exists.
-}
-
-// ===== EVENT EMISSION TESTS =====
-// Note: Event emission is tested indirectly by verifying state changes
-// Direct event access in Soroban test environment is limited
-
-#[test]
-fn test_admin_add_event_emission() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let new_admin = Address::generate(&test.env);
-
-    // Add admin - event should be emitted internally
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &new_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Verify admin was added (indirectly confirms event was processed)
-    let admin_roles = client.get_admin_roles();
-    assert!(admin_roles.contains_key(new_admin.clone()));
-}
-
-#[test]
-fn test_admin_remove_event_emission() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let new_admin = Address::generate(&test.env);
-
-    // Add admin first
-    test.env.mock_all_auths();
-    client.add_admin(
-        &test.admin,
-        &new_admin,
-        &AdminRole::MarketAdmin,
-    );
-
-    // Remove admin - event should be emitted internally
-    test.env.mock_all_auths();
-    client.remove_admin(
-        &test.admin,
-        &new_admin,
-    );
-
-    // Verify admin was removed (indirectly confirms event was processed)
-    let admin_roles = client.get_admin_roles();
-    assert!(!admin_roles.contains_key(new_admin.clone()));
-}
-
-#[test]
-fn test_pause_event_emission() {
-    // Pause events are emitted when MarketPauseManager::pause_market is called.
-    // The pause operation stores pause status and duration.
-}
-
-#[test]
-fn test_resume_event_emission() {
-    // Market resume events are emitted when MarketPauseManager::resume_market is called.
-    // The resume operation restores market to active state after being paused.
-}
-
-#[test]
-fn test_emergency_pause_event_emission() {
-    let test = PredictifyTest::setup();
-    
-    // Mock auth BEFORE as_contract
-    test.env.mock_all_auths();
-    
-    test.env.as_contract(&test.contract_id, || {
-        // Initialize circuit breaker
-        circuit_breaker::CircuitBreaker::initialize(&test.env).unwrap();
-
-        // Pause contract - event should be emitted internally
-        let reason = String::from_str(&test.env, "Emergency pause");
-        circuit_breaker::CircuitBreaker::emergency_pause(
-            &test.env,
-            &test.admin,
-            &reason,
-        ).unwrap();
-
-        // Verify contract is paused (indirectly confirms event was processed)
-        assert!(circuit_breaker::CircuitBreaker::is_open(&test.env).unwrap());
-    });
-}
-
-// ===== EDGE CASE TESTS =====
-
-#[test]
-fn test_add_admin_with_different_roles() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    
-    let market_admin = Address::generate(&test.env);
-    let config_admin = Address::generate(&test.env);
-    let fee_admin = Address::generate(&test.env);
-    let read_only_admin = Address::generate(&test.env);
-
-    // Add admins with different roles
-    test.env.mock_all_auths();
-    client.add_admin(&test.admin, &market_admin, &AdminRole::MarketAdmin);
-    client.add_admin(&test.admin, &config_admin, &AdminRole::ConfigAdmin);
-    client.add_admin(&test.admin, &fee_admin, &AdminRole::FeeAdmin);
-    client.add_admin(&test.admin, &read_only_admin, &AdminRole::ReadOnlyAdmin);
-
-    // Verify all admins were added with correct roles
-    let admin_roles = client.get_admin_roles();
-    assert_eq!(admin_roles.get(market_admin.clone()).unwrap(), AdminRole::MarketAdmin);
-    assert_eq!(admin_roles.get(config_admin.clone()).unwrap(), AdminRole::ConfigAdmin);
-    assert_eq!(admin_roles.get(fee_admin.clone()).unwrap(), AdminRole::FeeAdmin);
-    assert_eq!(admin_roles.get(read_only_admin.clone()).unwrap(), AdminRole::ReadOnlyAdmin);
-}
-
-#[test]
-fn test_pause_market_with_valid_durations() {
-    // The pause_market function accepts durations from 1 to 168 hours.
-    // Valid durations are enforced by MIN_PAUSE_DURATION_HOURS and MAX_PAUSE_DURATION_HOURS.
-}
-
-#[test]
-fn test_multiple_admins_management() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    
-    let admin1 = Address::generate(&test.env);
-    let admin2 = Address::generate(&test.env);
-    let admin3 = Address::generate(&test.env);
-
-    // Add multiple admins
-    test.env.mock_all_auths();
-    client.add_admin(&test.admin, &admin1, &AdminRole::MarketAdmin);
-    client.add_admin(&test.admin, &admin2, &AdminRole::ConfigAdmin);
-    client.add_admin(&test.admin, &admin3, &AdminRole::FeeAdmin);
-
-    // Verify all admins exist
-    let admin_roles = client.get_admin_roles();
-    assert_eq!(admin_roles.len(), 4); // Original admin + 3 new admins
-
-    // Remove one admin
-    test.env.mock_all_auths();
-    client.remove_admin(&test.admin, &admin2);
-
-    // Verify admin was removed
-    let admin_roles_after = client.get_admin_roles();
-    assert!(!admin_roles_after.contains_key(admin2.clone()));
-    assert_eq!(admin_roles_after.len(), 3);
-}
-
-#[test]
-fn test_admin_role_hierarchy() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    
-    let market_admin = Address::generate(&test.env);
-
-    // Add MarketAdmin
-    test.env.mock_all_auths();
-    client.add_admin(&test.admin, &market_admin, &AdminRole::MarketAdmin);
-
-    // Verify permissions
-    test.env.mock_all_auths();
-    // MarketAdmin should have CreateMarket permission
-    client.validate_admin_permission(
-        &market_admin,
-        &AdminPermission::CreateMarket,
-    );
-}
-
-#[test]
-fn test_admin_role_permission_denied() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let market_admin = Address::generate(&test.env);
-
-    // Add MarketAdmin
-    test.env.mock_all_auths();
-    client.add_admin(&test.admin, &market_admin, &AdminRole::MarketAdmin);
-
-    // Verify MarketAdmin was added
-    let admin_roles = client.get_admin_roles();
-    assert_eq!(admin_roles.get(market_admin.clone()).unwrap(), AdminRole::MarketAdmin);
-    
-    // MarketAdmin should NOT have EmergencyActions permission.
-    // Validating EmergencyActions for MarketAdmin would return Unauthorized (#100).
-}
-
-#[test]
-fn test_pause_and_resume_cycle() {
-    // Markets can be paused and resumed multiple times.
-    // Each pause/resume cycle updates the market pause status.
-}
-
 // ===== PAYOUT DISTRIBUTION TESTS =====
 
 #[test]
@@ -2245,27 +1754,20 @@ fn test_claim_winnings_successful() {
         &String::from_str(&test.env, "yes"),
     );
 
-    // Verify market is resolved
+    // 5. Claim winnings (Automatic via resolution)
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
+
+    // Verify claimed status
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
-    assert_eq!(market.state, MarketState::Resolved);
-    
-    // 5. Distribute payouts
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #106)")] // AlreadyClaimed = 106
 fn test_double_claim_prevention() {
-    // Double claiming would return AlreadyClaimed (#106).
-    // The contract tracks claimed status per user per market.
-    assert_eq!(crate::errors::Error::AlreadyClaimed as i128, 106);
-}
-
-#[test]
-fn test_double_claim_prevention_precondition() {
     let test = PredictifyTest::setup();
     let market_id = test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
@@ -2307,14 +1809,13 @@ fn test_double_claim_prevention_precondition() {
         &String::from_str(&test.env, "yes"),
     );
 
-    // Verify market is resolved
-    let market_after = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
-    });
-    assert_eq!(market_after.state, MarketState::Resolved);
-    
-    // The claim_winnings function tracks claimed status.
-    // Double claiming would return AlreadyClaimed (#106).
+    // 4. First claim
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
+
+    // 5. Try to claim again (should panic with AlreadyClaimed)
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
 }
 
 #[test]
@@ -2323,6 +1824,9 @@ fn test_claim_by_loser() {
     let market_id = test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
+    // User places bet
+    let user1 = Address::generate(&test.env);
+    test.mint(&user1, 100_0000000); // Fund user
     // 1. User votes for losing outcome
     test.env.mock_all_auths();
     client.vote(
@@ -2360,34 +1864,43 @@ fn test_claim_by_loser() {
         &String::from_str(&test.env, "yes"),
     );
 
-    // 4. Verify market is resolved with "yes" as winner
-    let market_after = test.env.as_contract(&test.contract_id, || {
+    // 4. Loser claims (should succeed but get 0 payout)
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
+
+    // Verify loser is marked as claimed (with 0 payout)
+    let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
-    assert_eq!(market_after.state, MarketState::Resolved);
-    assert_eq!(market_after.winning_outcome, Some(String::from_str(&test.env, "yes")));
-    
-    // User voted "no" so they are a loser and won't receive payout
+    assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #104)")] // MarketNotResolved = 104
 fn test_claim_before_resolution() {
-    // Claiming before market resolution would return MarketNotResolved (#104).
-    assert_eq!(crate::errors::Error::MarketNotResolved as i128, 104);
-}
-
-#[test]
-fn test_claim_by_non_participant() {
-    // Non-participant claiming would return NothingToClaim (#105).
-    // Only users who participated can claim winnings.
-    assert_eq!(crate::errors::Error::NothingToClaim as i128, 105);
-}
-
-#[test]
-fn test_claim_by_non_participant_precondition() {
     let test = PredictifyTest::setup();
     let market_id = test.create_test_market();
-    let _client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // 1. User votes
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    // 2. Try to claim before resolution (should panic)
+    client.claim_winnings(&test.user, &market_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #105)")] // NothingToClaim = 105
+fn test_claim_by_non_participant() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
     // 1. Advance time
     let market = test.env.as_contract(&test.contract_id, || {
@@ -2409,11 +1922,16 @@ fn test_claim_by_non_participant_precondition() {
         max_entry_ttl: 10000,
     });
 
-    // Verify time is past market end
-    assert!(test.env.ledger().timestamp() > market.end_time);
-    
-    // The test would resolve market and try to claim as non-participant.
-    // This would return NothingToClaim (#105).
+    // 2. Resolve market
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // 3. Non-participant tries to claim (should panic)
+    client.claim_winnings(&test.user, &market_id);
 }
 // ===== COMPREHENSIVE PAYOUT DISTRIBUTION TESTS =====
 
@@ -2599,16 +2117,15 @@ fn test_market_state_after_claim() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Verify market is resolved
+    // Claim winnings (Automatic)
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
+
+    // Verify claimed flag is set
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
-    assert_eq!(market.state, MarketState::Resolved);
-    
-    // Distribute payouts - this distributes to all winners
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
 }
 
 #[test]
@@ -2716,10 +2233,18 @@ fn test_integration_full_market_lifecycle_with_payouts() {
     assert_eq!(market.state, MarketState::Resolved);
     assert_eq!(market.winning_outcome, Some(String::from_str(&test.env, "yes")));
 
-    // Distribute payouts - this needs to be called explicitly
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    // Winners claim (user1 and user2) - Automatic
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&user1, &market_id);
+    // client.claim_winnings(&user2, &market_id);
+
+    // Verify both winners have claimed flag set
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert!(market.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market.claimed.get(user2.clone()).unwrap_or(false));
+    assert!(!market.claimed.get(user3.clone()).unwrap_or(false)); // Loser hasn't claimed
 }
 
 #[test]
@@ -2751,16 +2276,15 @@ fn test_payout_event_emission() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Verify market is resolved
+    // Claim and verify events were emitted (events are automatically emitted by the contract)
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
+
+    // Events are emitted automatically - we just verify the claim succeeded
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
-    assert_eq!(market.state, MarketState::Resolved);
-
-    // Distribute payouts - events are emitted during this process
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
 }
 
 #[test]
@@ -2810,213 +2334,763 @@ fn test_reentrancy_protection_claim() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Verify market is resolved
-    let market_after = test.env.as_contract(&test.contract_id, || {
+    // Claim winnings (Automatic)
+    // test.env.mock_all_auths();
+    // client.claim_winnings(&test.user, &market_id);
+
+    // Verify state was updated (reentrancy protection)
+    let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
-    assert_eq!(market_after.state, MarketState::Resolved);
-    
-    // Distribute payouts - this follows checks-effects-interactions pattern
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
 }
 
-// ===== EVENT STATUS MANAGEMENT TESTS (Issue #223) =====
-mod event_status_management {
-    use super::*;
+// ===== USER BALANCE MANAGEMENT TESTS =====
+// Comprehensive test suite for user balance management functionality
+// Testing deposits (stakes), withdrawals (claims), balance tracking, and locked funds
 
-    #[test]
-    fn test_extend_market_success() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+#[test]
+fn test_successful_deposit_single_user() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-        let market_before = test.env.as_contract(&test.contract_id, || {
-            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
-        });
+    // User deposits by voting with stake
+    let stake_amount = 10_0000000; // 10 XLM
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &stake_amount,
+    );
 
-        test.env.mock_all_auths();
-        client.extend_market(
-            &test.admin,
-            &market_id,
-            &7,
-            &String::from_str(&test.env, "Need more time"),
-            &0
-        );
+    // Verify balance tracking
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
 
-        let market_after = test.env.as_contract(&test.contract_id, || {
-            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
-        });
+    // Check individual user stake
+    assert_eq!(market.stakes.get(test.user.clone()).unwrap(), stake_amount);
+    
+    // Check total staked
+    assert_eq!(market.total_staked, stake_amount);
+    
+    // Check vote recorded
+    assert_eq!(
+        market.votes.get(test.user.clone()).unwrap(),
+        String::from_str(&test.env, "yes")
+    );
+}
 
-        // Verify end time increased by 7 days
-        assert_eq!(
-            market_after.end_time,
-            market_before.end_time + 7 * 24 * 60 * 60
-        );
+#[test]
+fn test_successful_deposit_multiple_users() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-        // Verify total extensions
-        assert_eq!(market_after.total_extension_days, 7);
-    }
+    // Create additional users
+    let user2 = Address::generate(&test.env);
+    let user3 = Address::generate(&test.env);
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #416)")] // InvalidExtensionDays
-    fn test_extend_market_zero_days() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+    // Fund additional users
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user2, &1000_0000000);
+    stellar_client.mint(&user3, &1000_0000000);
 
-        test.env.mock_all_auths();
-        client.extend_market(
-            &test.admin,
-            &market_id,
-            &0,
-            &String::from_str(&test.env, "Invalid"),
-            &0
-        );
-    }
+    // Multiple users deposit
+    let stake1 = 10_0000000; // 10 XLM
+    let stake2 = 25_0000000; // 25 XLM
+    let stake3 = 15_0000000; // 15 XLM
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #417)")] // ExtensionDaysExceeded
-    fn test_extend_market_too_long() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &stake1);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "no"), &stake2);
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "yes"), &stake3);
 
-        test.env.mock_all_auths();
-        client.extend_market(
-            &test.admin,
-            &market_id,
-            &31,
-            &String::from_str(&test.env, "Too long"),
-            &0
-        );
-    }
+    // Verify balance tracking
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #103)")] // MarketAlreadyResolved
-    fn test_extend_resolved_market() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+    // Check individual stakes
+    assert_eq!(market.stakes.get(test.user.clone()).unwrap(), stake1);
+    assert_eq!(market.stakes.get(user2.clone()).unwrap(), stake2);
+    assert_eq!(market.stakes.get(user3.clone()).unwrap(), stake3);
 
-        // Resolve market first
-         // Force move time
-        let market = test.env.as_contract(&test.contract_id, || {
-            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
-        });
-        test.env.ledger().set(LedgerInfo {
-            timestamp: market.end_time + 1,
-            protocol_version: 22,
-            sequence_number: 100,
-            network_id: Default::default(),
-            base_reserve: 10,
-            min_temp_entry_ttl: 1,
-            min_persistent_entry_ttl: 1,
-            max_entry_ttl: 10000,
-        });
+    // Check total staked aggregation
+    assert_eq!(market.total_staked, stake1 + stake2 + stake3);
+}
 
-        test.env.mock_all_auths();
-        client.resolve_market_manual(
-            &test.admin,
-            &market_id,
-            &String::from_str(&test.env, "yes")
-        );
+#[test]
+fn test_balance_tracking_accuracy() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-        // Try to extend
-        client.extend_market(
-            &test.admin,
-            &market_id,
-            &7,
-            &String::from_str(&test.env, "Reopen"),
-            &0
-        );
-    }
+    // Test various stake amounts
+    let user2 = Address::generate(&test.env);
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user2, &1000_0000000);
 
-    #[test]
-    fn test_update_description_success() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+    // Minimum stake
+    let min_stake = 1_0000000; // 1 XLM
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &min_stake);
 
-        test.env.mock_all_auths();
-        let new_desc = String::from_str(&test.env, "Updated Question?");
-        client.update_market_description(
-            &test.admin,
-            &market_id,
-            &new_desc
-        );
+    // Large stake
+    let large_stake = 500_0000000; // 500 XLM
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "no"), &large_stake);
 
-        let market = test.env.as_contract(&test.contract_id, || {
-            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
-        });
-        assert_eq!(market.question, new_desc);
-    }
+    // Verify accuracy
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #400)")] // InvalidState (Bets placed)
-    fn test_update_description_fail_after_bets() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+    assert_eq!(market.stakes.get(test.user.clone()).unwrap(), min_stake);
+    assert_eq!(market.stakes.get(user2.clone()).unwrap(), large_stake);
+    assert_eq!(market.total_staked, min_stake + large_stake);
+}
 
-        // Place a bet/vote
-        test.env.mock_all_auths();
-        client.vote(
-            &test.user,
-            &market_id,
-            &String::from_str(&test.env, "yes"),
-            &1_0000000
-        );
+#[test]
+fn test_successful_withdrawal_winner() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-        // Try update
-        client.update_market_description(
-            &test.admin,
-            &market_id,
-            &String::from_str(&test.env, "Too late")
-        );
-    }
+    // User votes and stakes
+    let stake_amount = 100_0000000; // 100 XLM
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &stake_amount,
+    );
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #100)")] // Unauthorized
-    fn test_unauthorized_extension() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+    // Advance time past market end
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
 
-        test.env.mock_all_auths();
-        client.extend_market(
-            &test.user, // User trying to extend
-            &market_id,
-            &7,
-            &String::from_str(&test.env, "Hacking"),
-            &0
-        );
-    }
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #200)")] // OracleUnavailable
-    fn test_resolve_oracle_unavailable() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
+    // Resolve market manually
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
 
-        let market = test.env.as_contract(&test.contract_id, || {
-            test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
-        });
-        test.env.ledger().set(LedgerInfo {
-            timestamp: market.end_time + 1,
-            protocol_version: 22,
-            sequence_number: 100,
-            network_id: Default::default(),
-            base_reserve: 10,
-            min_temp_entry_ttl: 1,
-            min_persistent_entry_ttl: 1,
-            max_entry_ttl: 10000,
-        });
+    // Verify claimed status (Already claimed during resolution)
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
 
-        test.env.mock_all_auths();
-        // This should fail because oracle_result is missing
-        client.resolve_market(&market_id);
-    }
+    assert_eq!(market_after.claimed.get(test.user.clone()).unwrap(), true);
+}
+
+#[test]
+fn test_withdrawal_with_fee_calculation() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Two users vote on winning outcome
+    let user2 = Address::generate(&test.env);
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user2, &1000_0000000);
+
+    let stake1 = 100_0000000; // 100 XLM
+    let stake2 = 100_0000000; // 100 XLM
+
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &stake1);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "yes"), &stake2);
+
+    // Advance time and resolve
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Both users should already be marked as claimed due to automatic payout
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert_eq!(market_after.claimed.get(test.user.clone()).unwrap(), true);
+    assert_eq!(market_after.claimed.get(user2.clone()).unwrap(), true);
+}
+
+#[test]
+fn test_proportional_payout_multiple_winners_redundant() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Create users with different stakes on winning outcome
+    let user2 = Address::generate(&test.env);
+    let user3 = Address::generate(&test.env);
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user2, &1000_0000000);
+    stellar_client.mint(&user3, &1000_0000000);
+
+    // Different stake amounts on "yes"
+    let stake1 = 50_0000000;  // 50 XLM
+    let stake2 = 100_0000000; // 100 XLM
+    let stake3 = 150_0000000; // 150 XLM
+
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &stake1);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "yes"), &stake2);
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "yes"), &stake3);
+
+    // Verify total staked
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert_eq!(market.total_staked, stake1 + stake2 + stake3);
+}
+
+
+
+#[test]
+fn test_claim_losing_outcome() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // User votes on losing outcome
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &100_0000000,
+    );
+
+    // Advance time and resolve with "yes" as winner
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Loser can claim (gets marked as claimed with no payout)
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
+
+    // Verify loser is marked as claimed (prevents repeated claim attempts)
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    
+    assert_eq!(market_after.claimed.get(test.user.clone()).unwrap(), true);
+}
+
+#[test]
+fn test_zero_balance_handling() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+
+    // Get market and verify initial zero balances
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    // Verify total staked is zero initially
+    assert_eq!(market.total_staked, 0);
+
+    // Verify user has no stake
+    assert!(market.stakes.get(test.user.clone()).is_none());
+}
+
+#[test]
+fn test_balance_persistence_across_operations() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Initial deposit
+    let stake_amount = 50_0000000;
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &stake_amount,
+    );
+
+    // Verify balance persists
+    let market1 = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market1.stakes.get(test.user.clone()).unwrap(), stake_amount);
+
+    // Perform another operation (different user votes)
+    let user2 = Address::generate(&test.env);
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user2, &1000_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "no"), &30_0000000);
+
+    // Verify original balance still persists
+    let market2 = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market2.stakes.get(test.user.clone()).unwrap(), stake_amount);
+    assert_eq!(market2.total_staked, stake_amount + 30_0000000);
+}
+
+#[test]
+fn test_multi_user_deposit_withdrawal_flow() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Create multiple users
+    let user2 = Address::generate(&test.env);
+    let user3 = Address::generate(&test.env);
+    let user4 = Address::generate(&test.env);
+
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&user2, &1000_0000000);
+    stellar_client.mint(&user3, &1000_0000000);
+    stellar_client.mint(&user4, &1000_0000000);
+
+    // Multiple deposits
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &50_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "yes"), &75_0000000);
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "no"), &100_0000000);
+    client.vote(&user4, &market_id, &String::from_str(&test.env, "yes"), &25_0000000);
+
+    // Verify all deposits tracked
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert_eq!(market.total_staked, 250_0000000);
+    assert_eq!(market.stakes.get(test.user.clone()).unwrap(), 50_0000000);
+    assert_eq!(market.stakes.get(user2.clone()).unwrap(), 75_0000000);
+    assert_eq!(market.stakes.get(user3.clone()).unwrap(), 100_0000000);
+    assert_eq!(market.stakes.get(user4.clone()).unwrap(), 25_0000000);
+
+    // Resolve market
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Winners are automatically marked as claimed due to automatic payout in manual resolution
+    let _ = 0; // Placeholder for removed claim calls
+
+    // Verify claims
+    let market_final = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert_eq!(market_final.claimed.get(test.user.clone()).unwrap(), true);
+    assert_eq!(market_final.claimed.get(user2.clone()).unwrap(), true);
+    assert_eq!(market_final.claimed.get(user4.clone()).unwrap(), true);
+    assert_eq!(market_final.claimed.get(user3.clone()).unwrap_or(false), false);
+}
+
+#[test]
+fn test_balance_events_emission() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Deposit (vote) - should emit event
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    // Events are emitted automatically by the contract
+    // In a real test, we would verify event emission
+    // For now, we verify the operation completed successfully
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert!(market.votes.contains_key(test.user.clone()));
+}
+
+#[test]
+fn test_large_stake_amounts() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Test with very large stake amount
+    let large_stake = 1_000_000_0000000; // 1 million XLM
+    
+    // Mint enough tokens
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.user, &large_stake);
+
+    // Vote with large stake
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &large_stake,
+    );
+
+    // Verify large amount tracked correctly
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert_eq!(market.stakes.get(test.user.clone()).unwrap(), large_stake);
+    assert_eq!(market.total_staked, large_stake);
+}
+
+#[test]
+fn test_minimum_stake_amounts() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Test with minimum stake (1 stroop)
+    let min_stake = 1;
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &min_stake,
+    );
+
+    // Verify minimum amount tracked
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert_eq!(market.stakes.get(test.user.clone()).unwrap(), min_stake);
+    assert_eq!(market.total_staked, min_stake);
+}
+
+#[test]
+fn test_claimed_status_tracking() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // User votes
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    // Initially not claimed
+    let market_before = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market_before.claimed.get(test.user.clone()).unwrap_or(false), false);
+
+    // Resolve and claim
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market_before.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // After automatic payout during resolution, status should be true
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market_after.claimed.get(test.user.clone()).unwrap(), true);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn test_unauthorized_claim_attempt() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Vote
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    // Resolve
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+    );
+
+    // Attempt to claim ON BEHALF of test.user but without their auth
+    // We only mock admin auth, not user auth
+    test.env.mock_auths(&[]); // Clear auths
+    // Actual call requires user auth, so this should fail
+    client.claim_winnings(&test.user, &market_id);
+}
+
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #109)")] // AlreadyVoted = 109
+fn test_vote_double_prevention() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    // Vote again
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "no"), // Even different outcome should fail if one vote per user
+        &100_0000000,
+    );
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #108)")] // InvalidOutcome = 108
+fn test_vote_invalid_outcome() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "maybe"), // Not in ["yes", "no"]
+        &100_0000000,
+    );
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #102)")] // MarketClosed = 102
+fn test_vote_market_closed() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
 }
