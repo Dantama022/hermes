@@ -2069,7 +2069,11 @@ impl ConfigManager {
     pub fn get_config(env: &Env) -> Result<ContractConfig, Error> {
         let key = Symbol::new(env, "ContractConfig");
         // Check if key exists before trying to get it to avoid segfaults
-        match env.storage().persistent().get::<Symbol, ContractConfig>(&key) {
+        match env
+            .storage()
+            .persistent()
+            .get::<Symbol, ContractConfig>(&key)
+        {
             Some(config) => Ok(config),
             None => Err(Error::ConfigurationNotFound),
         }
