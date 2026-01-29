@@ -2411,7 +2411,7 @@ impl AdminValidator {
         let admin_exists = env.storage().persistent().has(&Symbol::new(env, "Admin"));
 
         if admin_exists {
-            return Err(Error::AlreadyInitialized);
+            return Err(Error::InvalidState);
         }
 
         Ok(())

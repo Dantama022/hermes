@@ -1764,7 +1764,7 @@ impl OracleWhitelist {
             .instance()
             .has(&OracleWhitelistKey::WhitelistAdmin(admin.clone()))
         {
-            return Err(Error::AlreadyInitialized);
+            return Err(Error::InvalidState);
         }
 
         // Set initial admin
