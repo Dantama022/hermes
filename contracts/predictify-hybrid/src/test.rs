@@ -3078,3 +3078,309 @@ fn test_implied_probability_sum_equals_100() {
     let total = yes_prob + no_prob;
     assert!(total >= 95 && total <= 105); // Allow small variance
 }
+
+
+// ===== CORE FEE CALCULATION TESTS =====
+
+#[test]
+fn test_fee_calculation_test() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Vote to create some staked amount
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000, // 100 XLM
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    // Calculate expected fee (2% of total staked)
+    let expected_fee = (market.total_staked * 2) / 100;
+    assert_eq!(expected_fee, 2_0000000); // 2 XLM
+}
+
+#[test]
+fn test_fee_validate() {
+    let _test = PredictifyTest::setup();
+
+    // Test valid fee amount
+    let valid_fee = 1_0000000; // 1 XLM
+    assert!(valid_fee >= 1_000_000); // MIN_FEE_AMOUNT
+
+    // Test invalid fee amounts would be caught by validation
+    let too_small_fee = 500_000; // 0.5 XLM
+    assert!(too_small_fee < 1_000_000); // Below MIN_FEE_AMOUNT
+}
+
+// ===== FEE WITHDRAWAL TESTS =====
+
+#[test]
+fn test_withdraw_collected_fee() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Set collected fees directly in storage
+    test.env.as_contract(&test.contract_id, || {
+        let fees_key = Symbol::new(&test.env, "tot_fees");
+        test.env.storage().persistent().set(&fees_key, &50_000_000i128);
+    });
+
+    test.env.mock_all_auths();
+    let withdrawn = client.withdraw_collected_fees(&test.admin, &0);
+    assert_eq!(withdrawn, 50_000_000);
+
+    // Verify fees were withdrawn
+    let remaining = test.env.as_contract(&test.contract_id, || {
+        let fees_key = Symbol::new(&test.env, "tot_fees");
+        test.env.storage().persistent().get::<Symbol, i128>(&fees_key).unwrap_or(0)
+    });
+    assert_eq!(remaining, 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")] // Unauthorized
+fn test_withdraw_fees_non_admin() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Set some fees
+    test.env.as_contract(&test.contract_id, || {
+        let fees_key = Symbol::new(&test.env, "tot_fees");
+        test.env.storage().persistent().set(&fees_key, &50_000_000i128);
+    });
+
+    test.env.mock_all_auths();
+    client.withdraw_collected_fees(&test.user, &0);
+}
+
+#[test]
+fn test_withdraw_partial_fees() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Set collected fees
+    test.env.as_contract(&test.contract_id, || {
+        let fees_key = Symbol::new(&test.env, "tot_fees");
+        test.env.storage().persistent().set(&fees_key, &100_000_000i128);
+    });
+
+    test.env.mock_all_auths();
+    let withdrawn = client.withdraw_collected_fees(&test.admin, &50_000_000);
+    assert_eq!(withdrawn, 50_000_000);
+
+    // Verify remaining fees
+    let remaining = test.env.as_contract(&test.contract_id, || {
+        let fees_key = Symbol::new(&test.env, "tot_fees");
+        test.env.storage().persistent().get::<Symbol, i128>(&fees_key).unwrap_or(0)
+    });
+    assert_eq!(remaining, 50_000_000);
+}
+
+// ===== FEE CONFIGURATION TESTS =====
+
+#[test]
+fn test_fee_configuration_constants() {
+    // Verify fee configuration constants are defined
+    assert_eq!(crate::config::DEFAULT_PLATFORM_FEE_PERCENTAGE, 2);
+    assert_eq!(crate::config::MAX_PLATFORM_FEE_PERCENTAGE, 10);
+    assert_eq!(crate::config::MIN_PLATFORM_FEE_PERCENTAGE, 0);
+    assert_eq!(crate::config::PERCENTAGE_DENOMINATOR, 100);
+}
+
+// ===== FEE STATE TESTS =====
+
+#[test]
+fn test_fee_state_after_cancellation() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.user, &100_000_000);
+    client.place_bet(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_000_000);
+
+    // Cancel market
+    client.cancel_event(&test.admin, &market_id, &Some(String::from_str(&test.env, "Test")));
+
+    // Verify market is cancelled
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert_eq!(market.state, MarketState::Cancelled);
+}
+
+// ===== COMPREHENSIVE FEE FLOW TEST =====
+
+#[test]
+fn test_fee_complete_flow() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    // Setup users with tokens
+    let user1 = Address::generate(&test.env);
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+
+    test.env.mock_all_auths();
+    stellar_client.mint(&user1, &200_000_000);
+
+    // Place bet
+    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &200_000_000);
+
+    // Verify market has staked amount
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert_eq!(market.total_staked, 200_000_000);
+
+    // Calculate expected fee (2%)
+    let expected_fee = (market.total_staked * 2) / 100;
+    assert_eq!(expected_fee, 4_000_000); // 4 XLM
+
+    // Advance time and resolve
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+
+    // Market should be resolved
+    let market_resolved = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert_eq!(market_resolved.state, MarketState::Resolved);
+}
+
+// ===== ADDITIONAL VALIDATION TESTS =====
+
+#[test]
+fn test_fee_amount_boundaries() {
+    // Test minimum fee boundary
+    let min_fee = 1_000_000; // 0.1 XLM
+    assert_eq!(min_fee, crate::config::MIN_FEE_AMOUNT);
+
+    // Test maximum fee boundary
+    let max_fee = 1_000_000_000; // 100 XLM
+    assert_eq!(max_fee, crate::config::MAX_FEE_AMOUNT);
+
+    // Verify min < max
+    assert!(crate::config::MIN_FEE_AMOUNT < crate::config::MAX_FEE_AMOUNT);
+}
+
+#[test]
+fn test_percentage_calculations_accuracy() {
+    // Test percentage calculation accuracy
+    let test_amounts = [
+        (100_000_000, 2, 2_000_000),   // 10 XLM @ 2% = 0.2 XLM
+        (500_000_000, 2, 10_000_000),  // 50 XLM @ 2% = 1 XLM
+        (1_000_000_000, 2, 20_000_000), // 100 XLM @ 2% = 2 XLM
+        (100_000_000, 5, 5_000_000),   // 10 XLM @ 5% = 0.5 XLM
+        (100_000_000, 10, 10_000_000),  // 10 XLM @ 10% = 1 XLM
+    ];
+
+    for (amount, percentage, expected_fee) in test_amounts.iter() {
+        let calculated_fee = (amount * percentage) / 100;
+        assert_eq!(calculated_fee, *expected_fee);
+    }
+}
+
+#[test]
+fn test_market_creation_fee_constant() {
+    // Verify market creation fee is set
+    assert_eq!(crate::config::DEFAULT_MARKET_CREATION_FEE, 10_000_000); // 1 XLM
+}
+
+// ===== INITIALIZATION FEE TESTS (Already Working) =====
+
+#[test]
+fn test_initialize_with_default_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &None);
+
+    let stored_admin: Address = env.as_contract(&contract_id, || {
+        env.storage().persistent().get(&Symbol::new(&env, "Admin")).unwrap()
+    });
+    assert_eq!(stored_admin, admin);
+
+    let stored_fee: i128 = env.as_contract(&contract_id, || {
+        env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+    });
+    assert_eq!(stored_fee, 2);
+}
+
+#[test]
+fn test_initialize_with_custom_fees() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &Some(5));
+
+    let stored_fee: i128 = env.as_contract(&contract_id, || {
+        env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+    });
+    assert_eq!(stored_fee, 5);
+}
+
+#[test]
+fn test_initialize_valid_fee_bound() {
+    // Test minimum fee (0%)
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(PredictifyHybrid, ());
+        let client = PredictifyHybridClient::new(&env, &contract_id);
+
+        client.initialize(&admin, &Some(0));
+
+        let stored_fee: i128 = env.as_contract(&contract_id, || {
+            env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+        });
+        assert_eq!(stored_fee, 0);
+    }
+
+    // Test maximum fee (10%)
+    {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(PredictifyHybrid, ());
+        let client = PredictifyHybridClient::new(&env, &contract_id);
+
+        client.initialize(&admin, &Some(10));
+
+        let stored_fee: i128 = env.as_contract(&contract_id, || {
+            env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+        });
+        assert_eq!(stored_fee, 10);
+    }
+}

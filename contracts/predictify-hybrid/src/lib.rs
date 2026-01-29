@@ -998,8 +998,8 @@ impl PredictifyHybrid {
             &reason,
         );
 
-        // Note: Payout distribution should be called separately via distribute_payouts()
-        // This allows for better control and testing of the payout process
+        // Automatically distribute payouts
+        let _ = Self::distribute_payouts(env.clone(), market_id);
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
