@@ -21,7 +21,7 @@
 
 use soroban_sdk::{contracttype, symbol_short, Address, Env, Map, String, Symbol};
 
-use crate::errors::Error;
+use crate::Error;
 use crate::events::EventEmitter;
 use crate::markets::{MarketStateManager, MarketUtils, MarketValidator};
 use crate::types::{Bet, BetStats, BetStatus, Market, MarketState};

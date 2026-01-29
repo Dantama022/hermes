@@ -1,4 +1,4 @@
-use crate::errors::Error;
+use crate::Error;
 use crate::types::Market;
 use alloc::format;
 /// Market ID Generator Module

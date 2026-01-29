@@ -3,7 +3,7 @@
 use alloc::format;
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String, Symbol, Vec};
 
-use crate::errors::Error;
+use crate::Error;
 use crate::events::EventEmitter;
 use crate::versioning::{Version, VersionHistory, VersionManager};
 
