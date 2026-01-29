@@ -2,7 +2,7 @@
 
 use soroban_sdk::{contracttype, Env, String, Symbol, Vec};
 
-use crate::Error;
+use crate::errors::Error;
 
 /// Version information for contract upgrades and data migration.
 ///

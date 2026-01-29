@@ -2,7 +2,7 @@
 
 use soroban_sdk::{contracttype, vec, Env, Map, String, Symbol, Vec};
 
-use crate::Error;
+use crate::errors::Error;
 use crate::markets::MarketStateManager;
 // ReentrancyGuard module not required here; removed stale import.
 use crate::reentrancy_guard::ReentrancyGuard;

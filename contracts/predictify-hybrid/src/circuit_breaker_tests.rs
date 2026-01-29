@@ -2,7 +2,7 @@
 mod circuit_breaker_tests {
     use crate::admin::AdminRoleManager;
     use crate::circuit_breaker::*;
-    use crate::Error;
+    use crate::errors::Error;
     use soroban_sdk::{testutils::Address, vec, Env, String, Vec};
 
     #[test]

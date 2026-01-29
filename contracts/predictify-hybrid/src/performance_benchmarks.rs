@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::Error;
+use crate::errors::Error;
 use crate::types::OracleProvider;
 use soroban_sdk::{contracttype, Env, Map, String, Symbol, Vec};
 

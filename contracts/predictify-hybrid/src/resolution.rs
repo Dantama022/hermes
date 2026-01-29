@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 
-use crate::Error;
+use crate::errors::Error;
 
 use crate::markets::{CommunityConsensus, MarketAnalytics, MarketStateManager, MarketUtils};
 

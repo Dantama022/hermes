@@ -192,9 +192,6 @@ pub enum Error {
     CBNotOpen = 502,
     /// Circuit breaker is open (operations blocked)
     CBOpen = 503,
-
-    /// Contract or component already initialized
-    AlreadyInitialized = 504,
 }
 
 // ===== ERROR CATEGORIZATION AND RECOVERY SYSTEM =====
@@ -1197,7 +1194,6 @@ impl Error {
             Error::CBAlreadyOpen => "Circuit breaker is already open (paused)",
             Error::CBNotOpen => "Circuit breaker is not open (cannot recover)",
             Error::CBOpen => "Circuit breaker is open (operations blocked)",
-            Error::AlreadyInitialized => "Contract or component already initialized",
         }
     }
 
@@ -1316,7 +1312,6 @@ impl Error {
             Error::CBAlreadyOpen => "CIRCUIT_BREAKER_ALREADY_OPEN",
             Error::CBNotOpen => "CIRCUIT_BREAKER_NOT_OPEN",
             Error::CBOpen => "CIRCUIT_BREAKER_OPEN",
-            Error::AlreadyInitialized => "ALREADY_INITIALIZED",
         }
     }
 }

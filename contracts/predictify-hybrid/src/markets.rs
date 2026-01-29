@@ -3,7 +3,7 @@
 use soroban_sdk::{contracttype, token, vec, Address, Env, Map, String, Symbol, Vec};
 
 // use crate::config; // Unused import
-use crate::Error;
+use crate::errors::Error;
 use crate::types::*;
 // Oracle imports removed - not currently used
 

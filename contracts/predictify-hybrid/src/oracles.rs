@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::bandprotocol;
-use crate::Error;
+use crate::errors::Error;
 use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, IntoVal, String, Symbol, Vec};
 // use crate::reentrancy_guard::ReentrancyGuard; // Removed - module no longer exists
 use crate::types::*;
@@ -1764,7 +1764,7 @@ impl OracleWhitelist {
             .instance()
             .has(&OracleWhitelistKey::WhitelistAdmin(admin.clone()))
         {
-            return Err(Error::AlreadyInitialized);
+            return Err(Error::InvalidState);
         }
 
         // Set initial admin
