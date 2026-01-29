@@ -938,16 +938,11 @@ fn test_automatic_payout_distribution() {
         max_entry_ttl: 10000,
     });
 
-    // Resolve market manually
+    // Resolve market manually (this also calls distribute_payouts internally)
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Distribute payouts to winners (separate step after resolution)
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
-
-    // Verify market state after resolution
+    // Verify market state and that winners were marked as claimed (payouts distributed automatically)
     let market_after = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -955,12 +950,10 @@ fn test_automatic_payout_distribution() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
-    // Note: Claimed field tracking is implementation-specific
-    // assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
-    // assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
-    // user3 should not be claimed (they bet on "no")
-    // assert!(!market_after.claimed.get(user3.clone()).unwrap_or(false));
     assert_eq!(market_after.state, MarketState::Resolved);
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+    assert!(!market_after.claimed.get(user3.clone()).unwrap_or(false)); // Loser not claimed
 }
 
 #[test]
@@ -1745,4 +1738,3 @@ fn test_claim_by_loser() {
             .unwrap()
     });
 
-}

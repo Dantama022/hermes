@@ -738,6 +738,37 @@ pub struct Market {
     pub extension_history: Vec<MarketExtension>,
 }
 
+// ===== EVENT ARCHIVE / HISTORICAL QUERY TYPES =====
+
+/// Summary of an event (market) for historical queries and analytics.
+///
+/// Contains only public metadata and outcome; no sensitive data (no votes, stakes, or addresses).
+/// Used by `query_events_history`, `query_events_by_resolution_status`, and `query_events_by_category`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventHistoryEntry {
+    /// Market/event ID
+    pub market_id: Symbol,
+    /// Question text (public)
+    pub question: String,
+    /// Outcome names (public)
+    pub outcomes: Vec<String>,
+    /// Market end time (Unix timestamp)
+    pub end_time: u64,
+    /// Creation timestamp (from registry)
+    pub created_at: u64,
+    /// Current market state (Active, Resolved, Cancelled, etc.)
+    pub state: MarketState,
+    /// Winning outcome if resolved
+    pub winning_outcome: Option<String>,
+    /// Total amount staked (public aggregate)
+    pub total_staked: i128,
+    /// When archived (if any); None if not archived
+    pub archived_at: Option<u64>,
+    /// Category / feed identifier (e.g. oracle feed_id) for filtering
+    pub category: String,
+}
+
 impl Market {
     /// Create a new market
     pub fn new(
