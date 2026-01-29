@@ -15,6 +15,7 @@ mod config;
 mod disputes;
 mod edge_cases;
 mod errors;
+mod event_archive;
 mod events;
 mod extensions;
 mod fees;
@@ -1564,6 +1565,49 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         Ok(total_distributed)
+    }
+
+    // ===== EVENT ARCHIVE AND HISTORICAL QUERY =====
+
+    /// Mark a resolved or cancelled event (market) as archived. Admin only.
+    /// Market must be in Resolved or Cancelled state. Returns InvalidState if not
+    /// eligible, AlreadyClaimed if already archived.
+    pub fn archive_event(env: Env, admin: Address, market_id: Symbol) -> Result<(), Error> {
+        crate::event_archive::EventArchive::archive_event(&env, &admin, &market_id)
+    }
+
+    /// Query events by creation time range. Returns public metadata only (no votes/stakes).
+    /// Paginated: cursor is start index, limit capped at 30. Returns (entries, next_cursor).
+    pub fn query_events_history(
+        env: Env,
+        from_ts: u64,
+        to_ts: u64,
+        cursor: u32,
+        limit: u32,
+    ) -> (Vec<EventHistoryEntry>, u32) {
+        crate::event_archive::EventArchive::query_events_history(&env, from_ts, to_ts, cursor, limit)
+    }
+
+    /// Query events by resolution status (e.g. Resolved, Cancelled). Paginated.
+    pub fn query_events_by_status(
+        env: Env,
+        status: MarketState,
+        cursor: u32,
+        limit: u32,
+    ) -> (Vec<EventHistoryEntry>, u32) {
+        crate::event_archive::EventArchive::query_events_by_resolution_status(
+            &env, status, cursor, limit,
+        )
+    }
+
+    /// Query events by category (oracle feed_id). Paginated.
+    pub fn query_events_by_category(
+        env: Env,
+        category: String,
+        cursor: u32,
+        limit: u32,
+    ) -> (Vec<EventHistoryEntry>, u32) {
+        crate::event_archive::EventArchive::query_events_by_category(&env, &category, cursor, limit)
     }
 
     /// Set the platform fee percentage (admin only).
