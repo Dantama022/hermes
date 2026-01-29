@@ -142,7 +142,7 @@ impl BetManager {
     ///
     /// - `Error::MarketNotFound` - Market does not exist
     /// - `Error::MarketClosed` - Market has ended or is not active
-    /// - `Error::MarketAlreadyResolved` - Market has already been resolved
+    /// - `Error::MarketResolved` - Market has already been resolved
     /// - `Error::AlreadyBet` - User has already placed a bet on this market
     /// - `Error::InsufficientStake` - Bet amount below minimum
     /// - `Error::InvalidOutcome` - Selected outcome not valid for this market
@@ -591,7 +591,7 @@ impl BetValidator {
 
         // Check if market is not already resolved
         if market.winning_outcome.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+            return Err(Error::MarketResolved);
         }
 
         Ok(())

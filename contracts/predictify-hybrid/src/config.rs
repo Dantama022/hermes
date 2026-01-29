@@ -2026,7 +2026,7 @@ impl ConfigManager {
     ///
     /// # Returns
     ///
-    /// Returns the stored `ContractConfig` on success, or `Error::ConfigurationNotFound`
+    /// Returns the stored `ContractConfig` on success, or `Error::ConfigNotFound`
     /// if no configuration has been stored.
     ///
     /// # Example
@@ -2053,7 +2053,7 @@ impl ConfigManager {
     ///
     /// # Error Handling
     ///
-    /// This function returns `Error::ConfigurationNotFound` when:
+    /// This function returns `Error::ConfigNotFound` when:
     /// - No configuration has been previously stored
     /// - Configuration was stored but corrupted
     /// - Storage key doesn't exist or is inaccessible
@@ -2075,7 +2075,7 @@ impl ConfigManager {
             .get::<Symbol, ContractConfig>(&key)
         {
             Some(config) => Ok(config),
-            None => Err(Error::ConfigurationNotFound),
+            None => Err(Error::ConfigNotFound),
         }
     }
 

@@ -451,7 +451,7 @@ impl MarketValidator {
 
         // Load dynamic configuration
         let cfg = crate::config::ConfigManager::get_config(_env)
-            .map_err(|_| Error::ConfigurationNotFound)?;
+            .map_err(|_| Error::ConfigNotFound)?;
 
         // Use the new MarketParameterValidator for comprehensive validation
         use crate::validation::MarketParameterValidator;
@@ -549,7 +549,7 @@ impl MarketValidator {
     /// # Errors
     ///
     /// * `Error::MarketClosed` - Market has expired (current time >= end_time)
-    /// * `Error::MarketAlreadyResolved` - Market has already been resolved
+    /// * `Error::MarketResolved` - Market has already been resolved
     ///
     /// # Example
     ///
@@ -576,7 +576,7 @@ impl MarketValidator {
         }
 
         if market.oracle_result.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+            return Err(Error::MarketResolved);
         }
 
         Ok(())
