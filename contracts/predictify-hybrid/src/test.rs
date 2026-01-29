@@ -3626,3 +3626,258 @@ fn test_event_history_entry_no_sensitive_data() {
     assert!(e.category.len() > 0);
     // created_at is from registry (ledger timestamp at creation); may be 0 in test env
 }
+
+// ===== COMPREHENSIVE EVENT ARCHIVE AND HISTORICAL QUERY TESTS (#272) =====
+//
+// Covers: archive marking (resolved + cancelled), query by status (Active/Resolved/Cancelled),
+// time range and category filters, pagination and max result size, result correctness,
+// and no leakage of private data (votes, stakes, admin).
+
+/// Archive marking: cancelled market can be archived (not only resolved).
+#[test]
+fn test_archive_event_cancelled_market() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    test.env.mock_all_auths();
+    let _ = client.cancel_event(&test.admin, &market_id, &None);
+
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
+
+    let is_archived = test.env.as_contract(&test.contract_id, || {
+        crate::event_archive::EventArchive::is_archived(&test.env, &market_id)
+    });
+    assert!(is_archived);
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Cancelled, &0u32, &10u32);
+    let found = (0..entries.len()).any(|i| entries.get(i).unwrap().market_id == market_id);
+    assert!(found);
+}
+
+/// is_archived returns false for a market that was never archived.
+#[test]
+fn test_is_archived_returns_false_for_non_archived() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+
+    let is_archived = test.env.as_contract(&test.contract_id, || {
+        crate::event_archive::EventArchive::is_archived(&test.env, &market_id)
+    });
+    assert!(!is_archived);
+}
+
+/// After archive, query by status returns entry with archived_at set.
+#[test]
+fn test_archived_entry_has_archived_at_set() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &10_0000000);
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Resolved, &0u32, &10u32);
+    let entry = (0..entries.len())
+        .find(|i| entries.get(*i).unwrap().market_id == market_id)
+        .map(|i| entries.get(i).unwrap());
+    assert!(entry.is_some());
+    assert!(entry.unwrap().archived_at.is_some());
+}
+
+/// Query by status Active returns active markets.
+#[test]
+fn test_query_events_by_status_active() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Active, &0u32, &10u32);
+    let found = (0..entries.len()).any(|i| entries.get(i).unwrap().market_id == market_id);
+    assert!(found);
+}
+
+/// Query by status Cancelled returns cancelled markets.
+#[test]
+fn test_query_events_by_status_cancelled() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    test.env.mock_all_auths();
+    let _ = client.cancel_event(&test.admin, &market_id, &None);
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Cancelled, &0u32, &10u32);
+    let found = (0..entries.len()).any(|i| entries.get(i).unwrap().market_id == market_id);
+    assert!(found);
+}
+
+/// Time range: range that excludes all creation times returns empty (or no match).
+#[test]
+fn test_query_events_history_empty_time_range() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    // Range entirely in the future: no events created in that range
+    let from_ts = ts.saturating_add(86400 * 365);
+    let to_ts = ts.saturating_add(86400 * 366);
+
+    let (entries, next_cursor) = client.query_events_history(&from_ts, &to_ts, &0u32, &10u32);
+    assert!(entries.is_empty());
+    assert!(next_cursor > 0);
+}
+
+/// Time range: from_ts > to_ts yields no matches (filter excludes all).
+#[test]
+fn test_query_events_history_inverted_range() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_add(1000);
+    let to_ts = ts.saturating_sub(1000);
+
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &0u32, &10u32);
+    assert!(entries.is_empty());
+}
+
+/// Category filter: non-matching category returns empty for this contract's single market (BTC).
+#[test]
+fn test_query_events_by_category_non_matching() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+
+    let (entries, _) = client.query_events_by_category(
+        &String::from_str(&test.env, "NONEXISTENT_FEED"),
+        &0u32,
+        &10u32,
+    );
+    assert!(entries.is_empty());
+}
+
+/// Pagination: cursor beyond registry length returns empty result.
+#[test]
+fn test_query_events_pagination_cursor_beyond_registry() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_sub(3600);
+    let to_ts = ts.saturating_add(3600);
+
+    let (_, next_cursor) = client.query_events_history(&from_ts, &to_ts, &0u32, &10u32);
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &next_cursor, &10u32);
+    assert!(entries.is_empty());
+}
+
+/// Max result size: limit requested above MAX_QUERY_LIMIT (30) is capped; at most 30 returned per page.
+#[test]
+fn test_query_events_history_respects_max_limit() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_sub(86400 * 365);
+    let to_ts = ts.saturating_add(86400);
+
+    let limit_requested = 100u32;
+    assert!(limit_requested > crate::event_archive::MAX_QUERY_LIMIT);
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &0u32, &limit_requested);
+    let len: u32 = entries.len();
+    assert!(len <= crate::event_archive::MAX_QUERY_LIMIT);
+}
+
+/// Result correctness: resolved market entry has winning_outcome, state Resolved, total_staked matches.
+#[test]
+fn test_query_result_correctness_resolved_market() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let stake = 50_0000000i128;
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &stake,
+    );
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Resolved, &0u32, &10u32);
+    let entry = (0..entries.len())
+        .find(|i| entries.get(*i).unwrap().market_id == market_id)
+        .map(|i| entries.get(i).unwrap());
+    assert!(entry.is_some());
+    let e = entry.unwrap();
+    assert_eq!(e.state, MarketState::Resolved);
+    assert_eq!(e.winning_outcome, Some(String::from_str(&test.env, "yes")));
+    assert_eq!(e.total_staked, stake);
+    assert_eq!(e.question, String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"));
+    assert!(e.outcomes.len() >= 2);
+}
+
+/// No private data: EventHistoryEntry does not expose votes, stakes, claimed, or admin.
+/// We assert only the public fields exist and have expected shape (no way to get user data).
+#[test]
+fn test_event_history_entry_no_private_data_leakage() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_sub(3600);
+    let to_ts = ts.saturating_add(3600);
+
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &0u32, &5u32);
+    assert!(!entries.is_empty());
+    let e = entries.get(0).unwrap();
+
+    // Public fields only: market_id, question, outcomes, end_time, created_at, state,
+    // winning_outcome, total_staked, archived_at, category. No votes, stakes, claimed, admin.
+    assert!(e.question.len() > 0);
+    assert!(e.outcomes.len() >= 2);
+    assert!(e.end_time > 0);
+    assert!(e.category.len() > 0);
+    // EventHistoryEntry has no .votes, .stakes, .claimed, .admin - type guarantees no leakage
+}
