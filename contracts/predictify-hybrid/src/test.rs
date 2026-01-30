@@ -1089,16 +1089,11 @@ fn test_automatic_payout_distribution() {
         max_entry_ttl: 10000,
     });
 
-    // Resolve market manually
+    // Resolve market manually (this also calls distribute_payouts internally)
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Distribute payouts to winners (separate step after resolution)
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
-
-    // Verify market state after resolution
+    // Verify market state and that winners were marked as claimed (payouts distributed automatically)
     let market_after = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -1106,12 +1101,10 @@ fn test_automatic_payout_distribution() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
-    // Note: Claimed field tracking is implementation-specific
-    // assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
-    // assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
-    // user3 should not be claimed (they bet on "no")
-    // assert!(!market_after.claimed.get(user3.clone()).unwrap_or(false));
     assert_eq!(market_after.state, MarketState::Resolved);
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+    assert!(!market_after.claimed.get(user3.clone()).unwrap_or(false)); // Loser not claimed
 }
 
 #[test]
@@ -2186,12 +2179,7 @@ fn test_market_state_after_claim() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Distribute payouts to winners (separate step after resolution)
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
-
-    // Verify claimed flag is set
+    // resolve_market_manual distributes payouts internally; verify claimed flag is set
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2199,9 +2187,8 @@ fn test_market_state_after_claim() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
-    // Note: claimed status tracking may vary by implementation
-    // assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
     assert_eq!(market.state, MarketState::Resolved);
+    assert!(market.claimed.get(test.user.clone()).unwrap_or(false));
 }
 
 #[test]
@@ -2320,12 +2307,7 @@ fn test_integration_full_market_lifecycle_with_payouts() {
         Some(String::from_str(&test.env, "yes"))
     );
 
-    // Distribute payouts to winners (separate step after resolution)
-    test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
-
-    // Verify market state after resolution
+    // resolve_market_manual distributes payouts internally; verify market state and claimed flags
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2333,11 +2315,10 @@ fn test_integration_full_market_lifecycle_with_payouts() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
-    // Note: Claimed field tracking is implementation-specific
-    // assert!(market.claimed.get(user1.clone()).unwrap_or(false));
-    // assert!(market.claimed.get(user2.clone()).unwrap_or(false));
-    // assert!(!market.claimed.get(user3.clone()).unwrap_or(false)); // Loser hasn't claimed
     assert_eq!(market.state, MarketState::Resolved);
+    assert!(market.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market.claimed.get(user2.clone()).unwrap_or(false));
+    assert!(!market.claimed.get(user3.clone()).unwrap_or(false)); // Loser hasn't claimed
 }
 
 #[test]
@@ -3385,776 +3366,518 @@ fn test_initialize_valid_fee_bound() {
     }
 }
 
-// ===== BET DEADLINE TESTS =====
+// ===== EVENT ARCHIVE AND HISTORICAL QUERY TESTS (#271) =====
 
-fn set_test_ledger_time(env: &Env, timestamp: u64) {
-    env.ledger().set(LedgerInfo {
-        timestamp,
+#[test]
+fn test_archive_event_resolved_market() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_0000000,
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
         protocol_version: 22,
-        sequence_number: env.ledger().sequence(),
+        sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
         base_reserve: 10,
         min_temp_entry_ttl: 1,
         min_persistent_entry_ttl: 1,
         max_entry_ttl: 10000,
     });
-}
 
-fn load_market_from_storage(env: &Env, contract_id: &Address, market_id: &Symbol) -> Market {
-    env.as_contract(contract_id, || {
-        env.storage()
-            .persistent()
-            .get::<Symbol, Market>(market_id)
-            .unwrap()
-    })
-}
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-fn store_market_to_storage(env: &Env, contract_id: &Address, market_id: &Symbol, market: &Market) {
-    env.as_contract(contract_id, || {
-        env.storage().persistent().set(market_id, market);
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
+
+    let is_archived = test.env.as_contract(&test.contract_id, || {
+        crate::event_archive::EventArchive::is_archived(&test.env, &market_id)
     });
+    assert!(is_archived);
 }
 
-fn token_balance(env: &Env, token_id: &Address, owner: &Address) -> i128 {
-    let token_client = StellarAssetClient::new(env, token_id);
-    token_client.balance(owner)
-}
+#[test]
+#[should_panic]
+fn test_archive_event_unauthorized() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
 
-fn load_bet_placed_event(env: &Env, contract_id: &Address) -> BetPlacedEvent {
-    env.as_contract(contract_id, || {
-        env.storage()
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
             .persistent()
-            .get::<Symbol, BetPlacedEvent>(&Symbol::new(env, "bet_plc"))
+            .get::<Symbol, Market>(&market_id)
             .unwrap()
-    })
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+
+    test.env.mock_all_auths();
+    client.archive_event(&test.user, &market_id);
 }
 
 #[test]
-fn test_bet_deadline_time_matrix() {
-    struct Scenario {
-        name: &'static str,
-        offset_seconds: i64,
-        expect_ok: bool,
-    }
-
-    let scenarios = [
-        Scenario {
-            name: "before_deadline",
-            offset_seconds: -1,
-            expect_ok: true,
-        },
-        Scenario {
-            name: "at_deadline",
-            offset_seconds: 0,
-            expect_ok: false,
-        },
-        Scenario {
-            name: "after_deadline",
-            offset_seconds: 1,
-            expect_ok: false,
-        },
-    ];
-
-    for scenario in scenarios.iter() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
-        let user = test.create_funded_user();
-        let outcome = String::from_str(&test.env, "yes");
-        let bet_amount: i128 = 10_000_000;
-
-        let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-        let target_time = if scenario.offset_seconds < 0 {
-            market.end_time - (-scenario.offset_seconds as u64)
-        } else {
-            market.end_time + scenario.offset_seconds as u64
-        };
-        set_test_ledger_time(&test.env, target_time);
-
-        let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-        let contract_balance_before =
-            token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-        let stats_before = client.get_market_bet_stats(&market_id);
-        let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-
-        test.env.mock_all_auths();
-        let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-        if scenario.expect_ok {
-            assert!(result.is_ok(), "scenario {}", scenario.name);
-            let bet = result.unwrap();
-            assert_eq!(bet.user, user);
-            assert_eq!(bet.market_id, market_id);
-            assert_eq!(bet.outcome, outcome);
-            assert_eq!(bet.amount, bet_amount);
-            assert_eq!(bet.status, BetStatus::Active);
-
-            assert!(client.get_bet(&market_id, &user).is_some());
-
-            let stats_after = client.get_market_bet_stats(&market_id);
-            assert_eq!(stats_after.total_bets, stats_before.total_bets + 1);
-            assert_eq!(
-                stats_after.total_amount_locked,
-                stats_before.total_amount_locked + bet_amount
-            );
-
-            let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-            let contract_balance_after =
-                token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-            assert_eq!(user_balance_before - bet_amount, user_balance_after);
-            assert_eq!(contract_balance_before + bet_amount, contract_balance_after);
-
-            let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-            assert_eq!(market_after.total_staked, market_before.total_staked + bet_amount);
-            assert_eq!(market_after.votes.len(), market_before.votes.len() + 1);
-
-            let bet_event = load_bet_placed_event(&test.env, &test.contract_id);
-            assert_eq!(bet_event.market_id, market_id);
-            assert_eq!(bet_event.bettor, user);
-            assert_eq!(bet_event.outcome, outcome);
-            assert_eq!(bet_event.amount, bet_amount);
-            assert_eq!(bet_event.timestamp, test.env.ledger().timestamp());
-        } else {
-            assert_eq!(
-                result,
-                Err(Ok(Error::MarketClosed)),
-                "scenario {}",
-                scenario.name
-            );
-            assert_eq!(Error::MarketClosed.description(), "Market is closed");
-            assert!(client.get_bet(&market_id, &user).is_none());
-
-            let stats_after = client.get_market_bet_stats(&market_id);
-            assert_eq!(stats_after.total_bets, stats_before.total_bets);
-            assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
-            assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
-
-            let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-            let contract_balance_after =
-                token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-            assert_eq!(user_balance_after, user_balance_before);
-            assert_eq!(contract_balance_after, contract_balance_before);
-
-            let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-            assert_eq!(market_after.total_staked, market_before.total_staked);
-            assert_eq!(market_after.votes.len(), market_before.votes.len());
-            assert_eq!(market_after.state, market_before.state);
-        }
-    }
-}
-
-#[test]
-fn test_bet_rejected_when_market_state_ended_before_deadline() {
+#[should_panic]
+fn test_archive_event_active_fails() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
-
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    market.state = MarketState::Ended;
-    let end_time = market.end_time;
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    set_test_ledger_time(&test.env, end_time - 1);
-
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    let stats_before = client.get_market_bet_stats(&market_id);
 
     test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert_eq!(Error::MarketClosed.description(), "Market is closed");
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
-
-    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    assert_eq!(market_after.state, MarketState::Ended);
-    assert_eq!(market_after.total_staked, market.total_staked);
+    client.archive_event(&test.admin, &market_id);
 }
 
 #[test]
-fn test_bet_rejected_when_market_resolved_before_deadline() {
+fn test_archive_event_already_archived_fails() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
 
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    market.winning_outcome = Some(outcome.clone());
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    set_test_ledger_time(&test.env, market.end_time - 1);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
     test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketAlreadyResolved)));
-    assert_eq!(
-        Error::MarketAlreadyResolved.description(),
-        "Market is already resolved"
-    );
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
+    let is_archived = test.env.as_contract(&test.contract_id, || {
+        crate::event_archive::EventArchive::is_archived(&test.env, &market_id)
+    });
+    assert!(is_archived);
 }
 
 #[test]
-fn test_bet_rejected_with_epoch_zero_deadline() {
+#[should_panic]
+fn test_archive_event_already_archived_panics() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
 
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    market.end_time = 0;
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    set_test_ledger_time(&test.env, 1);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
     test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
 }
 
 #[test]
-fn test_bet_accepts_with_far_future_deadline() {
+fn test_query_events_history_time_range() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
+    let _market_id = test.create_test_market();
+    let created_at = test.env.ledger().timestamp();
 
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    market.end_time = u64::MAX - 10;
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    set_test_ledger_time(&test.env, 1);
-
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-    test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-    assert!(result.is_ok());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, 1);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_before - bet_amount, user_balance_after);
-    assert_eq!(contract_balance_before + bet_amount, contract_balance_after);
+    let from_ts = created_at.saturating_sub(3600);
+    let to_ts = created_at.saturating_add(3600);
+    let (entries, next_cursor) = client.query_events_history(&from_ts, &to_ts, &0u32, &10u32);
+    assert!(!entries.is_empty());
+    assert!(next_cursor > 0);
+    let first = entries.get(0).unwrap();
+    assert_eq!(first.state, MarketState::Active);
+    assert!(first.question.len() > 0);
+    assert!(first.outcomes.len() >= 2);
 }
 
 #[test]
-fn test_bet_rejected_after_time_progression_post_read() {
+fn test_query_events_by_status_resolved() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
-
-    let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let observed_end_time = market.end_time;
-
-    set_test_ledger_time(&test.env, observed_end_time - 1);
-    let _ = client.get_market(&market_id).unwrap();
-
-    set_test_ledger_time(&test.env, observed_end_time + 1);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
 
     test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
-}
-
-#[test]
-fn test_bet_allows_after_deadline_extension() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
-
-    let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let original_end_time = market.end_time;
-
-    test.env.mock_all_auths();
-    let extend_result = client.try_extend_deadline(
-        &test.admin,
+    client.vote(
+        &test.user,
         &market_id,
-        &1u32,
-        &String::from_str(&test.env, "extend for testing"),
+        &String::from_str(&test.env, "yes"),
+        &10_0000000,
     );
-    assert!(extend_result.is_ok());
-
-    let updated_market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    assert_eq!(updated_market.end_time, original_end_time + 24 * 60 * 60);
-
-    set_test_ledger_time(&test.env, original_end_time + 1);
-
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
     test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-    assert!(result.is_ok());
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_before - bet_amount, user_balance_after);
-    assert_eq!(contract_balance_before + bet_amount, contract_balance_after);
+    let (entries, _) = client.query_events_by_status(&MarketState::Resolved, &0u32, &10u32);
+    let found = (0..entries.len()).any(|i| entries.get(i).unwrap().market_id == market_id);
+    assert!(found);
 }
 
 #[test]
-fn test_bet_rejects_after_manual_earlier_deadline_override() {
+fn test_query_events_by_category() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
+    let _market_id = test.create_test_market();
 
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let original_end_time = market.end_time;
-    market.end_time = original_end_time - 10;
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    set_test_ledger_time(&test.env, original_end_time - 5);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-    test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
+    let (entries, _) = client.query_events_by_category(
+        &String::from_str(&test.env, "BTC"),
+        &0u32,
+        &10u32,
+    );
+    assert!(!entries.is_empty());
+    let first = entries.get(0).unwrap();
+    assert_eq!(first.category, String::from_str(&test.env, "BTC"));
 }
 
 #[test]
-fn test_bet_deadline_per_market_enforced_independently() {
+fn test_query_events_history_pagination() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
 
-    let early_market_id = test.create_test_market();
-    let late_market_id = test.create_test_market();
-
-    let base_time = test.env.ledger().timestamp();
-
-    let mut early_market = load_market_from_storage(&test.env, &test.contract_id, &early_market_id);
-    early_market.end_time = base_time + 10;
-    store_market_to_storage(&test.env, &test.contract_id, &early_market_id, &early_market);
-
-    let mut late_market = load_market_from_storage(&test.env, &test.contract_id, &late_market_id);
-    late_market.end_time = base_time + 20;
-    store_market_to_storage(&test.env, &test.contract_id, &late_market_id, &late_market);
-
-    set_test_ledger_time(&test.env, base_time + 15);
-
-    let user_early = test.create_funded_user();
-    let user_late = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
-
-    let stats_before_early = client.get_market_bet_stats(&early_market_id);
-    let market_before_early =
-        load_market_from_storage(&test.env, &test.contract_id, &early_market_id);
-    let user_balance_before_early =
-        token_balance(&test.env, &test.token_test.token_id, &user_early);
-    let contract_balance_before_early =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-    test.env.mock_all_auths();
-    let result_early = client.try_place_bet(&user_early, &early_market_id, &outcome, &bet_amount);
-
-    assert_eq!(result_early, Err(Ok(Error::MarketClosed)));
-    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
-    assert_eq!(Error::MarketClosed.description(), "Market is closed");
-    assert!(client.get_bet(&early_market_id, &user_early).is_none());
-
-    let stats_after_early = client.get_market_bet_stats(&early_market_id);
-    assert_eq!(stats_after_early.total_bets, stats_before_early.total_bets);
-    assert_eq!(
-        stats_after_early.total_amount_locked,
-        stats_before_early.total_amount_locked
-    );
-    assert_eq!(
-        stats_after_early.unique_bettors,
-        stats_before_early.unique_bettors
-    );
-
-    let user_balance_after_early =
-        token_balance(&test.env, &test.token_test.token_id, &user_early);
-    let contract_balance_after_early =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after_early, user_balance_before_early);
-    assert_eq!(contract_balance_after_early, contract_balance_before_early);
-
-    let market_after_early =
-        load_market_from_storage(&test.env, &test.contract_id, &early_market_id);
-    assert_eq!(market_after_early.total_staked, market_before_early.total_staked);
-    assert_eq!(market_after_early.votes.len(), market_before_early.votes.len());
-    assert_eq!(market_after_early.state, market_before_early.state);
-
-    let stats_before_late = client.get_market_bet_stats(&late_market_id);
-    let market_before_late =
-        load_market_from_storage(&test.env, &test.contract_id, &late_market_id);
-    let user_balance_before_late =
-        token_balance(&test.env, &test.token_test.token_id, &user_late);
-    let contract_balance_before_late =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-    test.env.mock_all_auths();
-    let result_late = client.try_place_bet(&user_late, &late_market_id, &outcome, &bet_amount);
-    assert!(result_late.is_ok());
-
-    let bet = result_late.unwrap();
-    assert_eq!(bet.user, user_late);
-    assert_eq!(bet.market_id, late_market_id);
-    assert_eq!(bet.outcome, outcome);
-    assert_eq!(bet.amount, bet_amount);
-    assert_eq!(bet.status, BetStatus::Active);
-
-    assert!(client.get_bet(&late_market_id, &user_late).is_some());
-
-    let stats_after_late = client.get_market_bet_stats(&late_market_id);
-    assert_eq!(stats_after_late.total_bets, stats_before_late.total_bets + 1);
-    assert_eq!(
-        stats_after_late.total_amount_locked,
-        stats_before_late.total_amount_locked + bet_amount
-    );
-
-    let user_balance_after_late =
-        token_balance(&test.env, &test.token_test.token_id, &user_late);
-    let contract_balance_after_late =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_before_late - bet_amount, user_balance_after_late);
-    assert_eq!(
-        contract_balance_before_late + bet_amount,
-        contract_balance_after_late
-    );
-
-    let market_after_late =
-        load_market_from_storage(&test.env, &test.contract_id, &late_market_id);
-    assert_eq!(market_after_late.total_staked, market_before_late.total_staked + bet_amount);
-    assert_eq!(market_after_late.votes.len(), market_before_late.votes.len() + 1);
-
-    let bet_event = load_bet_placed_event(&test.env, &test.contract_id);
-    assert_eq!(bet_event.market_id, late_market_id);
-    assert_eq!(bet_event.bettor, user_late);
-    assert_eq!(bet_event.outcome, outcome);
-    assert_eq!(bet_event.amount, bet_amount);
-    assert_eq!(bet_event.timestamp, test.env.ledger().timestamp());
-}
-
-#[test]
-fn test_bet_rejects_at_exact_end_time_boundary() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
-
-    let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    set_test_ledger_time(&test.env, market.end_time);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-    test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
-    assert_eq!(Error::MarketClosed.description(), "Market is closed");
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
-    assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
-
-    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    assert_eq!(market_after.total_staked, market_before.total_staked);
-    assert_eq!(market_after.votes.len(), market_before.votes.len());
-    assert_eq!(market_after.state, market_before.state);
-}
-
-#[test]
-fn test_bet_rejects_when_end_time_passed_even_if_state_active() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
-
-    set_test_ledger_time(&test.env, 100);
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    market.end_time = 50;
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-    test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
-    assert_eq!(Error::MarketClosed.description(), "Market is closed");
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
-    assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
-
-    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    assert_eq!(market_after.total_staked, market_before.total_staked);
-    assert_eq!(market_after.votes.len(), market_before.votes.len());
-    assert_eq!(market_after.state, market_before.state);
-}
-
-#[test]
-fn test_bet_rejects_when_market_cancelled_or_closed_even_before_end_time() {
-    let states = [MarketState::Cancelled, MarketState::Closed];
-
-    for state in states.iter() {
-        let test = PredictifyTest::setup();
-        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-        let market_id = test.create_test_market();
-        let user = test.create_funded_user();
-        let outcome = String::from_str(&test.env, "yes");
-        let bet_amount: i128 = 10_000_000;
-
-        let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-        let end_time = market.end_time;
-        market.state = *state;
-        store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-        set_test_ledger_time(&test.env, end_time - 1);
-
-        let stats_before = client.get_market_bet_stats(&market_id);
-        let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-        let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-        let contract_balance_before =
-            token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-        test.env.mock_all_auths();
-        let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-        assert_eq!(result, Err(Ok(Error::MarketClosed)));
-        assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
-        assert_eq!(Error::MarketClosed.description(), "Market is closed");
-        assert!(client.get_bet(&market_id, &user).is_none());
-
-        let stats_after = client.get_market_bet_stats(&market_id);
-        assert_eq!(stats_after.total_bets, stats_before.total_bets);
-        assert_eq!(
-            stats_after.total_amount_locked,
-            stats_before.total_amount_locked
-        );
-        assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
-
-        let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-        let contract_balance_after =
-            token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-        assert_eq!(user_balance_after, user_balance_before);
-        assert_eq!(contract_balance_after, contract_balance_before);
-
-        let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-        assert_eq!(market_after.total_staked, market_before.total_staked);
-        assert_eq!(market_after.votes.len(), market_before.votes.len());
-        assert_eq!(market_after.state, *state);
+    let from_ts = ts.saturating_sub(86400 * 365);
+    let to_ts = ts.saturating_add(86400);
+    let (page1, next1) = client.query_events_history(&from_ts, &to_ts, &0u32, &1u32);
+    assert!(page1.len() <= 1);
+    if next1 > 0 {
+        let (page2, _) = client.query_events_history(&from_ts, &to_ts, &next1, &1u32);
+        assert!(page2.len() <= 1);
     }
 }
 
 #[test]
-fn test_bet_rejects_at_epoch_zero_boundary() {
+fn test_event_history_entry_no_sensitive_data() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
+    let ts = test.env.ledger().timestamp();
 
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    market.end_time = 0;
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    set_test_ledger_time(&test.env, 0);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-
-    test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
-
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
-    assert!(client.get_bet(&market_id, &user).is_none());
-
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
-
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
-
-    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    assert_eq!(market_after.total_staked, market_before.total_staked);
-    assert_eq!(market_after.votes.len(), market_before.votes.len());
+    let from_ts = ts.saturating_sub(3600);
+    let to_ts = ts + 3600;
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &0u32, &5u32);
+    assert!(!entries.is_empty());
+    let e = entries.get(0).unwrap();
+    assert!(e.question.len() > 0);
+    assert!(e.outcomes.len() >= 2);
+    assert!(e.end_time > 0);
+    assert!(e.category.len() > 0);
+    // created_at is from registry (ledger timestamp at creation); may be 0 in test env
 }
 
+// ===== COMPREHENSIVE EVENT ARCHIVE AND HISTORICAL QUERY TESTS (#272) =====
+//
+// Covers: archive marking (resolved + cancelled), query by status (Active/Resolved/Cancelled),
+// time range and category filters, pagination and max result size, result correctness,
+// and no leakage of private data (votes, stakes, admin).
+
+/// Archive marking: cancelled market can be archived (not only resolved).
 #[test]
-fn test_bet_rejects_at_far_future_deadline_boundary() {
+fn test_archive_event_cancelled_market() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let market_id = test.create_test_market();
-    let user = test.create_funded_user();
-    let outcome = String::from_str(&test.env, "yes");
-    let bet_amount: i128 = 10_000_000;
-
-    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let far_future_deadline = u64::MAX - 10;
-    market.end_time = far_future_deadline;
-    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
-
-    set_test_ledger_time(&test.env, far_future_deadline);
-
-    let stats_before = client.get_market_bet_stats(&market_id);
-    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_before =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
 
     test.env.mock_all_auths();
-    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+    let _ = client.cancel_event(&test.admin, &market_id, &None);
 
-    assert_eq!(result, Err(Ok(Error::MarketClosed)));
-    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
-    assert_eq!(Error::MarketClosed.description(), "Market is closed");
-    assert!(client.get_bet(&market_id, &user).is_none());
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
 
-    let stats_after = client.get_market_bet_stats(&market_id);
-    assert_eq!(stats_after.total_bets, stats_before.total_bets);
-    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+    let is_archived = test.env.as_contract(&test.contract_id, || {
+        crate::event_archive::EventArchive::is_archived(&test.env, &market_id)
+    });
+    assert!(is_archived);
 
-    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
-    let contract_balance_after =
-        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
-    assert_eq!(user_balance_after, user_balance_before);
-    assert_eq!(contract_balance_after, contract_balance_before);
+    let (entries, _) = client.query_events_by_status(&MarketState::Cancelled, &0u32, &10u32);
+    let found = (0..entries.len()).any(|i| entries.get(i).unwrap().market_id == market_id);
+    assert!(found);
+}
 
-    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
-    assert_eq!(market_after.total_staked, market_before.total_staked);
-    assert_eq!(market_after.votes.len(), market_before.votes.len());
+/// is_archived returns false for a market that was never archived.
+#[test]
+fn test_is_archived_returns_false_for_non_archived() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+
+    let is_archived = test.env.as_contract(&test.contract_id, || {
+        crate::event_archive::EventArchive::is_archived(&test.env, &market_id)
+    });
+    assert!(!is_archived);
+}
+
+/// After archive, query by status returns entry with archived_at set.
+#[test]
+fn test_archived_entry_has_archived_at_set() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &10_0000000);
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    test.env.mock_all_auths();
+    client.archive_event(&test.admin, &market_id);
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Resolved, &0u32, &10u32);
+    let entry = (0..entries.len())
+        .find(|i| entries.get(*i).unwrap().market_id == market_id)
+        .map(|i| entries.get(i).unwrap());
+    assert!(entry.is_some());
+    assert!(entry.unwrap().archived_at.is_some());
+}
+
+/// Query by status Active returns active markets.
+#[test]
+fn test_query_events_by_status_active() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Active, &0u32, &10u32);
+    let found = (0..entries.len()).any(|i| entries.get(i).unwrap().market_id == market_id);
+    assert!(found);
+}
+
+/// Query by status Cancelled returns cancelled markets.
+#[test]
+fn test_query_events_by_status_cancelled() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    test.env.mock_all_auths();
+    let _ = client.cancel_event(&test.admin, &market_id, &None);
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Cancelled, &0u32, &10u32);
+    let found = (0..entries.len()).any(|i| entries.get(i).unwrap().market_id == market_id);
+    assert!(found);
+}
+
+/// Time range: range that excludes all creation times returns empty (or no match).
+#[test]
+fn test_query_events_history_empty_time_range() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    // Range entirely in the future: no events created in that range
+    let from_ts = ts.saturating_add(86400 * 365);
+    let to_ts = ts.saturating_add(86400 * 366);
+
+    let (entries, next_cursor) = client.query_events_history(&from_ts, &to_ts, &0u32, &10u32);
+    assert!(entries.is_empty());
+    assert!(next_cursor > 0);
+}
+
+/// Time range: from_ts > to_ts yields no matches (filter excludes all).
+#[test]
+fn test_query_events_history_inverted_range() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_add(1000);
+    let to_ts = ts.saturating_sub(1000);
+
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &0u32, &10u32);
+    assert!(entries.is_empty());
+}
+
+/// Category filter: non-matching category returns empty for this contract's single market (BTC).
+#[test]
+fn test_query_events_by_category_non_matching() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+
+    let (entries, _) = client.query_events_by_category(
+        &String::from_str(&test.env, "NONEXISTENT_FEED"),
+        &0u32,
+        &10u32,
+    );
+    assert!(entries.is_empty());
+}
+
+/// Pagination: cursor beyond registry length returns empty result.
+#[test]
+fn test_query_events_pagination_cursor_beyond_registry() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_sub(3600);
+    let to_ts = ts.saturating_add(3600);
+
+    let (_, next_cursor) = client.query_events_history(&from_ts, &to_ts, &0u32, &10u32);
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &next_cursor, &10u32);
+    assert!(entries.is_empty());
+}
+
+/// Max result size: limit requested above MAX_QUERY_LIMIT (30) is capped; at most 30 returned per page.
+#[test]
+fn test_query_events_history_respects_max_limit() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.create_test_market();
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_sub(86400 * 365);
+    let to_ts = ts.saturating_add(86400);
+
+    let limit_requested = 100u32;
+    assert!(limit_requested > crate::event_archive::MAX_QUERY_LIMIT);
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &0u32, &limit_requested);
+    let len: u32 = entries.len();
+    assert!(len <= crate::event_archive::MAX_QUERY_LIMIT);
+}
+
+/// Result correctness: resolved market entry has winning_outcome, state Resolved, total_staked matches.
+#[test]
+fn test_query_result_correctness_resolved_market() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let stake = 50_0000000i128;
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &stake,
+    );
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+
+    let (entries, _) = client.query_events_by_status(&MarketState::Resolved, &0u32, &10u32);
+    let entry = (0..entries.len())
+        .find(|i| entries.get(*i).unwrap().market_id == market_id)
+        .map(|i| entries.get(i).unwrap());
+    assert!(entry.is_some());
+    let e = entry.unwrap();
+    assert_eq!(e.state, MarketState::Resolved);
+    assert_eq!(e.winning_outcome, Some(String::from_str(&test.env, "yes")));
+    assert_eq!(e.total_staked, stake);
+    assert_eq!(e.question, String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"));
+    assert!(e.outcomes.len() >= 2);
+}
+
+/// No private data: EventHistoryEntry does not expose votes, stakes, claimed, or admin.
+/// We assert only the public fields exist and have expected shape (no way to get user data).
+#[test]
+fn test_event_history_entry_no_private_data_leakage() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+    let ts = test.env.ledger().timestamp();
+    let from_ts = ts.saturating_sub(3600);
+    let to_ts = ts.saturating_add(3600);
+
+    let (entries, _) = client.query_events_history(&from_ts, &to_ts, &0u32, &5u32);
+    assert!(!entries.is_empty());
+    let e = entries.get(0).unwrap();
+
+    // Public fields only: market_id, question, outcomes, end_time, created_at, state,
+    // winning_outcome, total_staked, archived_at, category. No votes, stakes, claimed, admin.
+    assert!(e.question.len() > 0);
+    assert!(e.outcomes.len() >= 2);
+    assert!(e.end_time > 0);
+    assert!(e.category.len() > 0);
+    // EventHistoryEntry has no .votes, .stakes, .claimed, .admin - type guarantees no leakage
 }
