@@ -1894,7 +1894,7 @@ impl DisputeValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketAlreadyResolved);
         }
 
@@ -1909,7 +1909,7 @@ impl DisputeValidator {
     /// Validate market state for resolution
     pub fn validate_market_for_resolution(_env: &Env, market: &Market) -> Result<(), Error> {
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketAlreadyResolved);
         }
 
@@ -2179,8 +2179,10 @@ impl DisputeUtils {
         // Validate the final outcome
         DisputeValidator::validate_resolution_parameters(market, &final_outcome)?;
 
-        // Set the winning outcome
-        market.winning_outcome = Some(final_outcome);
+        // Set the winning outcome(s) - convert single outcome to vector
+        let mut winning_outcomes = Vec::new(market.votes.env());
+        winning_outcomes.push_back(final_outcome);
+        market.winning_outcomes = Some(winning_outcomes);
 
         Ok(())
     }
@@ -2508,7 +2510,7 @@ impl DisputeAnalytics {
         for (_, stake) in market.dispute_stakes.iter() {
             if stake > 0 {
                 unique_disputers += 1;
-                if market.winning_outcome.is_none() {
+                if market.winning_outcomes.is_none() {
                     active_disputes += 1;
                 } else {
                     resolved_disputes += 1;

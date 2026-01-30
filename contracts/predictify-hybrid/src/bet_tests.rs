@@ -542,7 +542,7 @@ fn test_market_validation_for_betting() {
         dispute_stakes: Map::new(&env),
         stakes: Map::new(&env),
         claimed: Map::new(&env),
-        winning_outcome: None,
+        winning_outcomes: None,
         fee_collected: false,
         state: MarketState::Active,
         total_extension_days: 0,
@@ -560,7 +560,7 @@ fn test_market_validation_for_betting() {
 
     // Resolved market should fail
     let mut resolved_market = active_market.clone();
-    resolved_market.winning_outcome = Some(String::from_str(&env, "yes"));
+    resolved_market.winning_outcomes = Some(vec![&env, String::from_str(&env, "yes")]);
     assert!(BetValidator::validate_market_for_betting(&env, &resolved_market).is_err());
 
     // Closed market should fail
@@ -947,4 +947,849 @@ fn test_set_global_bet_limits_above_absolute_max_rejects() {
     let client = setup.client();
     setup.env.mock_all_auths();
     client.set_global_bet_limits(&setup.admin, &MIN_BET_AMOUNT, &(MAX_BET_AMOUNT + 1));
+}
+
+// ===== MULTI-OUTCOME TESTS =====
+
+/// Test creating a market with 3 outcomes (Team A / Team B / Draw)
+#[test]
+fn test_create_market_with_three_outcomes() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    let question = String::from_str(&setup.env, "Who will win the match?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Verify market was created
+    let market = client.get_market(&market_id).unwrap();
+    assert_eq!(market.outcomes.len(), 3);
+    assert_eq!(
+        market.outcomes.get(0).unwrap(),
+        String::from_str(&setup.env, "Team A")
+    );
+    assert_eq!(
+        market.outcomes.get(1).unwrap(),
+        String::from_str(&setup.env, "Team B")
+    );
+    assert_eq!(
+        market.outcomes.get(2).unwrap(),
+        String::from_str(&setup.env, "Draw")
+    );
+}
+
+/// Test creating a market with N outcomes (5 outcomes)
+#[test]
+fn test_create_market_with_n_outcomes() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    let question = String::from_str(&setup.env, "What will be the final score range?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "0-10"),
+        String::from_str(&setup.env, "11-20"),
+        String::from_str(&setup.env, "21-30"),
+        String::from_str(&setup.env, "31-40"),
+        String::from_str(&setup.env, "41+"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Verify market was created with 5 outcomes
+    let market = client.get_market(&market_id).unwrap();
+    assert_eq!(market.outcomes.len(), 5);
+}
+
+/// Test placing bets on a 3-outcome market
+#[test]
+fn test_place_bet_on_three_outcome_market() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets on different outcomes
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Team A"),
+        &10_0000000,
+    );
+
+    client.place_bet(
+        &setup.user2,
+        &market_id,
+        &String::from_str(&setup.env, "Team B"),
+        &20_0000000,
+    );
+
+    // Verify bets were placed
+    let user_bet = client.get_bet(&market_id, &setup.user);
+    assert!(user_bet.is_some());
+    let bet = user_bet.unwrap();
+    assert_eq!(bet.outcome, String::from_str(&setup.env, "Team A"));
+    assert_eq!(bet.amount, 10_0000000);
+
+    let user2_bet = client.get_bet(&market_id, &setup.user2);
+    assert!(user2_bet.is_some());
+    let bet2 = user2_bet.unwrap();
+    assert_eq!(bet2.outcome, String::from_str(&setup.env, "Team B"));
+}
+
+/// Test placing bet with invalid outcome on multi-outcome market
+#[test]
+#[should_panic]
+fn test_place_bet_invalid_outcome_multi_outcome() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Try to place bet with invalid outcome
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Invalid Outcome"), // Not in market outcomes
+        &10_0000000,
+    );
+}
+
+/// Test resolving 3-outcome market with single winner
+#[test]
+fn test_resolve_three_outcome_market_single_winner() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Team A"),
+        &10_0000000,
+    );
+
+    client.place_bet(
+        &setup.user2,
+        &market_id,
+        &String::from_str(&setup.env, "Team B"),
+        &20_0000000,
+    );
+
+    // Advance time to end market
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with single winner
+    client.resolve_market_manual(
+        &setup.admin,
+        &market_id,
+        &String::from_str(&setup.env, "Team A"),
+    );
+
+    // Verify resolution
+    let market = client.get_market(&market_id).unwrap();
+    assert!(market.winning_outcomes.is_some());
+    let winners = market.winning_outcomes.unwrap();
+    assert_eq!(winners.len(), 1);
+    assert_eq!(
+        winners.get(0).unwrap(),
+        String::from_str(&setup.env, "Team A")
+    );
+
+    // Verify bet statuses
+    let user_bet = client.get_bet(&market_id, &setup.user).unwrap();
+    assert_eq!(user_bet.status, BetStatus::Won);
+
+    let user2_bet = client.get_bet(&market_id, &setup.user2).unwrap();
+    assert_eq!(user2_bet.status, BetStatus::Lost);
+}
+
+/// Test resolving 3-outcome market with tie (multiple winners - pool split)
+#[test]
+fn test_resolve_three_outcome_market_with_tie() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets on different outcomes
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Team A"),
+        &10_0000000, // 10 XLM
+    );
+
+    client.place_bet(
+        &setup.user2,
+        &market_id,
+        &String::from_str(&setup.env, "Team B"),
+        &10_0000000, // 10 XLM (same amount - tie scenario)
+    );
+
+    // Advance time to end market
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with tie (both Team A and Team B win - pool split)
+    let winning_outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+    ];
+
+    client.resolve_market_with_ties(&setup.admin, &market_id, &winning_outcomes);
+
+    // Verify resolution with multiple winners
+    let market = client.get_market(&market_id).unwrap();
+    assert!(market.winning_outcomes.is_some());
+    let winners = market.winning_outcomes.unwrap();
+    assert_eq!(winners.len(), 2);
+    assert!(winners.contains(&String::from_str(&setup.env, "Team A")));
+    assert!(winners.contains(&String::from_str(&setup.env, "Team B")));
+
+    // Verify both bets are marked as won
+    let user_bet = client.get_bet(&market_id, &setup.user).unwrap();
+    assert_eq!(user_bet.status, BetStatus::Won);
+
+    let user2_bet = client.get_bet(&market_id, &setup.user2).unwrap();
+    assert_eq!(user2_bet.status, BetStatus::Won);
+
+    // Verify payout calculation handles split pool
+    // Both users should get proportional share of total pool
+    let user_payout = client.calculate_bet_payout(&market_id, &setup.user);
+    let user2_payout = client.calculate_bet_payout(&market_id, &setup.user2);
+
+    // Both should get equal payouts since they bet equal amounts
+    // Total pool = 20 XLM, both bet 10 XLM, so each gets ~50% of pool (minus fees)
+    assert!(user_payout > 0);
+    assert!(user2_payout > 0);
+    // Payouts should be approximately equal (within rounding)
+    let diff = if user_payout > user2_payout {
+        user_payout - user2_payout
+    } else {
+        user2_payout - user_payout
+    };
+    assert!(diff < 1000); // Allow small rounding differences
+}
+
+/// Test payout calculation for tie scenario with different stake amounts
+#[test]
+fn test_tie_payout_calculation_different_stakes() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets with different amounts
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Team A"),
+        &10_0000000, // 10 XLM
+    );
+
+    client.place_bet(
+        &setup.user2,
+        &market_id,
+        &String::from_str(&setup.env, "Team B"),
+        &30_0000000, // 30 XLM (3x more)
+    );
+
+    // Advance time to end market
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with tie
+    let winning_outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+    ];
+
+    client.resolve_market_with_ties(&setup.admin, &market_id, &winning_outcomes);
+
+    // Calculate payouts
+    let user_payout = client.calculate_bet_payout(&market_id, &setup.user);
+    let user2_payout = client.calculate_bet_payout(&market_id, &setup.user2);
+
+    // User2 should get 3x more payout since they bet 3x more
+    // Total pool = 40 XLM, user1 stake = 10, user2 stake = 30
+    // user1 share = 10/40 = 25%, user2 share = 30/40 = 75%
+    assert!(user2_payout > user_payout);
+    // Verify proportional split (within rounding)
+    let ratio = user2_payout * 100 / user_payout;
+    assert!(ratio >= 290 && ratio <= 310); // ~3x ratio (allowing rounding)
+}
+
+/// Test edge case: resolving with all outcomes as winners (extreme tie)
+#[test]
+fn test_resolve_all_outcomes_as_winners() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets on all outcomes
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Team A"),
+        &10_0000000,
+    );
+
+    client.place_bet(
+        &setup.user2,
+        &market_id,
+        &String::from_str(&setup.env, "Team B"),
+        &10_0000000,
+    );
+
+    // Advance time
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with all outcomes as winners (extreme tie case)
+    let all_outcomes = outcomes.clone();
+    client.resolve_market_with_ties(&setup.admin, &market_id, &all_outcomes);
+
+    // Verify all outcomes are winners
+    let market = client.get_market(&market_id).unwrap();
+    let winners = market.winning_outcomes.unwrap();
+    assert_eq!(winners.len(), 3);
+}
+
+/// Test that binary (yes/no) markets still work correctly
+#[test]
+fn test_binary_market_backward_compatibility() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create binary market (yes/no)
+    let question = String::from_str(&setup.env, "Will BTC reach $100k?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "yes"),
+        String::from_str(&setup.env, "no"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        100_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "yes"),
+        &10_0000000,
+    );
+
+    // Advance time
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with single winner (backward compatible)
+    client.resolve_market_manual(
+        &setup.admin,
+        &market_id,
+        &String::from_str(&setup.env, "yes"),
+    );
+
+    // Verify resolution works as before
+    let market = client.get_market(&market_id).unwrap();
+    assert!(market.winning_outcomes.is_some());
+    let winners = market.winning_outcomes.unwrap();
+    assert_eq!(winners.len(), 1);
+    assert_eq!(winners.get(0).unwrap(), String::from_str(&setup.env, "yes"));
+
+    // Verify payout calculation works
+    let payout = client.calculate_bet_payout(&market_id, &setup.user);
+    assert!(payout > 0);
+}
+
+/// Test N-outcome market (5 outcomes) with single winner
+#[test]
+fn test_resolve_n_outcome_market_single_winner() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 5-outcome market (e.g., election with 5 candidates)
+    let question = String::from_str(&setup.env, "Who will win the election?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Candidate A"),
+        String::from_str(&setup.env, "Candidate B"),
+        String::from_str(&setup.env, "Candidate C"),
+        String::from_str(&setup.env, "Candidate D"),
+        String::from_str(&setup.env, "Candidate E"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets on different outcomes
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Candidate A"),
+        &10_0000000,
+    );
+
+    client.place_bet(
+        &setup.user2,
+        &market_id,
+        &String::from_str(&setup.env, "Candidate B"),
+        &20_0000000,
+    );
+
+    // Advance time
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with single winner
+    client.resolve_market_manual(
+        &setup.admin,
+        &market_id,
+        &String::from_str(&setup.env, "Candidate A"),
+    );
+
+    // Verify resolution
+    let market = client.get_market(&market_id).unwrap();
+    assert!(market.winning_outcomes.is_some());
+    let winners = market.winning_outcomes.unwrap();
+    assert_eq!(winners.len(), 1);
+    assert_eq!(
+        winners.get(0).unwrap(),
+        String::from_str(&setup.env, "Candidate A")
+    );
+
+    // Verify bet statuses
+    let user_bet = client.get_bet(&market_id, &setup.user).unwrap();
+    assert_eq!(user_bet.status, BetStatus::Won);
+
+    let user2_bet = client.get_bet(&market_id, &setup.user2).unwrap();
+    assert_eq!(user2_bet.status, BetStatus::Lost);
+}
+
+/// Test N-outcome market (4 outcomes) with 3-way tie
+#[test]
+fn test_resolve_n_outcome_market_three_way_tie() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 4-outcome market
+    let question = String::from_str(&setup.env, "Race result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Runner 1"),
+        String::from_str(&setup.env, "Runner 2"),
+        String::from_str(&setup.env, "Runner 3"),
+        String::from_str(&setup.env, "Runner 4"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Place bets on 3 different outcomes with equal amounts
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Runner 1"),
+        &10_0000000,
+    );
+
+    // Create additional users for testing
+    let user3 = Address::generate(&setup.env);
+    let user4 = Address::generate(&setup.env);
+
+    // Fund additional users
+    let stellar_client = soroban_sdk::token::StellarAssetClient::new(&setup.env, &setup.token_id);
+    stellar_client.mint(&user3, &1000_0000000);
+    stellar_client.mint(&user4, &1000_0000000);
+
+    // Approve tokens
+    let token_client = soroban_sdk::token::Client::new(&setup.env, &setup.token_id);
+    token_client.approve(&user3, &setup.contract_id, &i128::MAX, &1000000);
+    token_client.approve(&user4, &setup.contract_id, &i128::MAX, &1000000);
+
+    client.place_bet(
+        &setup.user2,
+        &market_id,
+        &String::from_str(&setup.env, "Runner 2"),
+        &10_0000000,
+    );
+
+    // Advance time
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with 3-way tie
+    let winning_outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Runner 1"),
+        String::from_str(&setup.env, "Runner 2"),
+        String::from_str(&setup.env, "Runner 3"),
+    ];
+
+    client.resolve_market_with_ties(&setup.admin, &market_id, &winning_outcomes);
+
+    // Verify resolution
+    let market = client.get_market(&market_id).unwrap();
+    assert!(market.winning_outcomes.is_some());
+    let winners = market.winning_outcomes.unwrap();
+    assert_eq!(winners.len(), 3);
+    assert!(winners.contains(&String::from_str(&setup.env, "Runner 1")));
+    assert!(winners.contains(&String::from_str(&setup.env, "Runner 2")));
+    assert!(winners.contains(&String::from_str(&setup.env, "Runner 3")));
+
+    // Verify bet statuses
+    let user_bet = client.get_bet(&market_id, &setup.user).unwrap();
+    assert_eq!(user_bet.status, BetStatus::Won);
+
+    let user2_bet = client.get_bet(&market_id, &setup.user2).unwrap();
+    assert_eq!(user2_bet.status, BetStatus::Won);
+}
+
+/// Test invalid outcome validation in N-outcome market
+#[test]
+#[should_panic]
+fn test_place_bet_invalid_outcome_n_outcome() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 5-outcome market
+    let question = String::from_str(&setup.env, "Tournament winner?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team 1"),
+        String::from_str(&setup.env, "Team 2"),
+        String::from_str(&setup.env, "Team 3"),
+        String::from_str(&setup.env, "Team 4"),
+        String::from_str(&setup.env, "Team 5"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Try to place bet with outcome not in market outcomes
+    client.place_bet(
+        &setup.user,
+        &market_id,
+        &String::from_str(&setup.env, "Team 99"), // Invalid - not in outcomes
+        &10_0000000,
+    );
+}
+
+/// Test resolving with invalid winning outcome (not in market outcomes)
+#[test]
+#[should_panic]
+fn test_resolve_with_invalid_winning_outcome() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Advance time
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Try to resolve with invalid outcome
+    client.resolve_market_manual(
+        &setup.admin,
+        &market_id,
+        &String::from_str(&setup.env, "Invalid Team"), // Not in market outcomes
+    );
+}
+
+/// Test resolving with empty winning outcomes vector
+#[test]
+#[should_panic]
+fn test_resolve_with_empty_winning_outcomes() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+
+    // Create 3-outcome market
+    let question = String::from_str(&setup.env, "Match result?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Team A"),
+        String::from_str(&setup.env, "Team B"),
+        String::from_str(&setup.env, "Draw"),
+    ];
+
+    let oracle_config = OracleConfig::new(
+        OracleProvider::Reflector,
+        String::from_str(&setup.env, "BTC/USD"),
+        50_000_00,
+        String::from_str(&setup.env, "gt"),
+    );
+
+    let market_id =
+        client.create_market(&setup.admin, &question, &outcomes, &30u32, &oracle_config);
+
+    // Advance time
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: (30 * 24 * 60 * 60) + 1,
+        protocol_version: 22,
+        sequence_number: 100,
+        network_id: Default::default(),
+        base_reserve: 10000000,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Try to resolve with empty vector
+    let empty_outcomes = vec![&setup.env];
+    client.resolve_market_with_ties(&setup.admin, &market_id, &empty_outcomes);
 }

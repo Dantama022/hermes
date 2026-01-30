@@ -1932,7 +1932,7 @@ impl MarketValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -1957,7 +1957,7 @@ impl MarketValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -1981,7 +1981,7 @@ impl MarketValidator {
         }
 
         // Check if market is resolved
-        if market.winning_outcome.is_none() {
+        if market.winning_outcomes.is_none() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2309,10 +2309,7 @@ impl VoteValidator {
 
 /// Validates bet amount against min/max limits. Used by place_bet.
 /// Returns InsufficientStake if below min, InvalidInput if above max.
-pub fn validate_bet_amount_against_limits(
-    amount: i128,
-    limits: &BetLimits,
-) -> Result<(), Error> {
+pub fn validate_bet_amount_against_limits(amount: i128, limits: &BetLimits) -> Result<(), Error> {
     if amount < limits.min_bet {
         return Err(Error::InsufficientStake);
     }
@@ -2429,7 +2426,7 @@ impl DisputeValidator {
             return Err(ValidationError::InvalidMarket);
         }
 
-        if market.winning_outcome.is_none() {
+        if market.winning_outcomes.is_none() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2770,7 +2767,7 @@ impl ComprehensiveValidator {
         }
 
         // Check market resolution
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             result.add_warning();
         }
 
