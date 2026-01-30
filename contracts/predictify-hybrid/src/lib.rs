@@ -1680,6 +1680,60 @@ impl PredictifyHybrid {
         Ok(())
     }
 
+    /// Set global minimum and maximum bet limits (admin only).
+    /// Applies to all events that do not have per-event limits.
+    /// Rejects if min > max or outside absolute bounds (MIN_BET_AMOUNT..=MAX_BET_AMOUNT).
+    pub fn set_global_bet_limits(
+        env: Env,
+        admin: Address,
+        min_bet: i128,
+        max_bet: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::AdminNotSet));
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+        let limits = BetLimits { min_bet, max_bet };
+        crate::bets::set_global_bet_limits(&env, &limits)?;
+        let scope = Symbol::new(&env, "global");
+        EventEmitter::emit_bet_limits_updated(&env, &admin, &scope, min_bet, max_bet);
+        Ok(())
+    }
+
+    /// Set per-event minimum and maximum bet limits (admin only).
+    /// Overrides global limits for the given market.
+    pub fn set_event_bet_limits(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        min_bet: i128,
+        max_bet: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::AdminNotSet));
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+        let limits = BetLimits { min_bet, max_bet };
+        crate::bets::set_event_bet_limits(&env, &market_id, &limits)?;
+        EventEmitter::emit_bet_limits_updated(&env, &admin, &market_id, min_bet, max_bet);
+        Ok(())
+    }
+
+    /// Get effective bet limits for a market (per-event if set, else global, else defaults).
+    pub fn get_effective_bet_limits(env: Env, market_id: Symbol) -> BetLimits {
+        crate::bets::get_effective_bet_limits(&env, &market_id)
+    }
+
     /// Withdraw collected platform fees (admin only).
     ///
     /// This function allows the admin to withdraw fees that have been collected
