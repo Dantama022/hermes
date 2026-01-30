@@ -518,6 +518,74 @@ impl PredictifyHybrid {
         }
     }
 
+    /// Places multiple bets in a single atomic transaction.
+    ///
+    /// This function enables users to place multiple bets across different markets
+    /// or outcomes in a single transaction, providing gas efficiency and atomicity.
+    /// All bets must succeed or the entire transaction reverts.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `user` - The address of the user placing the bets (must be authenticated)
+    /// * `bets` - Vector of tuples containing (market_id, outcome, amount) for each bet
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Vec<Bet>` containing all successfully placed bets.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - Any bet fails validation (market not found, closed, invalid outcome, etc.)
+    /// - User has insufficient balance for the total amount
+    /// - User has already bet on any of the markets
+    /// - Any bet amount is below minimum or above maximum
+    /// - The batch is empty or exceeds maximum batch size
+    ///
+    /// # Atomicity
+    ///
+    /// All bets are validated before any funds are locked. If any single bet
+    /// fails validation, the entire transaction reverts with no state changes.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, String, Symbol, Vec};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    ///
+    /// let bets = vec![
+    ///     &env,
+    ///     (
+    ///         Symbol::new(&env, "btc_100k"),
+    ///         String::from_str(&env, "yes"),
+    ///         10_000_000i128  // 1.0 XLM
+    ///     ),
+    ///     (
+    ///         Symbol::new(&env, "eth_5k"),
+    ///         String::from_str(&env, "no"),
+    ///         5_000_000i128   // 0.5 XLM
+    ///     ),
+    /// ];
+    ///
+    /// let placed_bets = PredictifyHybrid::place_bets(env.clone(), user, bets);
+    /// ```
+    pub fn place_bets(
+        env: Env,
+        user: Address,
+        bets: Vec<(Symbol, String, i128)>,
+    ) -> Vec<crate::types::Bet> {
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            panic_with_error!(env, Error::InvalidState);
+        }
+        match bets::BetManager::place_bets(&env, user, bets) {
+            Ok(placed_bets) => placed_bets,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
     /// Retrieves a user's bet on a specific market.
     ///
     /// This function provides read-only access to a user's bet details including
