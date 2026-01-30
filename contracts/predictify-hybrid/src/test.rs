@@ -911,7 +911,7 @@ fn test_initialize_comprehensive_suite() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #504)")]
+#[should_panic(expected = "Error(Contract, #400)")]
 fn test_security_reinitialization_prevention() {
     let env = Env::default();
     env.mock_all_auths();
