@@ -66,6 +66,9 @@ mod upgrade_manager_tests;
 mod bet_tests;
 
 #[cfg(test)]
+mod custom_token_tests;
+
+#[cfg(test)]
 mod event_management_tests;
 
 // Re-export commonly used items
