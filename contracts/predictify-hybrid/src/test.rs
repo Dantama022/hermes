@@ -17,7 +17,7 @@
 
 #![cfg(test)]
 
-use crate::events::PlatformFeeSetEvent;
+use crate::events::{BetPlacedEvent, PlatformFeeSetEvent};
 
 use super::*;
 use crate::markets::MarketUtils;
@@ -3383,4 +3383,778 @@ fn test_initialize_valid_fee_bound() {
         });
         assert_eq!(stored_fee, 10);
     }
+}
+
+// ===== BET DEADLINE TESTS =====
+
+fn set_test_ledger_time(env: &Env, timestamp: u64) {
+    env.ledger().set(LedgerInfo {
+        timestamp,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+}
+
+fn load_market_from_storage(env: &Env, contract_id: &Address, market_id: &Symbol) -> Market {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<Symbol, Market>(market_id)
+            .unwrap()
+    })
+}
+
+fn store_market_to_storage(env: &Env, contract_id: &Address, market_id: &Symbol, market: &Market) {
+    env.as_contract(contract_id, || {
+        env.storage().persistent().set(market_id, market);
+    });
+}
+
+fn token_balance(env: &Env, token_id: &Address, owner: &Address) -> i128 {
+    let token_client = StellarAssetClient::new(env, token_id);
+    token_client.balance(owner)
+}
+
+fn load_bet_placed_event(env: &Env, contract_id: &Address) -> BetPlacedEvent {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<Symbol, BetPlacedEvent>(&Symbol::new(env, "bet_plc"))
+            .unwrap()
+    })
+}
+
+#[test]
+fn test_bet_deadline_time_matrix() {
+    struct Scenario {
+        name: &'static str,
+        offset_seconds: i64,
+        expect_ok: bool,
+    }
+
+    let scenarios = [
+        Scenario {
+            name: "before_deadline",
+            offset_seconds: -1,
+            expect_ok: true,
+        },
+        Scenario {
+            name: "at_deadline",
+            offset_seconds: 0,
+            expect_ok: false,
+        },
+        Scenario {
+            name: "after_deadline",
+            offset_seconds: 1,
+            expect_ok: false,
+        },
+    ];
+
+    for scenario in scenarios.iter() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+        let user = test.create_funded_user();
+        let outcome = String::from_str(&test.env, "yes");
+        let bet_amount: i128 = 10_000_000;
+
+        let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+        let target_time = if scenario.offset_seconds < 0 {
+            market.end_time - (-scenario.offset_seconds as u64)
+        } else {
+            market.end_time + scenario.offset_seconds as u64
+        };
+        set_test_ledger_time(&test.env, target_time);
+
+        let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+        let contract_balance_before =
+            token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+        let stats_before = client.get_market_bet_stats(&market_id);
+        let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+
+        test.env.mock_all_auths();
+        let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+        if scenario.expect_ok {
+            assert!(result.is_ok(), "scenario {}", scenario.name);
+            let bet = result.unwrap();
+            assert_eq!(bet.user, user);
+            assert_eq!(bet.market_id, market_id);
+            assert_eq!(bet.outcome, outcome);
+            assert_eq!(bet.amount, bet_amount);
+            assert_eq!(bet.status, BetStatus::Active);
+
+            assert!(client.get_bet(&market_id, &user).is_some());
+
+            let stats_after = client.get_market_bet_stats(&market_id);
+            assert_eq!(stats_after.total_bets, stats_before.total_bets + 1);
+            assert_eq!(
+                stats_after.total_amount_locked,
+                stats_before.total_amount_locked + bet_amount
+            );
+
+            let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+            let contract_balance_after =
+                token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+            assert_eq!(user_balance_before - bet_amount, user_balance_after);
+            assert_eq!(contract_balance_before + bet_amount, contract_balance_after);
+
+            let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+            assert_eq!(market_after.total_staked, market_before.total_staked + bet_amount);
+            assert_eq!(market_after.votes.len(), market_before.votes.len() + 1);
+
+            let bet_event = load_bet_placed_event(&test.env, &test.contract_id);
+            assert_eq!(bet_event.market_id, market_id);
+            assert_eq!(bet_event.bettor, user);
+            assert_eq!(bet_event.outcome, outcome);
+            assert_eq!(bet_event.amount, bet_amount);
+            assert_eq!(bet_event.timestamp, test.env.ledger().timestamp());
+        } else {
+            assert_eq!(
+                result,
+                Err(Ok(Error::MarketClosed)),
+                "scenario {}",
+                scenario.name
+            );
+            assert_eq!(Error::MarketClosed.description(), "Market is closed");
+            assert!(client.get_bet(&market_id, &user).is_none());
+
+            let stats_after = client.get_market_bet_stats(&market_id);
+            assert_eq!(stats_after.total_bets, stats_before.total_bets);
+            assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+            assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
+
+            let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+            let contract_balance_after =
+                token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+            assert_eq!(user_balance_after, user_balance_before);
+            assert_eq!(contract_balance_after, contract_balance_before);
+
+            let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+            assert_eq!(market_after.total_staked, market_before.total_staked);
+            assert_eq!(market_after.votes.len(), market_before.votes.len());
+            assert_eq!(market_after.state, market_before.state);
+        }
+    }
+}
+
+#[test]
+fn test_bet_rejected_when_market_state_ended_before_deadline() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    market.state = MarketState::Ended;
+    let end_time = market.end_time;
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    set_test_ledger_time(&test.env, end_time - 1);
+
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    let stats_before = client.get_market_bet_stats(&market_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert_eq!(Error::MarketClosed.description(), "Market is closed");
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+
+    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    assert_eq!(market_after.state, MarketState::Ended);
+    assert_eq!(market_after.total_staked, market.total_staked);
+}
+
+#[test]
+fn test_bet_rejected_when_market_resolved_before_deadline() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    market.winning_outcome = Some(outcome.clone());
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    set_test_ledger_time(&test.env, market.end_time - 1);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketAlreadyResolved)));
+    assert_eq!(
+        Error::MarketAlreadyResolved.description(),
+        "Market is already resolved"
+    );
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+}
+
+#[test]
+fn test_bet_rejected_with_epoch_zero_deadline() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    market.end_time = 0;
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    set_test_ledger_time(&test.env, 1);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+}
+
+#[test]
+fn test_bet_accepts_with_far_future_deadline() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    market.end_time = u64::MAX - 10;
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    set_test_ledger_time(&test.env, 1);
+
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+    assert!(result.is_ok());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, 1);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_before - bet_amount, user_balance_after);
+    assert_eq!(contract_balance_before + bet_amount, contract_balance_after);
+}
+
+#[test]
+fn test_bet_rejected_after_time_progression_post_read() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let observed_end_time = market.end_time;
+
+    set_test_ledger_time(&test.env, observed_end_time - 1);
+    let _ = client.get_market(&market_id).unwrap();
+
+    set_test_ledger_time(&test.env, observed_end_time + 1);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+}
+
+#[test]
+fn test_bet_allows_after_deadline_extension() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let original_end_time = market.end_time;
+
+    test.env.mock_all_auths();
+    let extend_result = client.try_extend_deadline(
+        &test.admin,
+        &market_id,
+        &1u32,
+        &String::from_str(&test.env, "extend for testing"),
+    );
+    assert!(extend_result.is_ok());
+
+    let updated_market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    assert_eq!(updated_market.end_time, original_end_time + 24 * 60 * 60);
+
+    set_test_ledger_time(&test.env, original_end_time + 1);
+
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+    assert!(result.is_ok());
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_before - bet_amount, user_balance_after);
+    assert_eq!(contract_balance_before + bet_amount, contract_balance_after);
+}
+
+#[test]
+fn test_bet_rejects_after_manual_earlier_deadline_override() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let original_end_time = market.end_time;
+    market.end_time = original_end_time - 10;
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    set_test_ledger_time(&test.env, original_end_time - 5);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+}
+
+#[test]
+fn test_bet_deadline_per_market_enforced_independently() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let early_market_id = test.create_test_market();
+    let late_market_id = test.create_test_market();
+
+    let base_time = test.env.ledger().timestamp();
+
+    let mut early_market = load_market_from_storage(&test.env, &test.contract_id, &early_market_id);
+    early_market.end_time = base_time + 10;
+    store_market_to_storage(&test.env, &test.contract_id, &early_market_id, &early_market);
+
+    let mut late_market = load_market_from_storage(&test.env, &test.contract_id, &late_market_id);
+    late_market.end_time = base_time + 20;
+    store_market_to_storage(&test.env, &test.contract_id, &late_market_id, &late_market);
+
+    set_test_ledger_time(&test.env, base_time + 15);
+
+    let user_early = test.create_funded_user();
+    let user_late = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let stats_before_early = client.get_market_bet_stats(&early_market_id);
+    let market_before_early =
+        load_market_from_storage(&test.env, &test.contract_id, &early_market_id);
+    let user_balance_before_early =
+        token_balance(&test.env, &test.token_test.token_id, &user_early);
+    let contract_balance_before_early =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result_early = client.try_place_bet(&user_early, &early_market_id, &outcome, &bet_amount);
+
+    assert_eq!(result_early, Err(Ok(Error::MarketClosed)));
+    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
+    assert_eq!(Error::MarketClosed.description(), "Market is closed");
+    assert!(client.get_bet(&early_market_id, &user_early).is_none());
+
+    let stats_after_early = client.get_market_bet_stats(&early_market_id);
+    assert_eq!(stats_after_early.total_bets, stats_before_early.total_bets);
+    assert_eq!(
+        stats_after_early.total_amount_locked,
+        stats_before_early.total_amount_locked
+    );
+    assert_eq!(
+        stats_after_early.unique_bettors,
+        stats_before_early.unique_bettors
+    );
+
+    let user_balance_after_early =
+        token_balance(&test.env, &test.token_test.token_id, &user_early);
+    let contract_balance_after_early =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after_early, user_balance_before_early);
+    assert_eq!(contract_balance_after_early, contract_balance_before_early);
+
+    let market_after_early =
+        load_market_from_storage(&test.env, &test.contract_id, &early_market_id);
+    assert_eq!(market_after_early.total_staked, market_before_early.total_staked);
+    assert_eq!(market_after_early.votes.len(), market_before_early.votes.len());
+    assert_eq!(market_after_early.state, market_before_early.state);
+
+    let stats_before_late = client.get_market_bet_stats(&late_market_id);
+    let market_before_late =
+        load_market_from_storage(&test.env, &test.contract_id, &late_market_id);
+    let user_balance_before_late =
+        token_balance(&test.env, &test.token_test.token_id, &user_late);
+    let contract_balance_before_late =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result_late = client.try_place_bet(&user_late, &late_market_id, &outcome, &bet_amount);
+    assert!(result_late.is_ok());
+
+    let bet = result_late.unwrap();
+    assert_eq!(bet.user, user_late);
+    assert_eq!(bet.market_id, late_market_id);
+    assert_eq!(bet.outcome, outcome);
+    assert_eq!(bet.amount, bet_amount);
+    assert_eq!(bet.status, BetStatus::Active);
+
+    assert!(client.get_bet(&late_market_id, &user_late).is_some());
+
+    let stats_after_late = client.get_market_bet_stats(&late_market_id);
+    assert_eq!(stats_after_late.total_bets, stats_before_late.total_bets + 1);
+    assert_eq!(
+        stats_after_late.total_amount_locked,
+        stats_before_late.total_amount_locked + bet_amount
+    );
+
+    let user_balance_after_late =
+        token_balance(&test.env, &test.token_test.token_id, &user_late);
+    let contract_balance_after_late =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_before_late - bet_amount, user_balance_after_late);
+    assert_eq!(
+        contract_balance_before_late + bet_amount,
+        contract_balance_after_late
+    );
+
+    let market_after_late =
+        load_market_from_storage(&test.env, &test.contract_id, &late_market_id);
+    assert_eq!(market_after_late.total_staked, market_before_late.total_staked + bet_amount);
+    assert_eq!(market_after_late.votes.len(), market_before_late.votes.len() + 1);
+
+    let bet_event = load_bet_placed_event(&test.env, &test.contract_id);
+    assert_eq!(bet_event.market_id, late_market_id);
+    assert_eq!(bet_event.bettor, user_late);
+    assert_eq!(bet_event.outcome, outcome);
+    assert_eq!(bet_event.amount, bet_amount);
+    assert_eq!(bet_event.timestamp, test.env.ledger().timestamp());
+}
+
+#[test]
+fn test_bet_rejects_at_exact_end_time_boundary() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    set_test_ledger_time(&test.env, market.end_time);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
+    assert_eq!(Error::MarketClosed.description(), "Market is closed");
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+    assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+
+    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    assert_eq!(market_after.total_staked, market_before.total_staked);
+    assert_eq!(market_after.votes.len(), market_before.votes.len());
+    assert_eq!(market_after.state, market_before.state);
+}
+
+#[test]
+fn test_bet_rejects_when_end_time_passed_even_if_state_active() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    set_test_ledger_time(&test.env, 100);
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    market.end_time = 50;
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
+    assert_eq!(Error::MarketClosed.description(), "Market is closed");
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+    assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+
+    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    assert_eq!(market_after.total_staked, market_before.total_staked);
+    assert_eq!(market_after.votes.len(), market_before.votes.len());
+    assert_eq!(market_after.state, market_before.state);
+}
+
+#[test]
+fn test_bet_rejects_when_market_cancelled_or_closed_even_before_end_time() {
+    let states = [MarketState::Cancelled, MarketState::Closed];
+
+    for state in states.iter() {
+        let test = PredictifyTest::setup();
+        let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+        let market_id = test.create_test_market();
+        let user = test.create_funded_user();
+        let outcome = String::from_str(&test.env, "yes");
+        let bet_amount: i128 = 10_000_000;
+
+        let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+        let end_time = market.end_time;
+        market.state = *state;
+        store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+        set_test_ledger_time(&test.env, end_time - 1);
+
+        let stats_before = client.get_market_bet_stats(&market_id);
+        let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+        let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+        let contract_balance_before =
+            token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+        test.env.mock_all_auths();
+        let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+        assert_eq!(result, Err(Ok(Error::MarketClosed)));
+        assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
+        assert_eq!(Error::MarketClosed.description(), "Market is closed");
+        assert!(client.get_bet(&market_id, &user).is_none());
+
+        let stats_after = client.get_market_bet_stats(&market_id);
+        assert_eq!(stats_after.total_bets, stats_before.total_bets);
+        assert_eq!(
+            stats_after.total_amount_locked,
+            stats_before.total_amount_locked
+        );
+        assert_eq!(stats_after.unique_bettors, stats_before.unique_bettors);
+
+        let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+        let contract_balance_after =
+            token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+        assert_eq!(user_balance_after, user_balance_before);
+        assert_eq!(contract_balance_after, contract_balance_before);
+
+        let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+        assert_eq!(market_after.total_staked, market_before.total_staked);
+        assert_eq!(market_after.votes.len(), market_before.votes.len());
+        assert_eq!(market_after.state, *state);
+    }
+}
+
+#[test]
+fn test_bet_rejects_at_epoch_zero_boundary() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    market.end_time = 0;
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    set_test_ledger_time(&test.env, 0);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+
+    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    assert_eq!(market_after.total_staked, market_before.total_staked);
+    assert_eq!(market_after.votes.len(), market_before.votes.len());
+}
+
+#[test]
+fn test_bet_rejects_at_far_future_deadline_boundary() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user = test.create_funded_user();
+    let outcome = String::from_str(&test.env, "yes");
+    let bet_amount: i128 = 10_000_000;
+
+    let mut market = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let far_future_deadline = u64::MAX - 10;
+    market.end_time = far_future_deadline;
+    store_market_to_storage(&test.env, &test.contract_id, &market_id, &market);
+
+    set_test_ledger_time(&test.env, far_future_deadline);
+
+    let stats_before = client.get_market_bet_stats(&market_id);
+    let market_before = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    let user_balance_before = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_before =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_place_bet(&user, &market_id, &outcome, &bet_amount);
+
+    assert_eq!(result, Err(Ok(Error::MarketClosed)));
+    assert_eq!(Error::MarketClosed.code(), "MARKET_CLOSED");
+    assert_eq!(Error::MarketClosed.description(), "Market is closed");
+    assert!(client.get_bet(&market_id, &user).is_none());
+
+    let stats_after = client.get_market_bet_stats(&market_id);
+    assert_eq!(stats_after.total_bets, stats_before.total_bets);
+    assert_eq!(stats_after.total_amount_locked, stats_before.total_amount_locked);
+
+    let user_balance_after = token_balance(&test.env, &test.token_test.token_id, &user);
+    let contract_balance_after =
+        token_balance(&test.env, &test.token_test.token_id, &test.contract_id);
+    assert_eq!(user_balance_after, user_balance_before);
+    assert_eq!(contract_balance_after, contract_balance_before);
+
+    let market_after = load_market_from_storage(&test.env, &test.contract_id, &market_id);
+    assert_eq!(market_after.total_staked, market_before.total_staked);
+    assert_eq!(market_after.votes.len(), market_before.votes.len());
 }
