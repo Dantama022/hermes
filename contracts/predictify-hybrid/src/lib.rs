@@ -1121,11 +1121,8 @@ impl PredictifyHybrid {
             &reason,
         );
 
-        // Note: do not automatically distribute payouts here to let callers
-        // explicitly trigger distribution. Automatic distribution during
-        // resolution caused double-distribution and made explicit calls
-        // to `distribute_payouts` return 0. Tests and callers expect an
-        // explicit distribution step so we leave it out here.
+        // Automatically distribute payouts to winners after resolution
+        let _ = Self::distribute_payouts(env.clone(), market_id);
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
