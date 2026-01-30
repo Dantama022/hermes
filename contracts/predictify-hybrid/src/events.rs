@@ -1223,6 +1223,60 @@ pub struct MarketOutcomesUpdatedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when market category is updated
+///
+/// This event tracks market category updates, providing transparency
+/// for changes to market categorization.
+///
+/// # Event Data
+///
+/// - Market identifier
+/// - Previous category (None if not set)
+/// - New category (None to clear)
+/// - Admin who performed the update
+/// - Update timestamp
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CategoryUpdatedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Old category (None if not previously set)
+    pub old_category: Option<String>,
+    /// New category (None to clear category)
+    pub new_category: Option<String>,
+    /// Admin who updated
+    pub admin: Address,
+    /// Update timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when market tags are updated
+///
+/// This event tracks market tags updates, providing transparency
+/// for changes to market tagging.
+///
+/// # Event Data
+///
+/// - Market identifier
+/// - Previous tags
+/// - New tags
+/// - Admin who performed the update
+/// - Update timestamp
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TagsUpdatedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Old tags
+    pub old_tags: Vec<String>,
+    /// New tags
+    pub new_tags: Vec<String>,
+    /// Admin who updated
+    pub admin: Address,
+    /// Update timestamp
+    pub timestamp: u64,
+}
+
 /// Contract rollback event - emitted when contract is rolled back to previous version
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2162,6 +2216,88 @@ impl EventEmitter {
             timestamp: env.ledger().timestamp(),
         };
         Self::store_event(env, &symbol_short!("mkt_out"), &event);
+    }
+
+    /// Emit market category updated event
+    ///
+    /// This function emits an event when a market's category is updated,
+    /// providing transparency for category changes.
+    ///
+    /// # Parameters
+    ///
+    /// - `env` - Soroban environment
+    /// - `market_id` - Market identifier
+    /// - `old_category` - Previous market category (None if not set)
+    /// - `new_category` - New market category (None to clear)
+    /// - `admin` - Admin who performed the update
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// EventEmitter::emit_category_updated(
+    ///     &env,
+    ///     &market_id,
+    ///     &None,
+    ///     &Some(String::from_str(&env, "sports")),
+    ///     &admin_address
+    /// );
+    /// ```
+    pub fn emit_category_updated(
+        env: &Env,
+        market_id: &Symbol,
+        old_category: &Option<String>,
+        new_category: &Option<String>,
+        admin: &Address,
+    ) {
+        let event = CategoryUpdatedEvent {
+            market_id: market_id.clone(),
+            old_category: old_category.clone(),
+            new_category: new_category.clone(),
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("mkt_cat"), &event);
+    }
+
+    /// Emit market tags updated event
+    ///
+    /// This function emits an event when a market's tags are updated,
+    /// providing transparency for tagging changes.
+    ///
+    /// # Parameters
+    ///
+    /// - `env` - Soroban environment
+    /// - `market_id` - Market identifier
+    /// - `old_tags` - Previous market tags
+    /// - `new_tags` - New market tags
+    /// - `admin` - Admin who performed the update
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// EventEmitter::emit_tags_updated(
+    ///     &env,
+    ///     &market_id,
+    ///     &Vec::new(&env),
+    ///     &vec![&env, String::from_str(&env, "crypto"), String::from_str(&env, "bitcoin")],
+    ///     &admin_address
+    /// );
+    /// ```
+    pub fn emit_tags_updated(
+        env: &Env,
+        market_id: &Symbol,
+        old_tags: &Vec<String>,
+        new_tags: &Vec<String>,
+        admin: &Address,
+    ) {
+        let event = TagsUpdatedEvent {
+            market_id: market_id.clone(),
+            old_tags: old_tags.clone(),
+            new_tags: new_tags.clone(),
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("mkt_tag"), &event);
     }
 
     /// Emit error event with full error context

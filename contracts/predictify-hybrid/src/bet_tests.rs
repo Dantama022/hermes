@@ -548,6 +548,8 @@ fn test_market_validation_for_betting() {
         total_extension_days: 0,
         max_extension_days: 30,
         extension_history: Vec::new(&env),
+        category: None,
+        tags: Vec::new(&env),
     };
 
     // Active market should be valid
