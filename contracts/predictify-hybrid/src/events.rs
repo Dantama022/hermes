@@ -891,6 +891,36 @@ pub struct ConfigUpdatedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when bet limits are updated (global or per-event).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BetLimitsUpdatedEvent {
+    /// Admin who updated the limits
+    pub admin: Address,
+    /// Market ID or "global" for global limits
+    pub scope: Symbol,
+    /// New minimum bet amount
+    pub min_bet: i128,
+    /// New maximum bet amount
+    pub max_bet: i128,
+    /// Update timestamp
+    pub timestamp: u64,
+}
+
+/// Statistics updated event - emitted when platform statistics change
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StatisticsUpdatedEvent {
+    /// Total volume (amount wagered) in token units
+    pub total_volume: i128,
+    /// Total number of bets placed
+    pub total_bets: u64,
+    /// Number of currently active markets
+    pub active_markets: u32,
+    /// Update timestamp
+    pub timestamp: u64,
+}
+
 /// Error logged event
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1542,6 +1572,23 @@ impl EventEmitter {
         Self::store_event(env, &symbol_short!("vote"), &event);
     }
 
+    /// Emit statistics updated event
+    pub fn emit_statistics_updated(
+        env: &Env,
+        total_volume: i128,
+        total_bets: u64,
+        active_markets: u32,
+    ) {
+        let event = StatisticsUpdatedEvent {
+            total_volume,
+            total_bets,
+            active_markets,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("stats_upd"), &event);
+    }
+
     /// Emit bet placed event when a user places a bet on a market
     ///
     /// This function emits an event when a user successfully places a bet,
@@ -1966,6 +2013,24 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("cfg_upd"), &event);
+    }
+
+    /// Emit bet limits updated event (global or per-event).
+    pub fn emit_bet_limits_updated(
+        env: &Env,
+        admin: &Address,
+        scope: &Symbol,
+        min_bet: i128,
+        max_bet: i128,
+    ) {
+        let event = BetLimitsUpdatedEvent {
+            admin: admin.clone(),
+            scope: scope.clone(),
+            min_bet,
+            max_bet,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("bet_lim"), &event);
     }
 
     /// Emit error logged event
