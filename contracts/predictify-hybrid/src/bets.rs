@@ -293,6 +293,127 @@ impl BetManager {
         Ok(bet)
     }
 
+    /// Place multiple bets atomically in a single transaction.
+    ///
+    /// This function processes multiple bets in a single transaction, providing
+    /// gas efficiency and atomicity. All bets must succeed or the entire batch reverts.
+    ///
+    /// # Parameters
+    ///
+    /// - `env` - The Soroban environment
+    /// - `user` - Address of the user placing the bets
+    /// - `bets` - Vector of tuples (market_id, outcome, amount)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Vec<Bet>)` with all placed bets on success,
+    /// or `Err(Error)` if any validation fails.
+    ///
+    /// # Atomicity
+    ///
+    /// All bets are validated before any funds are locked. If any bet fails,
+    /// the entire transaction reverts with no state changes.
+    ///
+    /// # Errors
+    ///
+    /// - `Error::InvalidInput` - Empty batch or exceeds maximum size
+    /// - `Error::MarketNotFound` - Any market does not exist
+    /// - `Error::MarketClosed` - Any market has ended or is not active
+    /// - `Error::AlreadyBet` - User has already bet on any market
+    /// - `Error::InsufficientStake` - Any bet amount below minimum
+    /// - `Error::InvalidOutcome` - Any outcome not valid for its market
+    /// - `Error::InsufficientBalance` - User doesn't have enough total funds
+    pub fn place_bets(
+        env: &Env,
+        user: Address,
+        bets: soroban_sdk::Vec<(Symbol, String, i128)>,
+    ) -> Result<soroban_sdk::Vec<Bet>, Error> {
+        // Require authentication from the user
+        user.require_auth();
+
+        // Validate batch size
+        if bets.is_empty() {
+            return Err(Error::InvalidInput);
+        }
+
+        const MAX_BATCH_SIZE: u32 = 50;
+        if bets.len() > MAX_BATCH_SIZE {
+            return Err(Error::InvalidInput);
+        }
+
+        // Phase 1: Validate all bets and collect data
+        let mut markets = soroban_sdk::Vec::new(env);
+        let mut total_amount: i128 = 0;
+
+        for bet_data in bets.iter() {
+            let (market_id, outcome, amount) = bet_data;
+
+            // Get and validate market
+            let market = MarketStateManager::get_market(env, &market_id)?;
+            BetValidator::validate_market_for_betting(env, &market)?;
+
+            // Validate bet parameters
+            BetValidator::validate_bet_parameters(env, &market_id, &outcome, &market.outcomes, amount)?;
+
+            // Check if user has already bet on this market
+            if Self::has_user_bet(env, &market_id, &user) {
+                return Err(Error::AlreadyBet);
+            }
+
+            // Accumulate total amount
+            total_amount = total_amount
+                .checked_add(amount)
+                .ok_or(Error::InvalidInput)?;
+
+            // Store market for later use
+            markets.push_back(market);
+        }
+
+        // Phase 2: Lock total funds once (more efficient than per-bet transfers)
+        BetUtils::lock_funds(env, &user, total_amount)?;
+
+        // Phase 3: Create and store all bets
+        let mut placed_bets = soroban_sdk::Vec::new(env);
+
+        for (i, bet_data) in bets.iter().enumerate() {
+            let (market_id, outcome, amount) = bet_data;
+            let mut market = markets.get(i as u32).unwrap();
+
+            // Create bet
+            let bet = Bet::new(
+                env,
+                user.clone(),
+                market_id.clone(),
+                outcome.clone(),
+                amount,
+            );
+
+            // Store bet
+            BetStorage::store_bet(env, &bet)?;
+
+            // Update market betting stats
+            Self::update_market_bet_stats(env, &market_id, &outcome, amount)?;
+
+            // Update market's total staked
+            market.total_staked = market.total_staked
+                .checked_add(amount)
+                .ok_or(Error::InvalidInput)?;
+
+            // Update votes and stakes for backward compatibility
+            market.votes.set(user.clone(), outcome.clone());
+            market.stakes.set(user.clone(), amount);
+
+            MarketStateManager::update_market(env, &market_id, &market);
+
+            // Emit bet placed event
+            EventEmitter::emit_bet_placed(env, &market_id, &user, &outcome, amount);
+
+            placed_bets.push_back(bet);
+        }
+
+        Ok(placed_bets)
+    }
+
     /// Check if a user has already placed a bet on a market.
     ///
     /// # Parameters
