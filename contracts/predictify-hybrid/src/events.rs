@@ -102,6 +102,24 @@ pub struct MarketCreatedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a new prediction event is successfully created.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventCreatedEvent {
+    /// Unique event ID
+    pub event_id: Symbol,
+    /// Event description
+    pub description: String,
+    /// Event outcomes
+    pub outcomes: Vec<String>,
+    /// Event end time
+    pub end_time: u64,
+    /// Event admin
+    pub admin: Address,
+    /// Creation timestamp
+    pub timestamp: u64,
+}
+
 /// Event emitted when a user successfully casts a vote on a prediction market.
 ///
 /// This event captures all details of voting activity, including voter identity,
@@ -1355,6 +1373,27 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("mkt_crt"), &event);
+    }
+
+    /// Emit event created event
+    pub fn emit_event_created(
+        env: &Env,
+        event_id: &Symbol,
+        description: &String,
+        outcomes: &Vec<String>,
+        admin: &Address,
+        end_time: u64,
+    ) {
+        let event = EventCreatedEvent {
+            event_id: event_id.clone(),
+            description: description.clone(),
+            outcomes: outcomes.clone(),
+            admin: admin.clone(),
+            end_time,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("evt_crt"), &event);
     }
 
     /// Emit vote cast event
