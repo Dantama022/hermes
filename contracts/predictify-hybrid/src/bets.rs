@@ -353,7 +353,13 @@ impl BetManager {
             BetValidator::validate_market_for_betting(env, &market)?;
 
             // Validate bet parameters
-            BetValidator::validate_bet_parameters(env, &market_id, &outcome, &market.outcomes, amount)?;
+            BetValidator::validate_bet_parameters(
+                env,
+                &market_id,
+                &outcome,
+                &market.outcomes,
+                amount,
+            )?;
 
             // Check if user has already bet on this market
             if Self::has_user_bet(env, &market_id, &user) {
@@ -395,7 +401,8 @@ impl BetManager {
             Self::update_market_bet_stats(env, &market_id, &outcome, amount)?;
 
             // Update market's total staked
-            market.total_staked = market.total_staked
+            market.total_staked = market
+                .total_staked
                 .checked_add(amount)
                 .ok_or(Error::InvalidInput)?;
 
