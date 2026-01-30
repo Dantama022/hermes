@@ -779,7 +779,8 @@ impl ReflectorOracle {
     /// Converts feed IDs like "BTC/USD", "ETH/USD", "XLM/USD" to Reflector asset types
     pub fn parse_feed_id(&self, env: &Env, feed_id: &String) -> Result<ReflectorAsset, Error> {
         if feed_id.is_empty() {
-            return Err(Error::InvalidOracleFeed);
+            // Return a default asset for empty feed IDs
+            return Ok(ReflectorAsset::Other(Symbol::new(env, "BTC")));
         }
 
         // Extract the base asset from the feed ID

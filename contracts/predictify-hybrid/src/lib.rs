@@ -1009,9 +1009,6 @@ impl PredictifyHybrid {
             &MarketState::Resolved,
             &reason,
         );
-
-        // Automatically distribute payouts
-        let _ = Self::distribute_payouts(env.clone(), market_id);
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
