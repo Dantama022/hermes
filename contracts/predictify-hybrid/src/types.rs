@@ -793,6 +793,42 @@ pub struct EventHistoryEntry {
     pub tags: Vec<String>,
 }
 
+// ===== STATISTICS TYPES =====
+
+/// Platform-wide usage statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformStatistics {
+    /// Total number of markets/events created
+    pub total_events_created: u64,
+    /// Total number of bets placed
+    pub total_bets_placed: u64,
+    /// Total volume (amount wagered) in token units
+    pub total_volume: i128,
+    /// Total fees collected in token units
+    pub total_fees_collected: i128,
+    /// Number of currently active (non-resolved) events
+    pub active_events_count: u32,
+}
+
+/// User-specific betting statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserStatistics {
+    /// Total number of bets placed by the user
+    pub total_bets_placed: u64,
+    /// Total amount wagered by the user
+    pub total_amount_wagered: i128,
+    /// Total winnings claimed by the user
+    pub total_winnings: i128,
+    /// Number of winning bets
+    pub total_bets_won: u64,
+    /// Win rate in basis points (0-10000, 100% = 10000)
+    pub win_rate: u32,
+    /// Timestamp of last activity
+    pub last_activity_ts: u64,
+}
+
 impl Market {
     /// Create a new market
     pub fn new(
