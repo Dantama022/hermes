@@ -17,7 +17,7 @@
 
 #![cfg(test)]
 
-use crate::events::PlatformFeeSetEvent;
+use crate::events::{BetPlacedEvent, PlatformFeeSetEvent};
 
 use super::*;
 use crate::markets::MarketUtils;
