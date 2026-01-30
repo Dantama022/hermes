@@ -1974,7 +1974,7 @@ impl OracleWhitelist {
             .instance()
             .remove(&OracleWhitelistKey::OracleMetadata(oracle_address.clone()));
 
-        let mut oracle_list: Vec<Address> = env
+        let oracle_list: Vec<Address> = env
             .storage()
             .instance()
             .get(&OracleWhitelistKey::OracleList)

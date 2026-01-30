@@ -7,7 +7,6 @@ use crate::errors::Error;
 use crate::events::EventEmitter;
 use crate::extensions::ExtensionManager;
 use crate::fees::{FeeConfig, FeeManager};
-use crate::format;
 use crate::markets::MarketStateManager;
 use crate::resolution::MarketResolutionManager;
 use alloc::string::ToString;

@@ -19,13 +19,13 @@
 //! - Balance validation before fund transfer
 //! - Market state validation before accepting bets
 
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Map, String, Symbol};
+use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol};
 
 use crate::errors::Error;
 use crate::events::EventEmitter;
 use crate::markets::{MarketStateManager, MarketUtils, MarketValidator};
 use crate::reentrancy_guard::ReentrancyGuard;
-use crate::types::{Bet, BetLimits, BetStats, BetStatus, Market, MarketState};
+use crate::types::{Bet, BetLimits, BetStatus, BetStats, Market, MarketState};
 use crate::validation;
 
 // ===== CONSTANTS =====
@@ -872,6 +872,7 @@ impl BetAnalytics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::BetStatus;
 
     #[test]
     fn test_bet_amount_validation() {
