@@ -711,6 +711,20 @@ pub struct BetLimitsUpdatedEvent {
     pub timestamp: u64,
 }
 
+/// Statistics updated event - emitted when platform statistics change
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StatisticsUpdatedEvent {
+    /// Total volume (amount wagered) in token units
+    pub total_volume: i128,
+    /// Total number of bets placed
+    pub total_bets: u64,
+    /// Number of currently active markets
+    pub active_markets: u32,
+    /// Update timestamp
+    pub timestamp: u64,
+}
+
 /// Error logged event
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1360,6 +1374,23 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("vote"), &event);
+    }
+
+    /// Emit statistics updated event
+    pub fn emit_statistics_updated(
+        env: &Env,
+        total_volume: i128,
+        total_bets: u64,
+        active_markets: u32,
+    ) {
+        let event = StatisticsUpdatedEvent {
+            total_volume,
+            total_bets,
+            active_markets,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("stats_upd"), &event);
     }
 
     /// Emit bet placed event when a user places a bet on a market

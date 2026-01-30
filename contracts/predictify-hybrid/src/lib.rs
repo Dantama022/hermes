@@ -39,6 +39,7 @@ mod validation;
 mod validation_tests;
 mod versioning;
 mod voting;
+mod statistics;
 // THis is the band protocol wasm std_reference.wasm
 mod bandprotocol {
     soroban_sdk::contractimport!(file = "./std_reference.wasm");
@@ -67,6 +68,9 @@ mod bet_tests;
 
 #[cfg(test)]
 mod event_management_tests;
+
+#[cfg(test)]
+mod statistics_tests;
 
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
@@ -320,6 +324,9 @@ impl PredictifyHybrid {
         // Emit market created event
         EventEmitter::emit_market_created(&env, &market_id, &question, &outcomes, &admin, end_time);
 
+        // Record statistics
+        statistics::StatisticsManager::record_market_created(&env);
+
         market_id
     }
 
@@ -501,8 +508,12 @@ impl PredictifyHybrid {
             panic_with_error!(env, Error::InvalidState);
         }
         // Use the BetManager to handle the bet placement
-        match bets::BetManager::place_bet(&env, user, market_id, outcome, amount) {
-            Ok(bet) => bet,
+        match bets::BetManager::place_bet(&env, user.clone(), market_id, outcome, amount) {
+            Ok(bet) => {
+                // Record statistics
+                statistics::StatisticsManager::record_bet_placed(&env, &user, amount);
+                bet
+            },
             Err(e) => panic_with_error!(env, e),
         }
     }
@@ -796,6 +807,38 @@ impl PredictifyHybrid {
                     .checked_mul(total_pool)
                     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
                 let payout = product / winning_total;
+                
+                // Calculate fee amount for statistics
+                // Payout is net of fee. Fee was deducted in user_share calculation.
+                // Gross payout would be (user_stake * total_pool) / winning_total
+                // Logic check:
+                // user_share = user_stake * (1 - fee)
+                // payout = user_share * pool / winning_total
+                // payout = user_stake * (1-fee) * pool / winning_total
+                // payout = (user_stake * pool / winning_total) - (user_stake * pool / winning_total * fee)
+                // So Fee = (user_stake * pool / winning_total) * fee
+                // Or Fee = Payout / (1 - fee) * fee ? No, division precision.
+                // Simpler: Fee = (Payout * fee_percent) / (100 - fee_percent)?
+                // Let's rely on explicit calculation if possible or approximation.
+                // Actually, let's re-calculate gross to get fee.
+                // Gross = (user_stake * total_pool) / winning_total. 
+                // Fee = Gross - Payout.
+                
+                let gross_share = (user_stake
+                    .checked_mul(PERCENTAGE_DENOMINATOR)
+                    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput)))
+                    / PERCENTAGE_DENOMINATOR; 
+                // Wait, user_stake * 100 / 100 = user_stake. 
+                // The math above used PERCENTAGE_DENOMINATOR (100).
+                
+                let product_gross = user_stake
+                    .checked_mul(total_pool)
+                    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
+                let gross_payout = product_gross / winning_total;
+                let fee_amount = gross_payout - payout;
+                
+                statistics::StatisticsManager::record_winnings_claimed(&env, &user, payout);
+                statistics::StatisticsManager::record_fees_collected(&env, fee_amount);
 
                 // Mark as claimed
                 market.claimed.set(user.clone(), true);
@@ -1182,6 +1225,9 @@ impl PredictifyHybrid {
     pub fn resolve_market(env: Env, market_id: Symbol) -> Result<(), Error> {
         // Use the resolution module to resolve the market
         let _resolution = resolution::MarketResolutionManager::resolve_market(&env, &market_id)?;
+        
+        statistics::StatisticsManager::record_market_resolved(&env);
+        
         Ok(())
     }
 
@@ -3728,6 +3774,15 @@ impl PredictifyHybrid {
         performance_benchmarks::PerformanceBenchmarkManager::validate_performance_thresholds(
             &env, metrics, thresholds,
         )
+    }
+    /// Get platform-wide statistics
+    pub fn get_platform_statistics(env: Env) -> PlatformStatistics {
+        statistics::StatisticsManager::get_platform_stats(&env)
+    }
+
+    /// Get user-specific statistics
+    pub fn get_user_statistics(env: Env, user: Address) -> UserStatistics {
+        statistics::StatisticsManager::get_user_stats(&env, &user)
     }
 }
 
