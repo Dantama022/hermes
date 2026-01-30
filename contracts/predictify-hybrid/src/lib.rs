@@ -14,6 +14,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 // Module declarations - all modules enabled
 mod admin;
+mod balances;
 mod batch_operations;
 mod bets;
 mod circuit_breaker;
@@ -69,6 +70,9 @@ mod upgrade_manager_tests;
 
 #[cfg(test)]
 mod bet_tests;
+
+#[cfg(test)]
+mod balance_tests;
 
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
@@ -177,6 +181,38 @@ impl PredictifyHybrid {
 
         // Emit platform fee set event
         EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
+    }
+
+    /// Deposits funds into the user's balance.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user depositing funds.
+    /// * `asset` - The asset to deposit (e.g., XLM, BTC, ETH).
+    /// * `amount` - The amount to deposit.
+    pub fn deposit(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+        balances::BalanceManager::deposit(&env, user, asset, amount)
+    }
+
+    /// Withdraws funds from the user's balance.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user withdrawing funds.
+    /// * `asset` - The asset to withdraw.
+    /// * `amount` - The amount to withdraw.
+    pub fn withdraw(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+        balances::BalanceManager::withdraw(&env, user, asset, amount)
+    }
+
+    /// Gets the current balance of a user for a specific asset.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user to check.
+    /// * `asset` - The asset to check.
+    pub fn get_balance(env: Env, user: Address, asset: ReflectorAsset) -> Balance {
+        storage::BalanceStorage::get_balance(&env, &user, &asset)
     }
 
     /// Creates a new prediction market with specified parameters and oracle configuration.

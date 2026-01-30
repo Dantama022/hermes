@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::markets::{MarketStateLogic, MarketStateManager};
-use soroban_sdk::{contracttype, Env, Symbol, Vec};
+use crate::types::{Balance, ReflectorAsset};
+use soroban_sdk::{contracttype, Env, Symbol, Vec, Val, IntoVal, Address};
 
 // ===== STORAGE OPTIMIZATION TYPES =====
 
@@ -437,6 +438,51 @@ impl StorageOptimizer {
         Ok(())
     }
 }
+
+// ===== BALANCE STORAGE =====
+
+pub struct BalanceStorage;
+
+impl BalanceStorage {
+    fn get_key(env: &Env, user: &Address, asset: &ReflectorAsset) -> Vec<Val> {
+        let mut key = Vec::new(env);
+        key.push_back(Symbol::new(env, "Balance").into_val(env));
+        key.push_back(user.to_val());
+        key.push_back(asset.into_val(env));
+        key
+    }
+
+    pub fn get_balance(env: &Env, user: &Address, asset: &ReflectorAsset) -> Balance {
+        let key = Self::get_key(env, user, asset);
+        env.storage().persistent().get(&key).unwrap_or(Balance {
+            user: user.clone(),
+            asset: asset.clone(),
+            amount: 0,
+        })
+    }
+
+    pub fn set_balance(env: &Env, balance: &Balance) {
+        let key = Self::get_key(env, &balance.user, &balance.asset);
+        env.storage().persistent().set(&key, balance);
+        // Extend TTL to ensure balance persists
+        env.storage().persistent().extend_ttl(&key, 535680, 535680); // ~30 days
+    }
+
+    pub fn add_balance(env: &Env, user: &Address, asset: &ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+        let mut balance = Self::get_balance(env, user, asset);
+        balance.amount = balance.amount.checked_add(amount).ok_or(Error::IntegerOverflow)?;
+        Self::set_balance(env, &balance);
+        Ok(balance)
+    }
+
+    pub fn sub_balance(env: &Env, user: &Address, asset: &ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+        let mut balance = Self::get_balance(env, user, asset);
+        balance.amount = balance.amount.checked_sub(amount).ok_or(Error::InsufficientBalance)?;
+        Self::set_balance(env, &balance);
+        Ok(balance)
+    }
+}
+
 
 // ===== PRIVATE HELPER METHODS =====
 

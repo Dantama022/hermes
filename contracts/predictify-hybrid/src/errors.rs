@@ -106,6 +106,10 @@ pub enum Error {
     AlreadyVoted = 109,
     /// User has already placed a bet on this market
     AlreadyBet = 110,
+    /// Insufficient balance
+    InsufficientBalance = 111,
+    /// Funds are locked
+    FundsLocked = 112,
 
     // ===== ORACLE ERRORS =====
     /// Oracle is unavailable
@@ -178,6 +182,10 @@ pub enum Error {
     InvalidTimeoutHours = 424,
     /// Dispute timeout extension not allowed
     DisputeTimeoutExtensionNotAllowed = 425,
+    /// Integer overflow
+    IntegerOverflow = 426,
+    /// Integer underflow
+    IntegerUnderflow = 427,
 
     // ===== CIRCUIT BREAKER ERRORS =====
     /// Circuit breaker not initialized

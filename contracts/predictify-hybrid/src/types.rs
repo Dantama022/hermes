@@ -995,6 +995,10 @@ impl Market {
 pub enum ReflectorAsset {
     /// Stellar Lumens (XLM)
     Stellar,
+    /// Bitcoin (BTC)
+    BTC,
+    /// Ethereum (ETH)
+    ETH,
     /// Other asset identified by symbol
     Other(Symbol),
 }

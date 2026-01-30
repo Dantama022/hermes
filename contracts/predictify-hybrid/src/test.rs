@@ -31,7 +31,7 @@ use soroban_sdk::{
 
 // Test setup structures
 struct TokenTest {
-    token_id: Address,
+    pub token_id: Address,
     env: Env,
 }
 

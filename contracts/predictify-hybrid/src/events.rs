@@ -1,11 +1,30 @@
 extern crate alloc;
 
 // use alloc::string::ToString; // Removed to fix Display/ToString trait errors
-use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, vec, Address, Env, Map, String, Symbol, Vec    /// Emit balance changed event
+    pub fn emit_balance_changed(
+        env: &Env,
+        user: &Address,
+        asset: &ReflectorAsset,
+        operation: &String,
+        amount: i128,
+        new_balance: i128,
+    ) {
+        let event = BalanceChangedEvent {
+            user: user.clone(),
+            asset: asset.clone(),
+            operation: operation.clone(),
+            amount,
+            new_balance,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("bal_chg"), &event);
+    }
+};
 
 use crate::config::Environment;
 use crate::errors::Error;
-use crate::types::OracleProvider;
+use crate::types::{OracleProvider, ReflectorAsset};
 
 // Define AdminRole locally since it's not available in the crate root
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -471,6 +490,24 @@ pub struct MarketResolvedEvent {
     /// Confidence score
     pub confidence_score: i128,
     /// Resolution timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when a user's balance changes due to deposit or withdrawal.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BalanceChangedEvent {
+    /// User address
+    pub user: Address,
+    /// Asset type
+    pub asset: ReflectorAsset,
+    /// Operation type (Deposit/Withdraw)
+    pub operation: String,
+    /// Amount changed
+    pub amount: i128,
+    /// New balance
+    pub new_balance: i128,
+    /// Timestamp
     pub timestamp: u64,
 }
 
@@ -2059,8 +2096,24 @@ impl EventEmitter {
             timestamp: env.ledger().timestamp(),
         };
 
-        Self::store_event(env, &symbol_short!("up_prop"), &event);
+       Self::store_event(env, &symbol_short!("up_prop"), &event);
     }
+
+    /// Emit balance changed event for deposits and withdrawals
+    pub fn emit_balance_changed(
+        env: &Env,
+        user: &Address,
+        asset: &crate::types::ReflectorAsset,
+        operation: &String,
+        amount: i128,
+        new_balance: i128,
+    ) {
+        env.events().publish(
+            (symbol_short!("bal_chg"), user, asset),
+            (operation, amount, new_balance, env.ledger().timestamp()),
+        );
+    }
+
 
     /// Store event in persistent storage
     fn store_event<T>(env: &Env, event_key: &Symbol, event_data: &T)
