@@ -2917,10 +2917,10 @@ impl PredictifyHybrid {
             return Ok(0);
         }
         if market.winning_outcome.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+            return Err(Error::MarketResolved);
         }
         if market.oracle_result.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+            return Err(Error::MarketResolved);
         }
         let current_time = env.ledger().timestamp();
         if current_time < market.end_time {
