@@ -2221,23 +2221,23 @@ impl EventEmitter {
     ///
     /// EventEmitter::emit_error_event(&env, Error::NothingToClaim, &context);
     /// ```
-    pub fn emit_error_event(
+    pub fn emit_diagnostic_event(
         env: &Env,
-        error: crate::errors::Error,
+        error: Error,
         context: &crate::errors::ErrorContext,
     ) {
         let error_code = error as u32;
 
         // Convert error enum to message string
         let error_msg = match error {
-            crate::errors::Error::Unauthorized => "Unauthorized access",
-            crate::errors::Error::MarketNotFound => "Market not found",
-            crate::errors::Error::MarketClosed => "Market closed",
-            crate::errors::Error::InvalidOutcome => "Invalid outcome",
-            crate::errors::Error::AlreadyVoted => "Already voted",
-            crate::errors::Error::AlreadyClaimed => "Already claimed",
-            crate::errors::Error::MarketNotResolved => "Market not resolved",
-            crate::errors::Error::NothingToClaim => "Nothing to claim",
+            Error::Unauthorized => "Unauthorized access",
+            Error::MarketNotFound => "Market not found",
+            Error::MarketClosed => "Market closed",
+            Error::InvalidOutcome => "Invalid outcome",
+            Error::AlreadyVoted => "Already voted",
+            Error::AlreadyClaimed => "Already claimed",
+            Error::MarketNotResolved => "Market not resolved",
+            Error::NothingToClaim => "Nothing to claim",
             _ => "Unknown error",
         };
         let message = String::from_str(env, error_msg);
