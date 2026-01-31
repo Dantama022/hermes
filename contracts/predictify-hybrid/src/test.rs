@@ -917,7 +917,7 @@ fn test_initialize_comprehensive_suite() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #504)")]
+#[should_panic(expected = "Error(Contract, #400)")]
 fn test_security_reinitialization_prevention() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1395,7 +1395,7 @@ fn test_cancel_event_already_resolved() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Verify market is resolved - trying to cancel would return MarketAlreadyResolved (#103)
+    // Verify market is resolved - trying to cancel would return MarketResolved (#103)
     let resolved_market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -1406,7 +1406,7 @@ fn test_cancel_event_already_resolved() {
     assert_eq!(resolved_market.state, MarketState::Resolved);
     assert!(resolved_market.winning_outcomes.is_some());
 
-    // Note: Calling cancel_event on a resolved market would panic with MarketAlreadyResolved.
+    // Note: Calling cancel_event on a resolved market would panic with MarketResolved.
     // Due to Soroban SDK limitations with should_panic tests causing SIGSEGV,
     // we verify the precondition that the market is resolved.
 }

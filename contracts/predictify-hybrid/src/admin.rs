@@ -1664,7 +1664,7 @@ impl AdminFunctions {
     /// - `Error::Unauthorized` - Admin lacks FinalizeMarket permission
     /// - `Error::MarketNotFound` - Market with given ID doesn't exist
     /// - `Error::InvalidOutcome` - Outcome doesn't match market's possible outcomes
-    /// - `Error::MarketAlreadyResolved` - Market has already been finalized
+    /// - `Error::MarketResolved` - Market has already been finalized
     /// - Resolution errors from MarketResolutionManager
     ///
     /// # Example
@@ -2384,7 +2384,7 @@ impl AdminValidator {
         let admin_exists = env.storage().persistent().has(&Symbol::new(env, "Admin"));
 
         if admin_exists {
-            return Err(Error::AlreadyInitialized);
+            return Err(Error::InvalidState);
         }
 
         Ok(())
