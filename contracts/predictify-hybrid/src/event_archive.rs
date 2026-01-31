@@ -112,7 +112,7 @@ impl EventArchive {
             end_time: market.end_time,
             created_at,
             state: market.state,
-            winning_outcome: market.winning_outcome.clone(),
+            winning_outcome: market.get_winning_outcome(), // Get first outcome for backward compatibility
             total_staked: market.total_staked,
             archived_at,
             category,
@@ -151,7 +151,11 @@ impl EventArchive {
                 scanned += 1;
                 let created_at = entry.timestamp;
                 if created_at >= from_ts && created_at <= to_ts {
-                    if let Some(market) = env.storage().persistent().get::<Symbol, Market>(&entry.market_id) {
+                    if let Some(market) = env
+                        .storage()
+                        .persistent()
+                        .get::<Symbol, Market>(&entry.market_id)
+                    {
                         result.push_back(Self::market_to_history_entry(
                             env,
                             &entry.market_id,
@@ -183,7 +187,11 @@ impl EventArchive {
         for i in 0..registry_page.len() {
             if let Some(entry) = registry_page.get(i) {
                 scanned += 1;
-                if let Some(market) = env.storage().persistent().get::<Symbol, Market>(&entry.market_id) {
+                if let Some(market) = env
+                    .storage()
+                    .persistent()
+                    .get::<Symbol, Market>(&entry.market_id)
+                {
                     if market.state == status {
                         result.push_back(Self::market_to_history_entry(
                             env,

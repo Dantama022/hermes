@@ -3,7 +3,7 @@
 use super::*;
 use crate::markets::{MarketStateLogic, MarketStateManager};
 use crate::types::{Balance, ReflectorAsset};
-use soroban_sdk::{contracttype, Env, Symbol, Vec, Val, IntoVal, Address};
+use soroban_sdk::{contracttype, Address, Env, IntoVal, Symbol, Val, Vec};
 
 // ===== STORAGE OPTIMIZATION TYPES =====
 
@@ -468,21 +468,36 @@ impl BalanceStorage {
         env.storage().persistent().extend_ttl(&key, 535680, 535680); // ~30 days
     }
 
-    pub fn add_balance(env: &Env, user: &Address, asset: &ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn add_balance(
+        env: &Env,
+        user: &Address,
+        asset: &ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         let mut balance = Self::get_balance(env, user, asset);
-        balance.amount = balance.amount.checked_add(amount).ok_or(Error::InvalidInput)?;
+        balance.amount = balance
+            .amount
+            .checked_add(amount)
+            .ok_or(Error::InvalidInput)?;
         Self::set_balance(env, &balance);
         Ok(balance)
     }
 
-    pub fn sub_balance(env: &Env, user: &Address, asset: &ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn sub_balance(
+        env: &Env,
+        user: &Address,
+        asset: &ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         let mut balance = Self::get_balance(env, user, asset);
-        balance.amount = balance.amount.checked_sub(amount).ok_or(Error::InsufficientBalance)?;
+        balance.amount = balance
+            .amount
+            .checked_sub(amount)
+            .ok_or(Error::InsufficientBalance)?;
         Self::set_balance(env, &balance);
         Ok(balance)
     }
 }
-
 
 // ===== PRIVATE HELPER METHODS =====
 

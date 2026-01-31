@@ -54,6 +54,8 @@ mod bandprotocol {
 
 #[cfg(test)]
 mod circuit_breaker_tests;
+#[cfg(test)]
+mod oracle_fallback_timeout_tests;
 
 #[cfg(test)]
 mod batch_operations_tests;
@@ -82,6 +84,9 @@ mod event_management_tests;
 #[cfg(test)]
 mod category_tags_tests;
 mod statistics_tests;
+
+#[cfg(test)]
+mod resolution_delay_dispute_window_tests;
 
 #[cfg(test)]
 mod event_creation_tests;
@@ -243,12 +248,21 @@ impl PredictifyHybrid {
     /// with custom questions, possible outcomes, duration, and oracle integration.
     /// Each market gets a unique identifier and is stored in persistent contract storage.
     ///
+    /// # Multi-Outcome Support
+    ///
+    /// Markets support 2 to N outcomes, enabling both binary (yes/no) and multi-outcome
+    /// markets (e.g., Team A / Team B / Draw). The contract handles:
+    /// - Single winner resolution (one outcome wins)
+    /// - Tie/multi-winner resolution (multiple outcomes win, pool split proportionally)
+    /// - Outcome validation during bet placement
+    /// - Proportional payout distribution for ties
+    ///
     /// # Parameters
     ///
     /// * `env` - The Soroban environment for blockchain operations
     /// * `admin` - The administrator address creating the market (must be authorized)
     /// * `question` - The prediction question (must be non-empty)
-    /// * `outcomes` - Vector of possible outcomes (minimum 2 required, all non-empty)
+    /// * `outcomes` - Vector of possible outcomes (minimum 2 required, all non-empty, no duplicates)
     /// * `duration_days` - Market duration in days (must be between 1-365 days)
     /// * `oracle_config` - Configuration for oracle integration (Reflector, Pyth, etc.)
     ///
@@ -290,6 +304,39 @@ impl PredictifyHybrid {
     ///     question,
     ///     outcomes,
     ///     30, // 30 days duration
+    ///     oracle_config
+    /// );
+    /// ```
+    ///
+    /// # Multi-Outcome Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, String, Vec};
+    /// # use predictify_hybrid::{PredictifyHybrid, OracleConfig, OracleProvider};
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    ///
+    /// // Create a 3-outcome market (e.g., match result)
+    /// let question = String::from_str(&env, "Match result?");
+    /// let outcomes = vec![
+    ///     &env,
+    ///     String::from_str(&env, "Team A"),
+    ///     String::from_str(&env, "Team B"),
+    ///     String::from_str(&env, "Draw"),
+    /// ];
+    /// let oracle_config = OracleConfig::new(
+    ///     OracleProvider::Reflector,
+    ///     String::from_str(&env, "BTC/USD"),
+    ///     50_000_00,
+    ///     String::from_str(&env, "gt"),
+    /// );
+    ///
+    /// let market_id = PredictifyHybrid::create_market(
+    ///     env.clone(),
+    ///     admin,
+    ///     question,
+    ///     outcomes,
+    ///     30,
     ///     oracle_config
     /// );
     /// ```
@@ -352,7 +399,7 @@ impl PredictifyHybrid {
             dispute_stakes: Map::new(&env),
             stakes: Map::new(&env),
             claimed: Map::new(&env),
-            winning_outcome: None,
+            winning_outcomes: None,
             fee_collected: false,
             state: MarketState::Active,
             total_extension_days: 0,
@@ -654,6 +701,58 @@ impl PredictifyHybrid {
     /// - Balance validation before fund transfer
     /// - Atomic fund locking with bet creation
     /// - Reentrancy protection via reentrancy guard (guard flag in storage)
+    /// Places a bet on a specific outcome in a prediction market.
+    ///
+    /// This function allows users to place bets on markets with 2 or more outcomes.
+    /// The outcome must be one of the valid outcomes defined when the market was created.
+    /// Users can only place one bet per market.
+    ///
+    /// # Multi-Outcome Support
+    ///
+    /// - Validates that the selected outcome exists in the market's outcome list
+    /// - Works with binary (2 outcomes) and multi-outcome (N outcomes) markets
+    /// - Rejects invalid outcomes that don't match any market outcome
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `user` - The address of the user placing the bet (must be authenticated)
+    /// * `market_id` - Unique identifier of the market to bet on
+    /// * `outcome` - The outcome to bet on (must match one of the market's outcomes)
+    /// * `amount` - Amount of tokens to bet (must meet minimum/maximum bet limits)
+    ///
+    /// # Returns
+    ///
+    /// Returns the created `Bet` struct containing bet details.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketClosed` - Market is not active or has ended
+    /// - `Error::InvalidOutcome` - Outcome doesn't match any market outcomes
+    /// - `Error::AlreadyBet` - User has already placed a bet on this market
+    /// - `Error::InsufficientStake` - Bet amount is below minimum
+    /// - `Error::InvalidInput` - Bet amount exceeds maximum
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Place bet on "Team A" outcome
+    /// let bet = PredictifyHybrid::place_bet(
+    ///     env.clone(),
+    ///     user,
+    ///     market_id,
+    ///     String::from_str(&env, "Team A"),
+    ///     10_0000000, // 10 XLM
+    /// );
+    /// ```
     pub fn place_bet(
         env: Env,
         user: Address,
@@ -849,6 +948,102 @@ impl PredictifyHybrid {
         bets::BetManager::get_market_bet_stats(&env, &market_id)
     }
 
+    /// Calculate the payout amount for a user's bet on a resolved market.
+    ///
+    /// This function calculates how much a user will receive if they won their bet.
+    /// For multi-outcome markets with ties, the payout is calculated based on
+    /// the proportional share of the total pool split among all winners.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    /// * `user` - Address of the user to calculate payout for
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(i128)` with the payout amount in base token units, or `Err(Error)` if calculation fails.
+    /// Returns `Ok(0)` if the user didn't win or has no bet.
+    ///
+    /// # Errors
+    ///
+    /// - `Error::MarketNotFound` - Market doesn't exist
+    /// - `Error::MarketNotResolved` - Market hasn't been resolved yet
+    /// - `Error::NothingToClaim` - User has no bet on this market
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let market_id = Symbol::new(&env, "resolved_market");
+    /// # let user = Address::generate(&env);
+    ///
+    /// match PredictifyHybrid::calculate_bet_payout(env.clone(), market_id, user) {
+    ///     Ok(payout) => println!("User will receive {} stroops", payout),
+    ///     Err(e) => println!("Calculation failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Payout Calculation for Ties
+    ///
+    /// When multiple outcomes win (tie):
+    /// - Total pool is split proportionally among all winners
+    /// - Each winner's payout = (their_stake / total_winning_stakes) * total_pool * (1 - fee)
+    /// - This ensures fair distribution even when outcomes are tied
+    /// Calculates the payout amount for a user's bet on a resolved market.
+    ///
+    /// This function computes the payout based on:
+    /// - Whether the user's bet outcome is a winning outcome
+    /// - The user's stake relative to total winning stakes
+    /// - The total pool size
+    /// - Platform fees
+    ///
+    /// # Multi-Outcome Support
+    ///
+    /// For markets with multiple winning outcomes (ties):
+    /// - Payouts are calculated proportionally across all winning outcomes
+    /// - Total winning stakes = sum of all stakes on all winning outcomes
+    /// - User's share = (user_stake / total_winning_stakes) * total_pool * (1 - fee)
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    /// * `user` - Address of the user whose payout to calculate
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(i128)` with the payout amount in base token units if:
+    /// - Market is resolved
+    /// - User placed a bet
+    /// - User's outcome is a winning outcome
+    ///
+    /// Returns `Err(Error)` if:
+    /// - Market is not resolved
+    /// - User has no bet
+    /// - User's outcome did not win
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Calculate payout for user's winning bet
+    /// match PredictifyHybrid::calculate_bet_payout(env.clone(), market_id, user) {
+    ///     Ok(payout) => println!("Payout: {}", payout),
+    ///     Err(e) => println!("Error: {:?}", e),
+    /// }
+    /// ```
+    pub fn calculate_bet_payout(env: Env, market_id: Symbol, user: Address) -> Result<i128, Error> {
+        bets::BetManager::calculate_bet_payout(&env, &market_id, &user)
+    }
+
     /// Calculates the implied probability for an outcome based on bet distribution.
     ///
     /// The implied probability indicates the market's collective prediction for
@@ -993,8 +1188,8 @@ impl PredictifyHybrid {
         }
 
         // Check if market is resolved
-        let winning_outcome = match &market.winning_outcome {
-            Some(outcome) => outcome,
+        let winning_outcomes = match &market.winning_outcomes {
+            Some(outcomes) => outcomes,
             None => panic_with_error!(env, Error::MarketNotResolved),
         };
 
@@ -1006,12 +1201,12 @@ impl PredictifyHybrid {
 
         let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
 
-        // Calculate payout if user won
-        if &user_outcome == winning_outcome {
-            // Calculate total winning stakes
+        // Calculate payout if user won (check if outcome is in winning outcomes)
+        if winning_outcomes.contains(&user_outcome) {
+            // Calculate total winning stakes across all winning outcomes
             let mut winning_total = 0;
             for (voter, outcome) in market.votes.iter() {
-                if &outcome == winning_outcome {
+                if winning_outcomes.contains(&outcome) {
                     winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
                 }
             }
@@ -1072,8 +1267,13 @@ impl PredictifyHybrid {
                 // Emit winnings claimed event
                 EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
 
-                // Transfer tokens
-                match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                // Credit tokens to user balance
+                match storage::BalanceStorage::add_balance(
+                    &env,
+                    &user,
+                    &types::ReflectorAsset::Stellar,
+                    payout,
+                ) {
                     Ok(_) => {}
                     Err(e) => panic_with_error!(env, e),
                 }
@@ -1245,14 +1445,15 @@ impl PredictifyHybrid {
         // Capture old state for event
         let old_state = market.state.clone();
 
-        // Set winning outcome and update state
-        market.winning_outcome = Some(winning_outcome.clone());
+        // Set winning outcome(s) as a vector (single outcome for now, supports future multi-winner)
+        let mut winning_outcomes_vec = Vec::new(&env);
+        winning_outcomes_vec.push_back(winning_outcome.clone());
+        market.winning_outcomes = Some(winning_outcomes_vec.clone());
         market.state = MarketState::Resolved;
         env.storage().persistent().set(&market_id, &market);
 
-        // Note: Bet resolution is skipped to avoid segfaults
-        // Since place_bet syncs votes/stakes, distribute_payouts works via vote-based system
-        // Individual bet status can be updated separately if needed
+        // Resolve bets to mark them as won/lost
+        let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes_vec);
 
         // Emit market resolved event (simplified to avoid segfaults)
         let oracle_result_str = market
@@ -1282,8 +1483,148 @@ impl PredictifyHybrid {
             &MarketState::Resolved,
             &reason,
         );
+    }
 
-        // Automatically distribute payouts
+    /// Resolves a market with multiple winning outcomes (for tie cases).
+    ///
+    /// This function allows authorized administrators to resolve a market with
+    /// multiple winners when there's a tie. The pool will be split proportionally
+    /// among all winning outcomes based on stake distribution.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address performing the resolution (must be authorized)
+    /// * `market_id` - Unique identifier of the market to resolve
+    /// * `winning_outcomes` - Vector of outcomes to be declared as winners (minimum 1, all must be valid)
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketClosed` - Market hasn't ended yet
+    /// - `Error::InvalidOutcome` - One or more outcomes are not valid for this market
+    /// - `Error::InvalidInput` - Empty outcomes vector
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String, Vec};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "sports_match");
+    ///
+    /// // Resolve with tie (Team A and Team B both win)
+    /// let winning_outcomes = vec![
+    ///     &env,
+    ///     String::from_str(&env, "Team A"),
+    ///     String::from_str(&env, "Team B"),
+    /// ];
+    ///
+    /// PredictifyHybrid::resolve_market_with_ties(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     winning_outcomes
+    /// );
+    /// ```
+    ///
+    /// # Pool Split Logic
+    ///
+    /// When multiple outcomes win:
+    /// - Total pool is split proportionally among all winners
+    /// - Each winner receives: (their_stake / total_winning_stakes) * total_pool * (1 - fee)
+    /// - This ensures fair distribution even when outcomes are tied
+    pub fn resolve_market_with_ties(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        winning_outcomes: Vec<String>,
+    ) {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::Unauthorized);
+            });
+
+        if admin != stored_admin {
+            panic_with_error!(env, Error::Unauthorized);
+        }
+
+        // Validate outcomes vector is not empty
+        if winning_outcomes.len() == 0 {
+            panic_with_error!(env, Error::InvalidInput);
+        }
+
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::MarketNotFound);
+            });
+
+        // Check if market has ended
+        if env.ledger().timestamp() < market.end_time {
+            panic_with_error!(env, Error::MarketClosed);
+        }
+
+        // Validate all winning outcomes exist in market outcomes
+        for outcome in winning_outcomes.iter() {
+            let outcome_exists = market.outcomes.iter().any(|o| o == outcome);
+            if !outcome_exists {
+                panic_with_error!(env, Error::InvalidOutcome);
+            }
+        }
+
+        // Capture old state for event
+        let old_state = market.state.clone();
+
+        // Set winning outcome(s) - supports multiple winners for ties
+        market.winning_outcomes = Some(winning_outcomes.clone());
+        market.state = MarketState::Resolved;
+        env.storage().persistent().set(&market_id, &market);
+
+        // Resolve bets to mark them as won/lost
+        let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes);
+
+        // Emit market resolved event
+        let primary_outcome = winning_outcomes.get(0).unwrap().clone();
+        let oracle_result_str = market
+            .oracle_result
+            .clone()
+            .unwrap_or_else(|| String::from_str(&env, "N/A"));
+        let community_consensus_str = String::from_str(&env, "Manual");
+        let resolution_method = String::from_str(&env, "Manual");
+
+        EventEmitter::emit_market_resolved(
+            &env,
+            &market_id,
+            &primary_outcome,
+            &oracle_result_str,
+            &community_consensus_str,
+            &resolution_method,
+            100, // confidence score for manual resolution
+        );
+
+        // Emit state change event
+        let reason = String::from_str(&env, "Manual resolution with ties by admin");
+        EventEmitter::emit_state_change_event(
+            &env,
+            &market_id,
+            &old_state,
+            &MarketState::Resolved,
+            &reason,
+        );
+
+        // Automatically distribute payouts (handles split pool for ties)
         let _ = Self::distribute_payouts(env.clone(), market_id);
     }
 
@@ -1779,8 +2120,8 @@ impl PredictifyHybrid {
             });
 
         // Check if market is resolved
-        let winning_outcome = match &market.winning_outcome {
-            Some(outcome) => outcome,
+        let winning_outcomes = match &market.winning_outcomes {
+            Some(outcomes) => outcomes,
             None => return Err(Error::MarketNotResolved),
         };
 
@@ -1803,7 +2144,7 @@ impl PredictifyHybrid {
 
         // Check voters
         for (user, outcome) in market.votes.iter() {
-            if &outcome == winning_outcome {
+            if winning_outcomes.contains(&outcome) {
                 if !market.claimed.get(user.clone()).unwrap_or(false) {
                     has_unclaimed_winners = true;
                     break;
@@ -1815,7 +2156,7 @@ impl PredictifyHybrid {
         if !has_unclaimed_winners {
             for user in bettors.iter() {
                 if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
-                    if bet.outcome == *winning_outcome
+                    if winning_outcomes.contains(&bet.outcome)
                         && !market.claimed.get(user.clone()).unwrap_or(false)
                     {
                         has_unclaimed_winners = true;
@@ -1829,20 +2170,26 @@ impl PredictifyHybrid {
             return Ok(0);
         }
 
-        // Calculate total winning stakes (voters + bettors)
+        // Calculate total winning stakes across all winning outcomes (for split pool calculation)
+        // Supports both single winner and multi-winner (tie) scenarios
         let mut winning_total = 0;
 
         // Sum voter stakes
         for (voter, outcome) in market.votes.iter() {
-            if outcome == *winning_outcome {
+            if winning_outcomes.contains(&outcome) {
                 winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
             }
         }
 
-        // Sum bet amounts
+        // Sum bet amounts (check if bet outcome is in winning outcomes for multi-outcome support)
         for user in bettors.iter() {
+            // Avoid double counting if user is already in votes (legacy support)
+            if market.votes.contains_key(user.clone()) {
+                continue;
+            }
+
             if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
-                if bet.outcome == *winning_outcome {
+                if winning_outcomes.contains(&bet.outcome) {
                     winning_total += bet.amount;
                 }
             }
@@ -1858,9 +2205,10 @@ impl PredictifyHybrid {
         let mut total_distributed: i128 = 0;
 
         // 1. Distribute to Voters
-        // Distribute payouts to all winners
+        // Distribute payouts to all winners (handles both single and multi-winner cases)
+        // For multi-winner (ties), pool is split proportionally among all winners
         for (user, outcome) in market.votes.iter() {
-            if outcome == *winning_outcome {
+            if winning_outcomes.contains(&outcome) {
                 if market.claimed.get(user.clone()).unwrap_or(false) {
                     continue;
                 }
@@ -1872,6 +2220,8 @@ impl PredictifyHybrid {
                         .checked_mul(fee_denominator - fee_percent)
                         .ok_or(Error::InvalidInput)?)
                         / fee_denominator;
+                    // Payout calculation: (user_stake / total_winning_stakes) * total_pool
+                    // This automatically handles split pools for ties - each winner gets proportional share
                     let payout = (user_share
                         .checked_mul(total_pool)
                         .ok_or(Error::InvalidInput)?)
@@ -1884,6 +2234,15 @@ impl PredictifyHybrid {
                             total_distributed = total_distributed
                                 .checked_add(payout)
                                 .ok_or(Error::InvalidInput)?;
+
+                            // Credit winnings to user balance
+                            storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            )?;
+
                             EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
                         }
                     }
@@ -1892,9 +2251,10 @@ impl PredictifyHybrid {
         }
 
         // 2. Distribute to Bettors
+        // Check if bet outcome is in winning outcomes (supports multi-outcome/tie scenarios)
         for user in bettors.iter() {
             if let Some(mut bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
-                if bet.outcome == *winning_outcome {
+                if winning_outcomes.contains(&bet.outcome) {
                     if market.claimed.get(user.clone()).unwrap_or(false) {
                         // Already claimed (perhaps as a voter or double check)
                         bet.status = BetStatus::Won;
@@ -1915,11 +2275,17 @@ impl PredictifyHybrid {
                             bet.status = BetStatus::Won;
                             let _ = bets::BetStorage::store_bet(&env, &bet);
 
-                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
-                            match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                            // Credit winnings to user balance instead of direct transfer
+                            match storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            ) {
                                 Ok(_) => {}
                                 Err(e) => panic_with_error!(env, e),
                             }
+                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
                         }
                     }
                 } else {
@@ -2718,13 +3084,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit category update event
-        EventEmitter::emit_category_updated(
-            &env,
-            &market_id,
-            &old_category,
-            &category,
-            &admin,
-        );
+        EventEmitter::emit_category_updated(&env, &market_id, &old_category, &category, &admin);
 
         Ok(())
     }
@@ -2843,13 +3203,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit tags update event
-        EventEmitter::emit_tags_updated(
-            &env,
-            &market_id,
-            &old_tags,
-            &tags,
-            &admin,
-        );
+        EventEmitter::emit_tags_updated(&env, &market_id, &old_tags, &tags, &admin);
 
         Ok(())
     }
@@ -3041,7 +3395,7 @@ impl PredictifyHybrid {
         if market.state == MarketState::Cancelled {
             return Ok(0);
         }
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketAlreadyResolved);
         }
         if market.oracle_result.is_some() {
