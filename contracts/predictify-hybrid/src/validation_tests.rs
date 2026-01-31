@@ -1,4 +1,6 @@
 #![cfg(test)]
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
 
 use super::*;
 use crate::config;
