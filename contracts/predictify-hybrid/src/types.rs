@@ -730,8 +730,10 @@ pub struct Market {
     pub total_staked: i128,
     /// Dispute stakes mapping (address -> dispute stake)
     pub dispute_stakes: Map<Address, i128>,
-    /// Winning outcome (set after resolution)
-    pub winning_outcome: Option<String>,
+    /// Winning outcome(s) (set after resolution)
+    /// For single winner: contains one outcome
+    /// For ties/multi-winner: contains multiple outcomes (pool split among winners)
+    pub winning_outcomes: Option<Vec<String>>,
     /// Whether fees have been collected
     pub fee_collected: bool,
     /// Current market state
@@ -864,7 +866,7 @@ impl Market {
             claimed: Map::new(env),
             total_staked: 0,
             dispute_stakes: Map::new(env),
-            winning_outcome: None,
+            winning_outcomes: None,
             fee_collected: false,
             state,
 
@@ -889,7 +891,26 @@ impl Market {
 
     /// Check if the market is resolved
     pub fn is_resolved(&self) -> bool {
-        self.winning_outcome.is_some()
+        self.winning_outcomes.is_some()
+    }
+
+    /// Get the primary winning outcome (first outcome if multiple, for backward compatibility)
+    pub fn get_winning_outcome(&self) -> Option<String> {
+        self.winning_outcomes.as_ref().and_then(|outcomes| {
+            if outcomes.len() > 0 {
+                Some(outcomes.get(0).unwrap().clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Check if a specific outcome is a winner (handles both single and multi-winner cases)
+    pub fn is_winning_outcome(&self, outcome: &String) -> bool {
+        self.winning_outcomes
+            .as_ref()
+            .map(|outcomes| outcomes.contains(outcome))
+            .unwrap_or(false)
     }
 
     /// Get total dispute stakes for the market

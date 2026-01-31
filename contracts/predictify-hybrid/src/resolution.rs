@@ -1297,9 +1297,22 @@ impl MarketResolutionManager {
         // Calculate community consensus
         let community_consensus = MarketAnalytics::calculate_community_consensus(&market);
 
-        // Determine final result using hybrid algorithm
-        let final_result =
-            MarketUtils::determine_final_result(env, &oracle_result, &community_consensus);
+        // Determine winning outcome(s) using multi-outcome resolution with tie detection
+        // This handles both single winner and tie cases (pool split)
+        let winning_outcomes = MarketUtils::determine_winning_outcomes(
+            env,
+            &market,
+            &oracle_result,
+            &community_consensus,
+            0, // Tie threshold: 0 = exact ties only
+        );
+
+        // For resolution record, use first outcome (or comma-separated for display)
+        let final_result = if winning_outcomes.len() > 0 {
+            winning_outcomes.get(0).unwrap().clone()
+        } else {
+            oracle_result.clone() // Fallback
+        };
 
         // Determine resolution method
         let resolution_method = MarketResolutionAnalytics::determine_resolution_method(
@@ -1328,8 +1341,12 @@ impl MarketResolutionManager {
         // Capture old state for event
         let old_state = market.state.clone();
 
-        // Set winning outcome
-        MarketStateManager::set_winning_outcome(&mut market, final_result.clone(), Some(market_id));
+        // Set winning outcome(s) - supports both single winner and ties
+        MarketStateManager::set_winning_outcomes(
+            &mut market,
+            winning_outcomes.clone(),
+            Some(market_id),
+        );
         MarketStateManager::update_market(env, market_id, &market);
 
         // Emit market resolved event
@@ -1399,8 +1416,10 @@ impl MarketResolutionManager {
             confidence_score: 100, // Admin override has full confidence
         };
 
-        // Set final outcome
-        MarketStateManager::set_winning_outcome(&mut market, outcome.clone(), Some(market_id));
+        // Set final outcome(s) - convert single outcome to vector
+        let mut winning_outcomes = Vec::new(env);
+        winning_outcomes.push_back(outcome.clone());
+        MarketStateManager::set_winning_outcomes(&mut market, winning_outcomes, Some(market_id));
         MarketStateManager::update_market(env, market_id, &market);
 
         Ok(resolution)
@@ -1480,7 +1499,7 @@ impl MarketResolutionValidator {
     /// Validate market for resolution
     pub fn validate_market_for_resolution(env: &Env, market: &Market) -> Result<(), Error> {
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketAlreadyResolved);
         }
 
@@ -1645,7 +1664,7 @@ pub struct ResolutionUtils;
 impl ResolutionUtils {
     /// Get resolution state for a market
     pub fn get_resolution_state(_env: &Env, market: &Market) -> ResolutionState {
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             ResolutionState::MarketResolved
         } else if market.oracle_result.is_some() {
             ResolutionState::OracleResolved
@@ -1660,7 +1679,7 @@ impl ResolutionUtils {
     pub fn can_resolve_market(env: &Env, market: &Market) -> bool {
         market.has_ended(env.ledger().timestamp())
             && market.oracle_result.is_some()
-            && market.winning_outcome.is_none()
+            && market.winning_outcomes.is_none()
     }
 
     /// Get resolution eligibility
@@ -1673,7 +1692,7 @@ impl ResolutionUtils {
             return (false, String::from_str(env, "Oracle result not available"));
         }
 
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return (false, String::from_str(env, "Market already resolved"));
         }
 
@@ -1702,7 +1721,7 @@ impl ResolutionUtils {
         }
 
         // Validate market is not already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketAlreadyResolved);
         }
 

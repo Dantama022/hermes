@@ -451,7 +451,7 @@ impl ContractMonitor {
             claimed: Map::new(env),
             total_staked: 0,
             dispute_stakes: Map::new(env),
-            winning_outcome: None,
+            winning_outcomes: None,
             fee_collected: false,
             state: MarketState::Active,
             total_extension_days: 0,
