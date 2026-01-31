@@ -140,10 +140,13 @@ impl PredictifyTest {
             &30,
             &OracleConfig {
                 provider: OracleProvider::Reflector,
+                oracle_address: Address::generate(&self.env),
                 feed_id: String::from_str(&self.env, "BTC"),
                 threshold: 2500000,
                 comparison: String::from_str(&self.env, "gt"),
             },
+            &None,
+            &0,
         )
     }
 }
@@ -168,10 +171,13 @@ fn test_create_market_successful() {
         &duration_days,
         &OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
             feed_id: String::from_str(&test.env, "BTC"),
             threshold: 2500000,
             comparison: String::from_str(&test.env, "gt"),
         },
+        &None,
+        &0,
     );
 
     let market = test.env.as_contract(&test.contract_id, || {
@@ -1517,8 +1523,18 @@ fn test_refund_on_oracle_failure_full_amount_per_user() {
     let amt1 = 10_000_000i128;
     let amt2 = 20_000_000i128;
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &amt1);
-    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &amt2);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &amt1,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &amt2,
+    );
 
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
@@ -1550,7 +1566,12 @@ fn test_refund_on_oracle_failure_no_double_refund() {
     let market_id = test.create_test_market();
     let user1 = test.create_funded_user();
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
 
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
@@ -1587,7 +1608,12 @@ fn test_refund_on_oracle_failure_after_timeout_any_caller() {
     let user1 = test.create_funded_user();
     let any_caller = test.create_funded_user();
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
 
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
@@ -2865,11 +2891,20 @@ fn test_get_bet_after_claim() {
     let market_id = test.create_test_market();
 
     test.env.mock_all_auths();
-    client.place_bet(&test.user, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+    client.place_bet(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
 
     // Advance time and resolve market
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
         timestamp: market.end_time + 1,
@@ -2900,7 +2935,12 @@ fn test_has_user_bet_returns_true_when_bet_exists() {
 
     let user = test.create_funded_user();
     test.env.mock_all_auths();
-    client.place_bet(&user, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+    client.place_bet(
+        &user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
 
     let has_bet = client.has_user_bet(&market_id, &user);
     assert!(has_bet);
@@ -2956,9 +2996,24 @@ fn test_get_market_bet_stats_with_bets() {
     let user3 = test.create_funded_user();
 
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
-    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &20_000_000);
-    client.place_bet(&user3, &market_id, &String::from_str(&test.env, "yes"), &15_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &20_000_000,
+    );
+    client.place_bet(
+        &user3,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &15_000_000,
+    );
 
     let stats = client.get_market_bet_stats(&market_id);
 
@@ -2994,8 +3049,18 @@ fn test_get_implied_probability_balanced_market() {
 
     test.env.mock_all_auths();
     // Equal bets on both sides
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
-    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &10_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &10_000_000,
+    );
 
     let yes_prob = client.get_implied_probability(&market_id, &String::from_str(&test.env, "yes"));
     let no_prob = client.get_implied_probability(&market_id, &String::from_str(&test.env, "no"));
@@ -3016,8 +3081,18 @@ fn test_get_implied_probability_skewed_market() {
 
     test.env.mock_all_auths();
     // Skewed bets: 80% on yes, 20% on no
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &80_000_000);
-    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &20_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &80_000_000,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &20_000_000,
+    );
 
     let yes_prob = client.get_implied_probability(&market_id, &String::from_str(&test.env, "yes"));
     let no_prob = client.get_implied_probability(&market_id, &String::from_str(&test.env, "no"));
@@ -3072,8 +3147,18 @@ fn test_get_payout_multiplier_even_odds() {
     let user2 = test.create_funded_user();
 
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
-    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &10_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &10_000_000,
+    );
 
     let multiplier = client.get_payout_multiplier(&market_id, &String::from_str(&test.env, "yes"));
 
@@ -3147,10 +3232,13 @@ fn test_get_market_returns_correct_data() {
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
             feed_id: String::from_str(&test.env, "BTC_USD"),
             threshold: 100_000_0000000,
             comparison: String::from_str(&test.env, "gt"),
         },
+        &None,
+        &0,
     );
 
     let market = client.get_market(&market_id);
@@ -3182,7 +3270,11 @@ fn test_get_market_after_resolution() {
 
     // Resolve the market
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
         timestamp: market.end_time + 1,
@@ -3203,7 +3295,10 @@ fn test_get_market_after_resolution() {
     assert!(market_result.is_some());
     let market = market_result.unwrap();
     assert_eq!(market.state, MarketState::Resolved);
-    assert_eq!(market.winning_outcome, Some(String::from_str(&test.env, "yes")));
+    assert_eq!(
+        market.winning_outcome,
+        Some(String::from_str(&test.env, "yes"))
+    );
 }
 
 // ===== Tests for get_market_analytics() =====
@@ -3321,7 +3416,12 @@ fn test_multiple_sequential_queries() {
     for i in 0..5 {
         let user = test.create_funded_user();
         let amount = (i + 1) * 1_000_000;
-        client.place_bet(&user, &market_id, &String::from_str(&test.env, "yes"), &amount);
+        client.place_bet(
+            &user,
+            &market_id,
+            &String::from_str(&test.env, "yes"),
+            &amount,
+        );
     }
 
     // Perform multiple queries
@@ -3354,7 +3454,10 @@ fn test_query_with_very_long_outcome_name() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let market_id = test.create_test_market();
 
-    let long_outcome = String::from_str(&test.env, "this_is_a_very_long_outcome_name_that_probably_does_not_exist_in_the_market");
+    let long_outcome = String::from_str(
+        &test.env,
+        "this_is_a_very_long_outcome_name_that_probably_does_not_exist_in_the_market",
+    );
 
     let prob = client.get_implied_probability(&market_id, &long_outcome);
 
@@ -3372,8 +3475,18 @@ fn test_get_market_bet_stats_consistency() {
     let user2 = test.create_funded_user();
 
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
-    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &15_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &15_000_000,
+    );
 
     let stats1 = client.get_market_bet_stats(&market_id);
     let stats2 = client.get_market_bet_stats(&market_id);
@@ -3414,7 +3527,6 @@ fn test_implied_probability_sum_equals_100() {
     let total = yes_prob + no_prob;
     assert!(total >= 95 && total <= 105); // Allow small variance
 }
-
 
 // ===== CORE FEE CALCULATION TESTS =====
 
@@ -3469,7 +3581,10 @@ fn test_withdraw_collected_fee() {
     // Set collected fees directly in storage
     test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
-        test.env.storage().persistent().set(&fees_key, &50_000_000i128);
+        test.env
+            .storage()
+            .persistent()
+            .set(&fees_key, &50_000_000i128);
     });
 
     test.env.mock_all_auths();
@@ -3479,7 +3594,11 @@ fn test_withdraw_collected_fee() {
     // Verify fees were withdrawn
     let remaining = test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
-        test.env.storage().persistent().get::<Symbol, i128>(&fees_key).unwrap_or(0)
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, i128>(&fees_key)
+            .unwrap_or(0)
     });
     assert_eq!(remaining, 0);
 }
@@ -3493,7 +3612,10 @@ fn test_withdraw_fees_non_admin() {
     // Set some fees
     test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
-        test.env.storage().persistent().set(&fees_key, &50_000_000i128);
+        test.env
+            .storage()
+            .persistent()
+            .set(&fees_key, &50_000_000i128);
     });
 
     test.env.mock_all_auths();
@@ -3508,7 +3630,10 @@ fn test_withdraw_partial_fees() {
     // Set collected fees
     test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
-        test.env.storage().persistent().set(&fees_key, &100_000_000i128);
+        test.env
+            .storage()
+            .persistent()
+            .set(&fees_key, &100_000_000i128);
     });
 
     test.env.mock_all_auths();
@@ -3518,7 +3643,11 @@ fn test_withdraw_partial_fees() {
     // Verify remaining fees
     let remaining = test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
-        test.env.storage().persistent().get::<Symbol, i128>(&fees_key).unwrap_or(0)
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, i128>(&fees_key)
+            .unwrap_or(0)
     });
     assert_eq!(remaining, 50_000_000);
 }
@@ -3545,14 +3674,27 @@ fn test_fee_state_after_cancellation() {
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
     test.env.mock_all_auths();
     stellar_client.mint(&test.user, &100_000_000);
-    client.place_bet(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_000_000);
+    client.place_bet(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_000_000,
+    );
 
     // Cancel market
-    client.cancel_event(&test.admin, &market_id, &Some(String::from_str(&test.env, "Test")));
+    client.cancel_event(
+        &test.admin,
+        &market_id,
+        &Some(String::from_str(&test.env, "Test")),
+    );
 
     // Verify market is cancelled
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
     assert_eq!(market.state, MarketState::Cancelled);
 }
@@ -3573,11 +3715,20 @@ fn test_fee_complete_flow() {
     stellar_client.mint(&user1, &200_000_000);
 
     // Place bet
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &200_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &200_000_000,
+    );
 
     // Verify market has staked amount
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
     assert_eq!(market.total_staked, 200_000_000);
 
@@ -3601,7 +3752,11 @@ fn test_fee_complete_flow() {
 
     // Market should be resolved
     let market_resolved = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
     assert_eq!(market_resolved.state, MarketState::Resolved);
 }
@@ -3626,10 +3781,10 @@ fn test_fee_amount_boundaries() {
 fn test_percentage_calculations_accuracy() {
     // Test percentage calculation accuracy
     let test_amounts = [
-        (100_000_000, 2, 2_000_000),   // 10 XLM @ 2% = 0.2 XLM
-        (500_000_000, 2, 10_000_000),  // 50 XLM @ 2% = 1 XLM
+        (100_000_000, 2, 2_000_000),    // 10 XLM @ 2% = 0.2 XLM
+        (500_000_000, 2, 10_000_000),   // 50 XLM @ 2% = 1 XLM
         (1_000_000_000, 2, 20_000_000), // 100 XLM @ 2% = 2 XLM
-        (100_000_000, 5, 5_000_000),   // 10 XLM @ 5% = 0.5 XLM
+        (100_000_000, 5, 5_000_000),    // 10 XLM @ 5% = 0.5 XLM
         (100_000_000, 10, 10_000_000),  // 10 XLM @ 10% = 1 XLM
     ];
 
@@ -3659,12 +3814,18 @@ fn test_initialize_with_default_fees() {
     client.initialize(&admin, &None);
 
     let stored_admin: Address = env.as_contract(&contract_id, || {
-        env.storage().persistent().get(&Symbol::new(&env, "Admin")).unwrap()
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap()
     });
     assert_eq!(stored_admin, admin);
 
     let stored_fee: i128 = env.as_contract(&contract_id, || {
-        env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap()
     });
     assert_eq!(stored_fee, 2);
 }
@@ -3681,7 +3842,10 @@ fn test_initialize_with_custom_fees() {
     client.initialize(&admin, &Some(5));
 
     let stored_fee: i128 = env.as_contract(&contract_id, || {
-        env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap()
     });
     assert_eq!(stored_fee, 5);
 }
@@ -3699,7 +3863,10 @@ fn test_initialize_valid_fee_bound() {
         client.initialize(&admin, &Some(0));
 
         let stored_fee: i128 = env.as_contract(&contract_id, || {
-            env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+            env.storage()
+                .persistent()
+                .get(&Symbol::new(&env, "platform_fee"))
+                .unwrap()
         });
         assert_eq!(stored_fee, 0);
     }
@@ -3715,7 +3882,10 @@ fn test_initialize_valid_fee_bound() {
         client.initialize(&admin, &Some(10));
 
         let stored_fee: i128 = env.as_contract(&contract_id, || {
-            env.storage().persistent().get(&Symbol::new(&env, "platform_fee")).unwrap()
+            env.storage()
+                .persistent()
+                .get(&Symbol::new(&env, "platform_fee"))
+                .unwrap()
         });
         assert_eq!(stored_fee, 10);
     }
@@ -3936,11 +4106,8 @@ fn test_query_events_by_category() {
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
     let _market_id = test.create_test_market();
 
-    let (entries, _) = client.query_events_by_category(
-        &String::from_str(&test.env, "BTC"),
-        &0u32,
-        &10u32,
-    );
+    let (entries, _) =
+        client.query_events_by_category(&String::from_str(&test.env, "BTC"), &0u32, &10u32);
     assert!(!entries.is_empty());
     let first = entries.get(0).unwrap();
     assert_eq!(first.category, String::from_str(&test.env, "BTC"));
@@ -4031,9 +4198,18 @@ fn test_archived_entry_has_archived_at_set() {
     let market_id = test.create_test_market();
 
     test.env.mock_all_auths();
-    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &10_0000000);
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_0000000,
+    );
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
         timestamp: market.end_time + 1,
@@ -4178,7 +4354,11 @@ fn test_query_result_correctness_resolved_market() {
         &stake,
     );
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
         timestamp: market.end_time + 1,
@@ -4202,7 +4382,10 @@ fn test_query_result_correctness_resolved_market() {
     assert_eq!(e.state, MarketState::Resolved);
     assert_eq!(e.winning_outcome, Some(String::from_str(&test.env, "yes")));
     assert_eq!(e.total_staked, stake);
-    assert_eq!(e.question, String::from_str(&test.env, "Will BTC go above $25,000 by December 31?"));
+    assert_eq!(
+        e.question,
+        String::from_str(&test.env, "Will BTC go above $25,000 by December 31?")
+    );
     assert!(e.outcomes.len() >= 2);
 }
 

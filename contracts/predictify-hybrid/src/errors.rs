@@ -46,6 +46,12 @@ pub enum Error {
     OracleUnavailable = 200,
     /// Invalid oracle configuration
     InvalidOracleConfig = 201,
+    /// Fallback oracle is unavailable or unhealthy
+    FallbackOracleUnavailable = 202,
+    /// Resolution timeout has been reached
+    ResolutionTimeoutReached = 203,
+    /// Refund process has been initiated
+    RefundStarted = 204,
 
     // ===== VALIDATION ERRORS =====
     /// Invalid question format
@@ -1087,10 +1093,15 @@ impl Error {
             Error::InvalidOutcome => "Invalid outcome choice",
             Error::AlreadyVoted => "User has already voted",
             Error::AlreadyBet => "User has already placed a bet on this market",
-            Error::BetsAlreadyPlaced => "Bets have already been placed on this market (cannot update)",
+            Error::BetsAlreadyPlaced => {
+                "Bets have already been placed on this market (cannot update)"
+            }
             Error::InsufficientBalance => "Insufficient balance for operation",
             Error::OracleUnavailable => "Oracle is unavailable",
             Error::InvalidOracleConfig => "Invalid oracle configuration",
+            Error::FallbackOracleUnavailable => "Fallback oracle is unavailable or unhealthy",
+            Error::ResolutionTimeoutReached => "Resolution timeout has been reached",
+            Error::RefundStarted => "Refund process has been initiated",
             Error::InvalidQuestion => "Invalid question format",
             Error::InvalidOutcomes => "Invalid outcomes provided",
             Error::InvalidDuration => "Invalid duration specified",
@@ -1210,6 +1221,9 @@ impl Error {
             Error::InsufficientBalance => "INSUFFICIENT_BALANCE",
             Error::OracleUnavailable => "ORACLE_UNAVAILABLE",
             Error::InvalidOracleConfig => "INVALID_ORACLE_CONFIG",
+            Error::FallbackOracleUnavailable => "FALLBACK_ORACLE_UNAVAILABLE",
+            Error::ResolutionTimeoutReached => "RESOLUTION_TIMEOUT_REACHED",
+            Error::RefundStarted => "REFUND_STARTED",
             Error::InvalidQuestion => "INVALID_QUESTION",
             Error::InvalidOutcomes => "INVALID_OUTCOMES",
             Error::InvalidDuration => "INVALID_DURATION",

@@ -1299,7 +1299,10 @@ impl InputValidator {
     }
 
     /// Validate sufficient balance for withdrawal/transfer
-    pub fn validate_sufficient_balance(current: i128, required: i128) -> Result<(), ValidationError> {
+    pub fn validate_sufficient_balance(
+        current: i128,
+        required: i128,
+    ) -> Result<(), ValidationError> {
         if current < required {
             return Err(ValidationError::NumberOutOfRange);
         }
@@ -1899,6 +1902,8 @@ impl MarketValidator {
         outcomes: &Vec<String>,
         duration_days: &u32,
         oracle_config: &OracleConfig,
+        fallback_oracle_config: &Option<OracleConfig>,
+        resolution_timeout: &u64,
     ) -> ValidationResult {
         let mut result = ValidationResult::valid();
 
@@ -1931,6 +1936,18 @@ impl MarketValidator {
 
         // Validate oracle config
         if let Err(_) = OracleValidator::validate_oracle_config(env, oracle_config) {
+            result.add_error();
+        }
+
+        // Validate fallback oracle config if provided
+        if let Some(ref fallback) = fallback_oracle_config {
+            if let Err(_) = OracleValidator::validate_oracle_config(env, fallback) {
+                result.add_error();
+            }
+        }
+
+        // Validate resolution timeout
+        if let Err(_) = OracleConfigValidator::validate_resolution_timeout(resolution_timeout) {
             result.add_error();
         }
 
@@ -4123,6 +4140,18 @@ impl OracleConfigValidator {
     /// **Band Protocol & DIA:**
     /// - Not supported on Stellar network
     /// - Returns validation error
+    pub fn validate_resolution_timeout(timeout: &u64) -> Result<(), ValidationError> {
+        if *timeout < 3600 {
+            // 1 hour minimum
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        if *timeout > 31_536_000 {
+            // 1 year maximum
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        Ok(())
+    }
+
     pub fn validate_feed_id_format(
         feed_id: &String,
         provider: &OracleProvider,

@@ -1583,10 +1583,13 @@ mod tests {
             env.ledger().timestamp() + 86400,
             OracleConfig::new(
                 OracleProvider::Pyth,
+                Address::generate(&env),
                 String::from_str(&env, "BTC/USD"),
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            0,
             crate::types::MarketState::Active,
         );
         market.total_staked = 100_000_000; // 10 XLM
@@ -1610,10 +1613,13 @@ mod tests {
             env.ledger().timestamp() + 86400,
             OracleConfig::new(
                 OracleProvider::Pyth,
+                Address::generate(&env),
                 String::from_str(&env, "BTC/USD"),
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            0,
             crate::types::MarketState::Active,
         );
 
@@ -1643,10 +1649,13 @@ mod tests {
             env.ledger().timestamp() + 86400,
             OracleConfig::new(
                 OracleProvider::Pyth,
+                Address::generate(&env),
                 String::from_str(&env, "BTC/USD"),
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            0,
             crate::types::MarketState::Active,
         );
 

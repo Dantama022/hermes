@@ -305,6 +305,8 @@ impl PredictifyHybrid {
         outcomes: Vec<String>,
         duration_days: u32,
         oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -346,6 +348,8 @@ impl PredictifyHybrid {
             outcomes: outcomes.clone(),
             end_time,
             oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
             oracle_result: None,
             votes: Map::new(&env),
             total_staked: 0,
@@ -405,6 +409,8 @@ impl PredictifyHybrid {
         outcomes: Vec<String>,
         end_time: u64,
         oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -443,6 +449,8 @@ impl PredictifyHybrid {
             outcomes: outcomes.clone(),
             end_time,
             oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
             admin: admin.clone(),
             created_at: env.ledger().timestamp(),
             status: MarketState::Active,
@@ -1350,37 +1358,8 @@ impl PredictifyHybrid {
     /// - Market must exist and be past its end time
     /// - Market must not already have an oracle result
     /// - Oracle contract must be accessible and responsive
-    pub fn fetch_oracle_result(
-        env: Env,
-        market_id: Symbol,
-        oracle_contract: Address,
-    ) -> Result<String, Error> {
-        // Get the market from storage
-        let market = env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .ok_or(Error::MarketNotFound)?;
-
-        // Validate market state
-        if market.oracle_result.is_some() {
-            return Err(Error::MarketAlreadyResolved);
-        }
-
-        // Check if market has ended
-        let current_time = env.ledger().timestamp();
-        if current_time < market.end_time {
-            return Err(Error::MarketClosed);
-        }
-
-        // Get oracle result using the resolution module
-        let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env,
-            &market_id,
-            &oracle_contract,
-        )?;
-
-        Ok(oracle_resolution.oracle_result)
+    pub fn fetch_oracle_result(env: Env, market_id: Symbol) -> Result<OracleResolution, Error> {
+        resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)
     }
 
     /// Resolves a market automatically using oracle data and community consensus.
@@ -2718,13 +2697,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit category update event
-        EventEmitter::emit_category_updated(
-            &env,
-            &market_id,
-            &old_category,
-            &category,
-            &admin,
-        );
+        EventEmitter::emit_category_updated(&env, &market_id, &old_category, &category, &admin);
 
         Ok(())
     }
@@ -2843,13 +2816,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit tags update event
-        EventEmitter::emit_tags_updated(
-            &env,
-            &market_id,
-            &old_tags,
-            &tags,
-            &admin,
-        );
+        EventEmitter::emit_tags_updated(&env, &market_id, &old_tags, &tags, &admin);
 
         Ok(())
     }

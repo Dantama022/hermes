@@ -49,7 +49,7 @@ impl PropertyBasedTestSuite {
         let token_admin = Address::generate(&env);
         let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
         let token_id = token_contract.address();
-        
+
         // Store TokenID
         env.as_contract(&contract_id, || {
             env.storage()
@@ -63,7 +63,7 @@ impl PropertyBasedTestSuite {
         // Mint tokens to admin and users
         let stellar_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
         stellar_client.mint(&admin, &1_000_000_000_000); // Mint ample funds
-        
+
         for user in &users {
             stellar_client.mint(user, &1_000_000_000_000);
         }
@@ -86,6 +86,7 @@ impl PropertyBasedTestSuite {
     pub fn generate_oracle_config(&self, threshold: i128, comparison: &str) -> OracleConfig {
         OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&self.env),
             feed_id: SorobanString::from_str(&self.env, "BTC/USD"),
             threshold,
             comparison: SorobanString::from_str(&self.env, comparison),
@@ -177,6 +178,8 @@ proptest! {
             &outcomes,
             &duration_days,
             &oracle_config,
+            &None,
+            &0,
         );
 
         // Verify market was created with correct properties
@@ -225,6 +228,8 @@ proptest! {
             &outcomes,
             &duration_days,
             &oracle_config,
+            &None,
+            &0,
         );
 
         let market = client.get_market(&market_id).unwrap();
@@ -276,6 +281,8 @@ proptest! {
             &outcomes,
             &30,
             &oracle_config,
+            &None,
+            &0,
         );
 
         // Select user and outcome for voting
@@ -313,6 +320,7 @@ proptest! {
         // Property: Valid oracle configuration should be accepted
         let oracle_config = OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&suite.env),
             feed_id: SorobanString::from_str(&suite.env, &feed_id),
             threshold,
             comparison: SorobanString::from_str(&suite.env, comparison),
@@ -340,6 +348,7 @@ proptest! {
 
         let oracle_config = OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&suite.env),
             feed_id: SorobanString::from_str(&suite.env, "BTC/USD"),
             threshold,
             comparison: SorobanString::from_str(&suite.env, comparison),
@@ -441,6 +450,8 @@ proptest! {
             &outcomes,
             &duration_days,
             &oracle_config,
+            &None,
+            &0,
         );
 
         let initial_market = client.get_market(&market_id).unwrap();
