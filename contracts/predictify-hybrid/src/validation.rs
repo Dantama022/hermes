@@ -1289,6 +1289,25 @@ impl InputValidator {
 
         result
     }
+
+    /// Validate balance amount is positive
+    pub fn validate_balance_amount(amount: &i128) -> Result<(), ValidationError> {
+        if *amount <= 0 {
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        Ok(())
+    }
+
+    /// Validate sufficient balance for withdrawal/transfer
+    pub fn validate_sufficient_balance(
+        current: i128,
+        required: i128,
+    ) -> Result<(), ValidationError> {
+        if current < required {
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        Ok(())
+    }
 }
 
 // ===== MARKET VALIDATION =====
@@ -1825,6 +1844,53 @@ impl InputValidator {
 /// - **Batch Processing**: Support multiple market validation
 /// - **Gas Efficient**: Minimize computational overhead
 /// - **Early Exit**: Stop on critical errors when appropriate
+/// Event validation utilities
+pub struct EventValidator;
+
+impl EventValidator {
+    /// Validate event creation parameters
+    pub fn validate_event_creation(
+        env: &Env,
+        admin: &Address,
+        description: &String,
+        outcomes: &Vec<String>,
+        end_time: &u64,
+    ) -> Result<(), ValidationError> {
+        // Validate admin address
+        if let Err(e) = InputValidator::validate_address_format(admin) {
+            return Err(e);
+        }
+
+        // Validate description format (reusing question format)
+        if let Err(e) = InputValidator::validate_question_format(description) {
+            return Err(e);
+        }
+
+        // // Validate outcomes
+        if outcomes.len() < config::MIN_MARKET_OUTCOMES {
+            return Err(ValidationError::ArrayTooSmall);
+        }
+
+        if outcomes.len() > config::MAX_MARKET_OUTCOMES {
+            return Err(ValidationError::ArrayTooLarge);
+        }
+
+        for outcome in outcomes.iter() {
+            if let Err(e) = InputValidator::validate_outcome_format(&outcome) {
+                return Err(e);
+            }
+        }
+
+        // Validate end time (must be in the future)
+        let current_time = env.ledger().timestamp();
+        if *end_time <= current_time {
+            return Err(ValidationError::InvalidDuration);
+        }
+
+        Ok(())
+    }
+}
+
 pub struct MarketValidator;
 
 impl MarketValidator {
@@ -1932,7 +1998,7 @@ impl MarketValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -1957,7 +2023,7 @@ impl MarketValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -1981,7 +2047,7 @@ impl MarketValidator {
         }
 
         // Check if market is resolved
-        if market.winning_outcome.is_none() {
+        if market.winning_outcomes.is_none() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2309,10 +2375,7 @@ impl VoteValidator {
 
 /// Validates bet amount against min/max limits. Used by place_bet.
 /// Returns InsufficientStake if below min, InvalidInput if above max.
-pub fn validate_bet_amount_against_limits(
-    amount: i128,
-    limits: &BetLimits,
-) -> Result<(), Error> {
+pub fn validate_bet_amount_against_limits(amount: i128, limits: &BetLimits) -> Result<(), Error> {
     if amount < limits.min_bet {
         return Err(Error::InsufficientStake);
     }
@@ -2429,7 +2492,7 @@ impl DisputeValidator {
             return Err(ValidationError::InvalidMarket);
         }
 
-        if market.winning_outcome.is_none() {
+        if market.winning_outcomes.is_none() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2770,7 +2833,7 @@ impl ComprehensiveValidator {
         }
 
         // Check market resolution
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             result.add_warning();
         }
 
