@@ -54,6 +54,8 @@ mod bandprotocol {
 
 #[cfg(test)]
 mod circuit_breaker_tests;
+#[cfg(test)]
+mod oracle_fallback_timeout_tests;
 
 #[cfg(test)]
 mod batch_operations_tests;
