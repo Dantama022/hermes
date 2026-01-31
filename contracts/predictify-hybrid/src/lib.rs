@@ -86,6 +86,9 @@ mod category_tags_tests;
 mod statistics_tests;
 
 #[cfg(test)]
+mod resolution_delay_dispute_window_tests;
+
+#[cfg(test)]
 mod event_creation_tests;
 
 // Re-export commonly used items
