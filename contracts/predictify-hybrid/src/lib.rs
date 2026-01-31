@@ -104,6 +104,7 @@ use crate::events::EventEmitter;
 use crate::graceful_degradation::{OracleBackup, OracleHealth};
 use crate::market_id_generator::MarketIdGenerator;
 use crate::reentrancy_guard::ReentrancyGuard;
+use crate::resolution::OracleResolution;
 use alloc::format;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Env, Map, String, Symbol, Vec,
@@ -352,6 +353,8 @@ impl PredictifyHybrid {
         outcomes: Vec<String>,
         duration_days: u32,
         oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -393,6 +396,8 @@ impl PredictifyHybrid {
             outcomes: outcomes.clone(),
             end_time,
             oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
             oracle_result: None,
             votes: Map::new(&env),
             total_staked: 0,
@@ -452,6 +457,8 @@ impl PredictifyHybrid {
         outcomes: Vec<String>,
         end_time: u64,
         oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -490,6 +497,8 @@ impl PredictifyHybrid {
             outcomes: outcomes.clone(),
             end_time,
             oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
             admin: admin.clone(),
             created_at: env.ledger().timestamp(),
             status: MarketState::Active,
@@ -1267,8 +1276,13 @@ impl PredictifyHybrid {
                 // Emit winnings claimed event
                 EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
 
-                // Transfer tokens
-                match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                // Credit tokens to user balance
+                match storage::BalanceStorage::add_balance(
+                    &env,
+                    &user,
+                    &types::ReflectorAsset::Stellar,
+                    payout,
+                ) {
                     Ok(_) => {}
                     Err(e) => panic_with_error!(env, e),
                 }
@@ -1720,6 +1734,8 @@ impl PredictifyHybrid {
         )?;
 
         Ok(oracle_resolution.oracle_result)
+    pub fn fetch_oracle_result(env: Env, market_id: Symbol) -> Result<OracleResolution, Error> {
+        resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)
     }
 
     /// Verifies and fetches event outcome from external oracle sources automatically.
@@ -2440,6 +2456,11 @@ impl PredictifyHybrid {
 
         // Sum bet amounts (check if bet outcome is in winning outcomes for multi-outcome support)
         for user in bettors.iter() {
+            // Avoid double counting if user is already in votes (legacy support)
+            if market.votes.contains_key(user.clone()) {
+                continue;
+            }
+
             if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
                 if winning_outcomes.contains(&bet.outcome) {
                     winning_total += bet.amount;
@@ -2486,6 +2507,15 @@ impl PredictifyHybrid {
                             total_distributed = total_distributed
                                 .checked_add(payout)
                                 .ok_or(Error::InvalidInput)?;
+
+                            // Credit winnings to user balance
+                            storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            )?;
+
                             EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
                         }
                     }
@@ -2518,11 +2548,17 @@ impl PredictifyHybrid {
                             bet.status = BetStatus::Won;
                             let _ = bets::BetStorage::store_bet(&env, &bet);
 
-                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
-                            match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                            // Credit winnings to user balance instead of direct transfer
+                            match storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            ) {
                                 Ok(_) => {}
                                 Err(e) => panic_with_error!(env, e),
                             }
+                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
                         }
                     }
                 } else {
@@ -3321,13 +3357,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit category update event
-        EventEmitter::emit_category_updated(
-            &env,
-            &market_id,
-            &old_category,
-            &category,
-            &admin,
-        );
+        EventEmitter::emit_category_updated(&env, &market_id, &old_category, &category, &admin);
 
         Ok(())
     }
@@ -3446,13 +3476,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit tags update event
-        EventEmitter::emit_tags_updated(
-            &env,
-            &market_id,
-            &old_tags,
-            &tags,
-            &admin,
-        );
+        EventEmitter::emit_tags_updated(&env, &market_id, &old_tags, &tags, &admin);
 
         Ok(())
     }

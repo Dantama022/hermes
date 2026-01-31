@@ -54,6 +54,12 @@ pub enum Error {
     OracleVerified = 204,
     /// Market not ready for oracle verification
     MarketNotReady = 205,
+    /// Fallback oracle is unavailable or unhealthy
+    FallbackOracleUnavailable = 202,
+    /// Resolution timeout has been reached
+    ResolutionTimeoutReached = 203,
+    /// Refund process has been initiated
+    RefundStarted = 204,
 
     // ===== VALIDATION ERRORS =====
     /// Invalid question format
