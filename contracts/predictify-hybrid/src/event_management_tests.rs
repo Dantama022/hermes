@@ -21,7 +21,7 @@ impl TestSetup {
 
         let admin = Address::generate(&env);
         let contract_id = env.register(PredictifyHybrid, ());
-        
+
         // Setup Token
         let token_admin = Address::generate(&env);
         let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
@@ -29,7 +29,9 @@ impl TestSetup {
 
         // Store TokenID in contract
         env.as_contract(&contract_id, || {
-             env.storage().persistent().set(&Symbol::new(&env, "TokenID"), &token_id);
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, "TokenID"), &token_id);
         });
 
         // Initialize the contract

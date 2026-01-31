@@ -1835,11 +1835,7 @@ impl EventEmitter {
     }
 
     /// Emit refund on oracle failure event (market cancelled, all bets refunded in full).
-    pub fn emit_refund_on_oracle_failure(
-        env: &Env,
-        market_id: &Symbol,
-        total_refunded: i128,
-    ) {
+    pub fn emit_refund_on_oracle_failure(env: &Env, market_id: &Symbol, total_refunded: i128) {
         let event = RefundOnOracleFailureEvent {
             market_id: market_id.clone(),
             total_refunded,
@@ -2250,11 +2246,7 @@ impl EventEmitter {
     ///
     /// EventEmitter::emit_error_event(&env, Error::NothingToClaim, &context);
     /// ```
-    pub fn emit_diagnostic_event(
-        env: &Env,
-        error: Error,
-        context: &crate::errors::ErrorContext,
-    ) {
+    pub fn emit_diagnostic_event(env: &Env, error: Error, context: &crate::errors::ErrorContext) {
         let error_code = error as u32;
 
         // Convert error enum to message string
@@ -2392,10 +2384,14 @@ impl EventEmitter {
     ) {
         env.events().publish(
             (symbol_short!("bal_chg"), user, asset.clone()),
-            (operation.clone(), amount, new_balance, env.ledger().timestamp()),
+            (
+                operation.clone(),
+                amount,
+                new_balance,
+                env.ledger().timestamp(),
+            ),
         );
     }
-
 
     /// Store event in persistent storage
     fn store_event<T>(env: &Env, event_key: &Symbol, event_data: &T)

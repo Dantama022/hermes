@@ -82,7 +82,6 @@ mod event_management_tests;
 #[cfg(test)]
 mod statistics_tests;
 
-
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
 pub use errors::Error;
@@ -199,7 +198,12 @@ impl PredictifyHybrid {
     /// * `user` - The user depositing funds.
     /// * `asset` - The asset to deposit (e.g., XLM, BTC, ETH).
     /// * `amount` - The amount to deposit.
-    pub fn deposit(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn deposit(
+        env: Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         balances::BalanceManager::deposit(&env, user, asset, amount)
     }
 
@@ -210,7 +214,12 @@ impl PredictifyHybrid {
     /// * `user` - The user withdrawing funds.
     /// * `asset` - The asset to withdraw.
     /// * `amount` - The amount to withdraw.
-    pub fn withdraw(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn withdraw(
+        env: Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         balances::BalanceManager::withdraw(&env, user, asset, amount)
     }
 
@@ -2009,10 +2018,10 @@ impl PredictifyHybrid {
         // Since place_bet now updates market.votes and market.stakes,
         // we can use the vote-based payout system for both bets and votes
         let mut total_distributed = 0;
-        
+
         // Check if payouts have already been distributed
         let mut has_unclaimed_winners = false;
-        
+
         // Check voters
         for (user, outcome) in market.votes.iter() {
             if winning_outcomes.contains(&outcome) {
@@ -2022,12 +2031,14 @@ impl PredictifyHybrid {
                 }
             }
         }
-        
+
         // Check bettors
         if !has_unclaimed_winners {
             for user in bettors.iter() {
                 if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
-                    if winning_outcomes.contains(&bet.outcome) && !market.claimed.get(user.clone()).unwrap_or(false) {
+                    if winning_outcomes.contains(&bet.outcome)
+                        && !market.claimed.get(user.clone()).unwrap_or(false)
+                    {
                         has_unclaimed_winners = true;
                         break;
                     }
@@ -2042,14 +2053,14 @@ impl PredictifyHybrid {
         // Calculate total winning stakes across all winning outcomes (for split pool calculation)
         // Supports both single winner and multi-winner (tie) scenarios
         let mut winning_total = 0;
-        
+
         // Sum voter stakes
         for (voter, outcome) in market.votes.iter() {
             if winning_outcomes.contains(&outcome) {
                 winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
             }
         }
-        
+
         // Sum bet amounts (check if bet outcome is in winning outcomes for multi-outcome support)
         for user in bettors.iter() {
             if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
@@ -2091,7 +2102,6 @@ impl PredictifyHybrid {
                         .ok_or(Error::InvalidInput)?)
                         / winning_total;
 
-
                     if payout >= 0 {
                         // Allow 0 payout but mark as claimed
                         market.claimed.set(user.clone(), true);
@@ -2119,13 +2129,14 @@ impl PredictifyHybrid {
                     }
 
                     if bet.amount > 0 {
-                        let user_share = (bet.amount * (fee_denominator - fee_percent)) / fee_denominator;
+                        let user_share =
+                            (bet.amount * (fee_denominator - fee_percent)) / fee_denominator;
                         let payout = (user_share * total_pool) / winning_total;
 
                         if payout > 0 {
                             market.claimed.set(user.clone(), true);
                             total_distributed += payout;
-                            
+
                             // Update bet status
                             bet.status = BetStatus::Won;
                             let _ = bets::BetStorage::store_bet(&env, &bet);
@@ -2998,7 +3009,7 @@ impl PredictifyHybrid {
         if market.state == MarketState::Cancelled {
             return Ok(0);
         }
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketAlreadyResolved);
         }
         if market.oracle_result.is_some() {
@@ -3009,10 +3020,10 @@ impl PredictifyHybrid {
             return Err(Error::MarketClosed);
         }
 
-        let stored_admin: Option<Address> = env.storage().persistent().get(&Symbol::new(&env, "Admin"));
+        let stored_admin: Option<Address> =
+            env.storage().persistent().get(&Symbol::new(&env, "Admin"));
         let is_admin = stored_admin.as_ref().map_or(false, |a| a == &caller);
-        let timeout_passed = current_time
-            .saturating_sub(market.end_time)
+        let timeout_passed = current_time.saturating_sub(market.end_time)
             >= config::DEFAULT_RESOLUTION_TIMEOUT_SECONDS;
         if !is_admin && !timeout_passed {
             return Err(Error::Unauthorized);

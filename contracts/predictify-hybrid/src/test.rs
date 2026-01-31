@@ -1517,8 +1517,18 @@ fn test_refund_on_oracle_failure_full_amount_per_user() {
     let amt1 = 10_000_000i128;
     let amt2 = 20_000_000i128;
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &amt1);
-    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &amt2);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &amt1,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &amt2,
+    );
 
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
@@ -1550,7 +1560,12 @@ fn test_refund_on_oracle_failure_no_double_refund() {
     let market_id = test.create_test_market();
     let user1 = test.create_funded_user();
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
 
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
@@ -1587,7 +1602,12 @@ fn test_refund_on_oracle_failure_after_timeout_any_caller() {
     let user1 = test.create_funded_user();
     let any_caller = test.create_funded_user();
     test.env.mock_all_auths();
-    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
 
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
