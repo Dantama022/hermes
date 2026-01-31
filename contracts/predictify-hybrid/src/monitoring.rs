@@ -441,6 +441,10 @@ impl ContractMonitor {
             end_time: env.ledger().timestamp() + 86400,
             oracle_config: OracleConfig {
                 provider: OracleProvider::Reflector,
+                oracle_address: Address::from_str(
+                    env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
                 feed_id: String::from_str(env, "sample_feed"),
                 threshold: 100,
                 comparison: String::from_str(env, ">="),
