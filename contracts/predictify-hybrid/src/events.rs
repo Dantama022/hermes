@@ -1031,6 +1031,21 @@ pub struct MarketClosedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a market is refunded due to oracle resolution failure or timeout.
+///
+/// Emitted after all bets are refunded in full (no fee deduction). The market is marked
+/// as cancelled and no further resolution is possible.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundOnOracleFailureEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Total amount refunded to all participants
+    pub total_refunded: i128,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
 /// Market finalized event
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2204,6 +2219,20 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("mkt_close"), &event);
+    }
+
+    /// Emit refund on oracle failure event (market cancelled, all bets refunded in full).
+    pub fn emit_refund_on_oracle_failure(
+        env: &Env,
+        market_id: &Symbol,
+        total_refunded: i128,
+    ) {
+        let event = RefundOnOracleFailureEvent {
+            market_id: market_id.clone(),
+            total_refunded,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ref_oracl"), &event);
     }
 
     /// Emit market finalized event

@@ -112,6 +112,10 @@ pub const COMMUNITY_WEIGHT_PERCENTAGE: u32 = 30;
 /// Minimum votes for community consensus
 pub const MIN_VOTES_FOR_CONSENSUS: u32 = 5;
 
+/// Default resolution timeout in seconds (7 days). After market end_time + this period
+/// with no oracle result, anyone may trigger refund on oracle failure.
+pub const DEFAULT_RESOLUTION_TIMEOUT_SECONDS: u64 = 604_800;
+
 // ===== ORACLE CONSTANTS =====
 
 /// Maximum oracle price age (1 hour)

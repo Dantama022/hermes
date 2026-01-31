@@ -1451,6 +1451,167 @@ fn test_cancel_event_already_cancelled() {
     assert_eq!(total_refunded, 0);
 }
 
+// ===== TESTS FOR REFUND ON ORACLE FAILURE (#257, #258) =====
+
+#[test]
+fn test_refund_on_oracle_failure_admin_success() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
+    client.place_bet(
+        &user2,
+        &market_id,
+        &String::from_str(&test.env, "no"),
+        &20_000_000,
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    let total_refunded = client.refund_on_oracle_failure(&test.admin, &market_id);
+    assert_eq!(total_refunded, 30_000_000);
+
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert_eq!(market_after.state, MarketState::Cancelled);
+}
+
+#[test]
+fn test_refund_on_oracle_failure_full_amount_per_user() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    let amt1 = 10_000_000i128;
+    let amt2 = 20_000_000i128;
+    test.env.mock_all_auths();
+    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &amt1);
+    client.place_bet(&user2, &market_id, &String::from_str(&test.env, "no"), &amt2);
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    let total_refunded = client.refund_on_oracle_failure(&test.admin, &market_id);
+    assert_eq!(total_refunded, amt1 + amt2);
+}
+
+#[test]
+fn test_refund_on_oracle_failure_no_double_refund() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user1 = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    let first = client.refund_on_oracle_failure(&test.admin, &market_id);
+    assert_eq!(first, 10_000_000);
+
+    test.env.mock_all_auths();
+    let second = client.refund_on_oracle_failure(&test.admin, &market_id);
+    assert_eq!(second, 0);
+}
+
+#[test]
+fn test_refund_on_oracle_failure_after_timeout_any_caller() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    let user1 = test.create_funded_user();
+    let any_caller = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.place_bet(&user1, &market_id, &String::from_str(&test.env, "yes"), &10_000_000);
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + crate::config::DEFAULT_RESOLUTION_TIMEOUT_SECONDS + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.mock_all_auths();
+    let total_refunded = client.refund_on_oracle_failure(&any_caller, &market_id);
+    assert_eq!(total_refunded, 10_000_000);
+}
+
 // ===== TESTS FOR MANUAL DISPUTE RESOLUTION (#218, #219) =====
 
 #[test]
