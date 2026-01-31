@@ -1816,7 +1816,7 @@ impl MarketUtils {
     ///     Err(e) => println!("Token client unavailable: {:?}", e),
     /// }
     /// ```
-    pub fn get_token_client(_env: &Env) -> Result<token::Client, Error> {
+    pub fn get_token_client(_env: &Env) -> Result<token::Client<'_>, Error> {
         let token_id: Address = _env
             .storage()
             .persistent()
