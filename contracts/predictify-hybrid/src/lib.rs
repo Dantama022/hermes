@@ -2635,6 +2635,75 @@ impl PredictifyHybrid {
         Ok(total_refunded)
     }
 
+    /// Refund all bets when oracle resolution fails or times out (automatic refund path).
+    ///
+    /// Callable when: market has ended, no oracle result, and either (1) resolution
+    /// timeout has passed since market end, or (2) caller is admin (confirmed failure).
+    /// Refunds full bet amount per user (no fee deduction). Marks market as cancelled and
+    /// prevents further resolution. Emits refund events. Idempotent when already cancelled.
+    pub fn refund_on_oracle_failure(
+        env: Env,
+        caller: Address,
+        market_id: Symbol,
+    ) -> Result<i128, Error> {
+        caller.require_auth();
+
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        if market.state == MarketState::Cancelled {
+            return Ok(0);
+        }
+        if market.winning_outcome.is_some() {
+            return Err(Error::MarketAlreadyResolved);
+        }
+        if market.oracle_result.is_some() {
+            return Err(Error::MarketAlreadyResolved);
+        }
+        let current_time = env.ledger().timestamp();
+        if current_time < market.end_time {
+            return Err(Error::MarketClosed);
+        }
+
+        let stored_admin: Option<Address> = env.storage().persistent().get(&Symbol::new(&env, "Admin"));
+        let is_admin = stored_admin.as_ref().map_or(false, |a| a == &caller);
+        let timeout_passed = current_time
+            .saturating_sub(market.end_time)
+            >= config::DEFAULT_RESOLUTION_TIMEOUT_SECONDS;
+        if !is_admin && !timeout_passed {
+            return Err(Error::Unauthorized);
+        }
+
+        let old_state = market.state.clone();
+        market.state = MarketState::Cancelled;
+        env.storage().persistent().set(&market_id, &market);
+
+        if reentrancy_guard::ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        if reentrancy_guard::ReentrancyGuard::before_external_call(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        let refund_result = bets::BetManager::refund_market_bets(&env, &market_id);
+        reentrancy_guard::ReentrancyGuard::after_external_call(&env);
+        refund_result?;
+
+        let total_refunded = market.total_staked;
+        EventEmitter::emit_state_change_event(
+            &env,
+            &market_id,
+            &old_state,
+            &MarketState::Cancelled,
+            &String::from_str(&env, "Refund on oracle failure/timeout"),
+        );
+        EventEmitter::emit_refund_on_oracle_failure(&env, &market_id, total_refunded);
+
+        Ok(total_refunded)
+    }
+
     /// Extend market duration (admin only)
     pub fn extend_market(
         env: Env,
