@@ -1250,9 +1250,9 @@ impl PredictifyHybrid {
         market.state = MarketState::Resolved;
         env.storage().persistent().set(&market_id, &market);
 
-        // Note: Bet resolution is skipped to avoid segfaults
-        // Since place_bet syncs votes/stakes, distribute_payouts works via vote-based system
-        // Individual bet status can be updated separately if needed
+        // Note: Bet resolution is skipped to avoid segfaults.
+        // Since place_bet syncs votes/stakes, winners must call claim_winnings(user, market_id)
+        // to receive their share; no automatic distribution is performed here.
 
         // Emit market resolved event (simplified to avoid segfaults)
         let oracle_result_str = market
@@ -1282,9 +1282,6 @@ impl PredictifyHybrid {
             &MarketState::Resolved,
             &reason,
         );
-
-        // Automatically distribute payouts
-        let _ = Self::distribute_payouts(env.clone(), market_id);
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
