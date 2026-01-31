@@ -722,8 +722,10 @@ pub struct Market {
     pub total_staked: i128,
     /// Dispute stakes mapping (address -> dispute stake)
     pub dispute_stakes: Map<Address, i128>,
-    /// Winning outcome (set after resolution)
-    pub winning_outcome: Option<String>,
+    /// Winning outcome(s) (set after resolution)
+    /// For single winner: contains one outcome
+    /// For ties/multi-winner: contains multiple outcomes (pool split among winners)
+    pub winning_outcomes: Option<Vec<String>>,
     /// Whether fees have been collected
     pub fee_collected: bool,
     /// Current market state
@@ -736,6 +738,13 @@ pub struct Market {
 
     /// Extension history
     pub extension_history: Vec<MarketExtension>,
+
+    /// Optional category for the event (e.g., "sports", "crypto", "politics")
+    /// Used for filtering and display in client applications
+    pub category: Option<String>,
+    /// List of searchable tags for filtering events
+    /// Tags can be used to categorize events by multiple dimensions
+    pub tags: Vec<String>,
 }
 
 // ===== BET LIMITS =====
@@ -782,6 +791,44 @@ pub struct EventHistoryEntry {
     pub archived_at: Option<u64>,
     /// Category / feed identifier (e.g. oracle feed_id) for filtering
     pub category: String,
+    /// List of tags for filtering events by multiple dimensions
+    pub tags: Vec<String>,
+}
+
+// ===== STATISTICS TYPES =====
+
+/// Platform-wide usage statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformStatistics {
+    /// Total number of markets/events created
+    pub total_events_created: u64,
+    /// Total number of bets placed
+    pub total_bets_placed: u64,
+    /// Total volume (amount wagered) in token units
+    pub total_volume: i128,
+    /// Total fees collected in token units
+    pub total_fees_collected: i128,
+    /// Number of currently active (non-resolved) events
+    pub active_events_count: u32,
+}
+
+/// User-specific betting statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserStatistics {
+    /// Total number of bets placed by the user
+    pub total_bets_placed: u64,
+    /// Total amount wagered by the user
+    pub total_amount_wagered: i128,
+    /// Total winnings claimed by the user
+    pub total_winnings: i128,
+    /// Number of winning bets
+    pub total_bets_won: u64,
+    /// Win rate in basis points (0-10000, 100% = 10000)
+    pub win_rate: u32,
+    /// Timestamp of last activity
+    pub last_activity_ts: u64,
 }
 
 impl Market {
@@ -807,13 +854,16 @@ impl Market {
             claimed: Map::new(env),
             total_staked: 0,
             dispute_stakes: Map::new(env),
-            winning_outcome: None,
+            winning_outcomes: None,
             fee_collected: false,
             state,
 
             total_extension_days: 0,
             max_extension_days: 30, // Default maximum extension days
             extension_history: Vec::new(env),
+
+            category: None,
+            tags: Vec::new(env),
         }
     }
 
@@ -829,7 +879,26 @@ impl Market {
 
     /// Check if the market is resolved
     pub fn is_resolved(&self) -> bool {
-        self.winning_outcome.is_some()
+        self.winning_outcomes.is_some()
+    }
+
+    /// Get the primary winning outcome (first outcome if multiple, for backward compatibility)
+    pub fn get_winning_outcome(&self) -> Option<String> {
+        self.winning_outcomes.as_ref().and_then(|outcomes| {
+            if outcomes.len() > 0 {
+                Some(outcomes.get(0).unwrap().clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Check if a specific outcome is a winner (handles both single and multi-winner cases)
+    pub fn is_winning_outcome(&self, outcome: &String) -> bool {
+        self.winning_outcomes
+            .as_ref()
+            .map(|outcomes| outcomes.contains(outcome))
+            .unwrap_or(false)
     }
 
     /// Get total dispute stakes for the market
@@ -1041,6 +1110,10 @@ impl Market {
 pub enum ReflectorAsset {
     /// Stellar Lumens (XLM)
     Stellar,
+    /// Bitcoin (BTC)
+    BTC,
+    /// Ethereum (ETH)
+    ETH,
     /// Other asset identified by symbol
     Other(Symbol),
 }
@@ -2551,4 +2624,45 @@ pub struct BetStats {
     pub unique_bettors: u32,
     /// Total amount locked per outcome
     pub outcome_totals: Map<String, i128>,
+}
+
+// ===== EVENT TYPES =====
+
+/// Represents a prediction market event with specified parameters.
+///
+/// This structure stores all metadata and configuration for a prediction event,
+/// including its description, possible outcomes, timing, and oracle integration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Event {
+    /// Unique identifier for the event
+    pub id: Symbol,
+    /// Event description or question
+    pub description: String,
+    /// Possible outcomes for the event (e.g., ["yes", "no"])
+    pub outcomes: Vec<String>,
+    /// When the event ends (Unix timestamp)
+    pub end_time: u64,
+    /// Oracle configuration for result verification
+    pub oracle_config: OracleConfig,
+    /// Administrative address that created/manages the event
+    pub admin: Address,
+    /// When the event was created (Unix timestamp)
+    pub created_at: u64,
+    /// Current status of the event
+    pub status: MarketState,
+}
+
+impl ReflectorAsset {
+    pub fn is_xlm(&self) -> bool {
+        matches!(self, ReflectorAsset::Stellar)
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Balance {
+    pub user: Address,
+    pub asset: ReflectorAsset,
+    pub amount: i128,
 }
