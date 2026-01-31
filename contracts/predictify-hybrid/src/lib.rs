@@ -72,6 +72,9 @@ mod event_management_tests;
 #[cfg(test)]
 mod statistics_tests;
 
+#[cfg(test)]
+mod resolution_delay_dispute_window_tests;
+
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
 pub use errors::Error;
