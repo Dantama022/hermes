@@ -104,6 +104,7 @@ use crate::events::EventEmitter;
 use crate::graceful_degradation::{OracleBackup, OracleHealth};
 use crate::market_id_generator::MarketIdGenerator;
 use crate::reentrancy_guard::ReentrancyGuard;
+use crate::resolution::OracleResolution;
 use alloc::format;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Env, Map, String, Symbol, Vec,

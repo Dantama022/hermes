@@ -2980,6 +2980,7 @@ impl ValidationTestingUtils {
             env.ledger().timestamp() + 86400,
             OracleConfig {
                 provider: OracleProvider::Pyth,
+                oracle_address: Address::generate(env),
                 feed_id: String::from_str(env, "BTC/USD"),
                 threshold: 2500000,
                 comparison: String::from_str(env, "gt"),
@@ -2992,6 +2993,7 @@ impl ValidationTestingUtils {
     pub fn create_test_oracle_config(env: &Env) -> OracleConfig {
         OracleConfig {
             provider: OracleProvider::Pyth,
+            oracle_address: Address::generate(env),
             feed_id: String::from_str(env, "BTC/USD"),
             threshold: 2500000,
             comparison: String::from_str(env, "gt"),
