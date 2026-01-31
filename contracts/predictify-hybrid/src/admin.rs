@@ -1414,7 +1414,6 @@ impl AdminManager {
         None
     }
 
-
     /// Emits admin change events using existing AdminActionType
     pub fn emit_admin_change_event(env: &Env, admin: &Address, action: AdminActionType) {
         let action_str = match action {

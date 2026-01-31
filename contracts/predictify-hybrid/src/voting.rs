@@ -924,7 +924,7 @@ impl VotingValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketResolved);
         }
 
@@ -940,7 +940,7 @@ impl VotingValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(Error::MarketResolved);
         }
 
@@ -961,7 +961,7 @@ impl VotingValidator {
         }
 
         // Check if market is resolved
-        if market.winning_outcome.is_none() {
+        if market.winning_outcomes.is_none() {
             return Err(Error::MarketNotResolved);
         }
 
@@ -1137,8 +1137,8 @@ impl VotingUtils {
         market: &Market,
         user: &Address,
     ) -> Result<i128, Error> {
-        let winning_outcome = market
-            .winning_outcome
+        let winning_outcomes = market
+            .winning_outcomes
             .as_ref()
             .ok_or(Error::MarketNotResolved)?;
 
@@ -1149,21 +1149,30 @@ impl VotingUtils {
 
         let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
 
-        // Only pay if user voted for winning outcome
-        if user_outcome != *winning_outcome {
+        // Only pay if user voted for a winning outcome (handles ties - pool split)
+        if !winning_outcomes.contains(&user_outcome) {
             return Ok(0);
         }
 
-        // Calculate winning statistics
-        let winning_stats = MarketAnalytics::calculate_winning_stats(market, winning_outcome);
+        // Calculate winning statistics for payout calculation
+        // For multi-winner (ties), pool is split proportionally among all winners
+        // Get total stake across all winning outcomes
+        let mut winning_total = 0;
+        for outcome in winning_outcomes.iter() {
+            for (voter, voted_outcome) in market.votes.iter() {
+                if voted_outcome == outcome {
+                    winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
+                }
+            }
+        }
 
-        // Calculate payout
+        // Calculate payout using total across all winning outcomes (handles ties - pool split)
         // Use dynamic platform fee percentage from current configuration
         let cfg = crate::config::ConfigManager::get_config(env)?;
         let payout = MarketUtils::calculate_payout(
             user_stake,
-            winning_stats.winning_total,
-            winning_stats.total_pool,
+            winning_total, // Total stake across all winning outcomes (for tie handling)
+            market.total_staked, // Total pool
             cfg.fees.platform_fee_percentage,
         )?;
 

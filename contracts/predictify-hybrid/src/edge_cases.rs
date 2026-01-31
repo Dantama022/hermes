@@ -605,7 +605,7 @@ impl EdgeCaseHandler {
         config: &EdgeCaseConfig,
     ) -> Result<bool, Error> {
         // Check if market has ended but not resolved
-        if current_time > market.end_time && market.winning_outcome.is_none() {
+        if current_time > market.end_time && market.winning_outcomes.is_none() {
             let time_since_end = current_time - market.end_time;
             if time_since_end > config.max_orphan_time {
                 return Ok(true);
