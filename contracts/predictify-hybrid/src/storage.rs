@@ -629,6 +629,40 @@ impl StorageOptimizer {
     }
 }
 
+// ===== EVENT STORAGE =====
+
+/// Manager for event storage operations
+pub struct EventManager;
+
+impl EventManager {
+    /// Store a new event in persistent storage
+    pub fn store_event(env: &Env, event: &Event) {
+        env.storage().persistent().set(&event.id, event);
+    }
+
+    /// Retrieve an event from persistent storage
+    pub fn get_event(env: &Env, event_id: &Symbol) -> Result<Event, Error> {
+        env.storage()
+            .persistent()
+            .get(event_id)
+            .ok_or(Error::MarketNotFound)
+    }
+
+    /// Check if an event exists
+    pub fn has_event(env: &Env, event_id: &Symbol) -> bool {
+        env.storage().persistent().has(event_id)
+    }
+
+    /// Update an existing event
+    pub fn update_event(env: &Env, event: &Event) -> Result<(), Error> {
+        if !Self::has_event(env, &event.id) {
+            return Err(Error::MarketNotFound);
+        }
+        Self::store_event(env, event);
+        Ok(())
+    }
+}
+
 // ===== STORAGE UTILITIES =====
 
 /// Storage utility functions

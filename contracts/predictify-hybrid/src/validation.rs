@@ -1841,6 +1841,53 @@ impl InputValidator {
 /// - **Batch Processing**: Support multiple market validation
 /// - **Gas Efficient**: Minimize computational overhead
 /// - **Early Exit**: Stop on critical errors when appropriate
+/// Event validation utilities
+pub struct EventValidator;
+
+impl EventValidator {
+    /// Validate event creation parameters
+    pub fn validate_event_creation(
+        env: &Env,
+        admin: &Address,
+        description: &String,
+        outcomes: &Vec<String>,
+        end_time: &u64,
+    ) -> Result<(), ValidationError> {
+        // Validate admin address
+        if let Err(e) = InputValidator::validate_address_format(admin) {
+            return Err(e);
+        }
+
+        // Validate description format (reusing question format)
+        if let Err(e) = InputValidator::validate_question_format(description) {
+            return Err(e);
+        }
+
+        // // Validate outcomes
+        if outcomes.len() < config::MIN_MARKET_OUTCOMES {
+            return Err(ValidationError::ArrayTooSmall);
+        }
+
+        if outcomes.len() > config::MAX_MARKET_OUTCOMES {
+            return Err(ValidationError::ArrayTooLarge);
+        }
+
+        for outcome in outcomes.iter() {
+            if let Err(e) = InputValidator::validate_outcome_format(&outcome) {
+                return Err(e);
+            }
+        }
+
+        // Validate end time (must be in the future)
+        let current_time = env.ledger().timestamp();
+        if *end_time <= current_time {
+            return Err(ValidationError::InvalidDuration);
+        }
+
+        Ok(())
+    }
+}
+
 pub struct MarketValidator;
 
 impl MarketValidator {
@@ -2325,10 +2372,7 @@ impl VoteValidator {
 
 /// Validates bet amount against min/max limits. Used by place_bet.
 /// Returns InsufficientStake if below min, InvalidInput if above max.
-pub fn validate_bet_amount_against_limits(
-    amount: i128,
-    limits: &BetLimits,
-) -> Result<(), Error> {
+pub fn validate_bet_amount_against_limits(amount: i128, limits: &BetLimits) -> Result<(), Error> {
     if amount < limits.min_bet {
         return Err(Error::InsufficientStake);
     }
