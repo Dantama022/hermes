@@ -31,6 +31,7 @@ pub struct PropertyBasedTestSuite {
     pub contract_id: Address,
     pub admin: Address,
     pub users: StdVec<Address>,
+    pub token_id: Address,
 }
 
 impl PropertyBasedTestSuite {
@@ -44,19 +45,40 @@ impl PropertyBasedTestSuite {
         let client = PredictifyHybridClient::new(&env, &contract_id);
         client.initialize(&admin, &None);
 
+        // Setup Token
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_id = token_contract.address();
+        
+        // Store TokenID
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, "TokenID"), &token_id);
+        });
+
         // Generate multiple test users for comprehensive testing
-        let users = (0..10).map(|_| Address::generate(&env)).collect();
+        let users: StdVec<Address> = (0..10).map(|_| Address::generate(&env)).collect();
+
+        // Mint tokens to admin and users
+        let stellar_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+        stellar_client.mint(&admin, &1_000_000_000_000); // Mint ample funds
+        
+        for user in &users {
+            stellar_client.mint(user, &1_000_000_000_000);
+        }
 
         Self {
             env,
             contract_id,
             admin,
             users,
+            token_id,
         }
     }
 
     /// Create a client for contract interactions
-    pub fn client(&self) -> PredictifyHybridClient {
+    pub fn client(&self) -> PredictifyHybridClient<'_> {
         PredictifyHybridClient::new(&self.env, &self.contract_id)
     }
 

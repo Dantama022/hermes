@@ -1289,6 +1289,22 @@ impl InputValidator {
 
         result
     }
+
+    /// Validate balance amount is positive
+    pub fn validate_balance_amount(amount: &i128) -> Result<(), ValidationError> {
+        if *amount <= 0 {
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        Ok(())
+    }
+
+    /// Validate sufficient balance for withdrawal/transfer
+    pub fn validate_sufficient_balance(current: i128, required: i128) -> Result<(), ValidationError> {
+        if current < required {
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        Ok(())
+    }
 }
 
 // ===== MARKET VALIDATION =====

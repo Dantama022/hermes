@@ -7,78 +7,7 @@ use soroban_sdk::{contracterror, contracttype, Address, Env, Map, String, Symbol
 /// Comprehensive error codes for the Predictify Hybrid prediction market contract.
 ///
 /// This enum defines all possible error conditions that can occur within the Predictify Hybrid
-/// smart contract system. Each error is assigned a unique numeric code for efficient handling
-/// and clear identification. The errors are organized into logical categories for better
-/// understanding and maintenance.
-///
-/// # Error Categories
-///
-/// **User Operation Errors (100-199):**
-/// - Authentication and authorization failures
-/// - Market access and state violations
-/// - User action conflicts and restrictions
-///
-/// **Oracle Errors (200-299):**
-/// - Oracle connectivity and availability issues
-/// - Oracle configuration and validation problems
-///
-/// **Validation Errors (300-399):**
-/// - Input validation failures
-/// - Parameter format and range violations
-/// - Configuration validation errors
-///
-/// **System Errors (400-499):**
-/// - System state and configuration issues
-/// - Dispute and governance related errors
-/// - Fee and extension management errors
-///
-/// # Example Usage
-///
-/// ```rust
-/// # use predictify_hybrid::errors::Error;
-///
-/// // Handle specific error types
-/// fn handle_market_operation_result(result: Result<(), Error>) {
-///     match result {
-///         Ok(()) => println!("Operation successful"),
-///         Err(Error::Unauthorized) => {
-///             println!("Error {}: {}", Error::Unauthorized as u32, Error::Unauthorized.description());
-///         }
-///         Err(Error::MarketNotFound) => {
-///             println!("Market does not exist or has been removed");
-///         }
-///         Err(Error::InsufficientStake) => {
-///             println!("Stake amount is below minimum requirement");
-///         }
-///         Err(e) => {
-///             println!("Operation failed with error {}: {}", e as u32, e.description());
-///         }
-///     }
-/// }
-///
-/// // Get error information
-/// let error = Error::MarketClosed;
-/// println!("Error Code: {}", error.code());           // "MARKET_CLOSED"
-/// println!("Description: {}", error.description());   // "Market is closed"
-/// println!("Numeric Code: {}", error as u32);         // 102
-/// ```
-///
-/// # Error Handling Best Practices
-///
-/// 1. **Specific Handling**: Match specific error types for targeted error handling
-/// 2. **User Feedback**: Use `description()` method for user-friendly error messages
-/// 3. **Logging**: Use `code()` method for structured logging and monitoring
-/// 4. **Recovery**: Implement appropriate recovery strategies for different error types
-/// 5. **Validation**: Prevent errors through proper input validation
-///
-/// # Integration Points
-///
-/// Error enum integrates with:
-/// - **All Contract Functions**: Every public function returns Result<T, Error>
-/// - **Validation System**: Validation functions return specific error types
-/// - **Event System**: Error events are emitted with error codes
-/// - **Client Applications**: Error codes enable proper error handling in dApps
-/// - **Monitoring Systems**: Error codes support operational monitoring and alerting
+/// smart contract system.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -108,6 +37,9 @@ pub enum Error {
     AlreadyBet = 110,
     /// Bets have already been placed on this market (cannot update)
     BetsAlreadyPlaced = 111,
+    /// Insufficient balance
+    InsufficientBalance = 112,
+    // FundsLocked removed to save space
 
     // ===== ORACLE ERRORS =====
     /// Oracle is unavailable
@@ -176,10 +108,8 @@ pub enum Error {
     AdminNotSet = 418,
     /// Dispute timeout not set
     TimeoutNotSet = 419,
-    /// Dispute timeout expired
-    TimeoutExpired = 420,
     /// Dispute timeout not expired
-    TimeoutNotExpired = 421,
+    TimeoutNotExpired = 420,
     /// Invalid timeout hours
     InvalidTimeoutHours = 422,
 
@@ -1156,6 +1086,7 @@ impl Error {
             Error::AlreadyVoted => "User has already voted",
             Error::AlreadyBet => "User has already placed a bet on this market",
             Error::BetsAlreadyPlaced => "Bets have already been placed on this market (cannot update)",
+            Error::InsufficientBalance => "Insufficient balance for operation",
             Error::OracleUnavailable => "Oracle is unavailable",
             Error::InvalidOracleConfig => "Invalid oracle configuration",
             Error::InvalidQuestion => "Invalid question format",
@@ -1183,7 +1114,6 @@ impl Error {
             Error::ExtensionFeeLow => "Extension fee insufficient",
             Error::AdminNotSet => "Admin address is not set (initialization missing)",
             Error::TimeoutNotSet => "Dispute timeout not set",
-            Error::TimeoutExpired => "Dispute timeout expired",
             Error::TimeoutNotExpired => "Dispute timeout not expired",
             Error::InvalidTimeoutHours => "Invalid timeout hours",
             Error::OracleStale => "Oracle data is stale or timed out",
@@ -1274,6 +1204,7 @@ impl Error {
             Error::AlreadyVoted => "ALREADY_VOTED",
             Error::AlreadyBet => "ALREADY_BET",
             Error::BetsAlreadyPlaced => "BETS_ALREADY_PLACED",
+            Error::InsufficientBalance => "INSUFFICIENT_BALANCE",
             Error::OracleUnavailable => "ORACLE_UNAVAILABLE",
             Error::InvalidOracleConfig => "INVALID_ORACLE_CONFIG",
             Error::InvalidQuestion => "INVALID_QUESTION",
@@ -1301,7 +1232,6 @@ impl Error {
             Error::ExtensionFeeLow => "EXTENSION_FEE_INSUFFICIENT",
             Error::AdminNotSet => "ADMIN_NOT_SET",
             Error::TimeoutNotSet => "DISPUTE_TIMEOUT_NOT_SET",
-            Error::TimeoutExpired => "DISPUTE_TIMEOUT_EXPIRED",
             Error::TimeoutNotExpired => "DISPUTE_TIMEOUT_NOT_EXPIRED",
             Error::InvalidTimeoutHours => "INVALID_TIMEOUT_HOURS",
             Error::OracleStale => "ORACLE_STALE",

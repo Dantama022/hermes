@@ -11,6 +11,7 @@ struct TestSetup {
     env: Env,
     contract_id: Address,
     admin: Address,
+    token_id: Address,
 }
 
 impl TestSetup {
@@ -21,6 +22,16 @@ impl TestSetup {
         let admin = Address::generate(&env);
         let contract_id = env.register(PredictifyHybrid, ());
         
+        // Setup Token
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_id = token_contract.address();
+
+        // Store TokenID in contract
+        env.as_contract(&contract_id, || {
+             env.storage().persistent().set(&Symbol::new(&env, "TokenID"), &token_id);
+        });
+
         // Initialize the contract
         let client = PredictifyHybridClient::new(&env, &contract_id);
         client.initialize(&admin, &None);
@@ -29,11 +40,16 @@ impl TestSetup {
             env,
             contract_id,
             admin,
+            token_id,
         }
     }
     
     fn create_user(&self) -> Address {
-        Address::generate(&self.env)
+        let user = Address::generate(&self.env);
+        // Mint tokens for user so they can vote/bet
+        let stellar_client = soroban_sdk::token::StellarAssetClient::new(&self.env, &self.token_id);
+        stellar_client.mint(&user, &10_000_000_000); // 1000 XLM
+        user
     }
     
     fn create_market(&self, question: &str, outcomes: Vec<String>, duration_days: u32) -> Symbol {

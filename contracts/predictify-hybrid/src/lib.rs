@@ -1,4 +1,10 @@
 #![no_std]
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_mut)]
+#![allow(deprecated)]
 
 extern crate alloc;
 extern crate wee_alloc;
@@ -8,6 +14,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 // Module declarations - all modules enabled
 mod admin;
+mod balances;
 mod batch_operations;
 mod bets;
 mod circuit_breaker;
@@ -67,10 +74,14 @@ mod upgrade_manager_tests;
 mod bet_tests;
 
 #[cfg(test)]
+mod balance_tests;
+
+#[cfg(test)]
 mod event_management_tests;
 
 #[cfg(test)]
 mod statistics_tests;
+
 
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
@@ -169,21 +180,7 @@ impl PredictifyHybrid {
             Err(e) => panic_with_error!(env, e),
         }
 
-        // Initialize default configuration
-        // We use development defaults as a safe baseline, then update with user provided params
-        let mut config = match crate::config::ConfigManager::reset_to_defaults(&env) {
-            Ok(c) => c,
-            Err(e) => panic_with_error!(env, e),
-        };
-
-        // Update platform fee in the configuration
-        config.fees.platform_fee_percentage = fee_percentage;
-        match crate::config::ConfigManager::update_config(&env, &config) {
-            Ok(_) => (),
-            Err(e) => panic_with_error!(env, e),
-        };
-
-        // Sync legacy storage for compatibility with distribute_payouts
+        // Store platform fee configuration in persistent storage
         env.storage()
             .persistent()
             .set(&Symbol::new(&env, "platform_fee"), &fee_percentage);
@@ -193,6 +190,38 @@ impl PredictifyHybrid {
 
         // Emit platform fee set event
         EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
+    }
+
+    /// Deposits funds into the user's balance.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user depositing funds.
+    /// * `asset` - The asset to deposit (e.g., XLM, BTC, ETH).
+    /// * `amount` - The amount to deposit.
+    pub fn deposit(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+        balances::BalanceManager::deposit(&env, user, asset, amount)
+    }
+
+    /// Withdraws funds from the user's balance.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user withdrawing funds.
+    /// * `asset` - The asset to withdraw.
+    /// * `amount` - The amount to withdraw.
+    pub fn withdraw(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+        balances::BalanceManager::withdraw(&env, user, asset, amount)
+    }
+
+    /// Gets the current balance of a user for a specific asset.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user to check.
+    /// * `asset` - The asset to check.
+    pub fn get_balance(env: Env, user: Address, asset: ReflectorAsset) -> Balance {
+        storage::BalanceStorage::get_balance(&env, &user, &asset)
     }
 
     /// Creates a new prediction market with specified parameters and oracle configuration.
@@ -407,6 +436,12 @@ impl PredictifyHybrid {
         // Check if user already voted
         if market.votes.get(user.clone()).is_some() {
             panic_with_error!(env, Error::AlreadyVoted);
+        }
+
+        // Lock funds (transfer from user to contract)
+        match bets::BetUtils::lock_funds(&env, &user, stake) {
+            Ok(_) => {}
+            Err(e) => panic_with_error!(env, e),
         }
 
         // Store the vote and stake
@@ -915,7 +950,12 @@ impl PredictifyHybrid {
                 // Emit winnings claimed event
                 EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
 
-                // In a real implementation, transfer tokens here
+                // Transfer tokens
+                match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                    Ok(_) => {}
+                    Err(e) => panic_with_error!(env, e),
+                }
+
                 return;
             }
         }
@@ -1881,6 +1921,9 @@ impl PredictifyHybrid {
             None => return Err(Error::MarketNotResolved),
         };
 
+        // Get all bettors
+        let bettors = bets::BetStorage::get_all_bets_for_market(&env, &market_id);
+
         // Get fee from legacy storage (backward compatible)
         let fee_percent = env
             .storage()
@@ -1891,9 +1934,11 @@ impl PredictifyHybrid {
         // Since place_bet now updates market.votes and market.stakes,
         // we can use the vote-based payout system for both bets and votes
         let mut total_distributed = 0;
-
+        
         // Check if payouts have already been distributed
         let mut has_unclaimed_winners = false;
+        
+        // Check voters
         for (user, outcome) in market.votes.iter() {
             if &outcome == winning_outcome {
                 if !market.claimed.get(user.clone()).unwrap_or(false) {
@@ -1902,17 +1947,39 @@ impl PredictifyHybrid {
                 }
             }
         }
+        
+        // Check bettors
+        if !has_unclaimed_winners {
+            for user in bettors.iter() {
+                if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
+                    if bet.outcome == *winning_outcome && !market.claimed.get(user.clone()).unwrap_or(false) {
+                        has_unclaimed_winners = true;
+                        break;
+                    }
+                }
+            }
+        }
 
         if !has_unclaimed_winners {
             return Ok(0);
         }
 
-        // Calculate total winning stakes
-        let mut total_distributed: i128 = 0;
+        // Calculate total winning stakes (voters + bettors)
         let mut winning_total = 0;
+        
+        // Sum voter stakes
         for (voter, outcome) in market.votes.iter() {
             if outcome == *winning_outcome {
                 winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
+            }
+        }
+        
+        // Sum bet amounts
+        for user in bettors.iter() {
+            if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
+                if bet.outcome == *winning_outcome {
+                    winning_total += bet.amount;
+                }
             }
         }
 
@@ -1921,7 +1988,11 @@ impl PredictifyHybrid {
         }
 
         let total_pool = market.total_staked;
+        let fee_denominator = 10000i128; // Fee is in basis points
 
+        let mut total_distributed: i128 = 0;
+
+        // 1. Distribute to Voters
         // Distribute payouts to all winners
         for (user, outcome) in market.votes.iter() {
             if outcome == *winning_outcome {
@@ -1941,6 +2012,7 @@ impl PredictifyHybrid {
                         .ok_or(Error::InvalidInput)?)
                         / winning_total;
 
+
                     if payout >= 0 {
                         // Allow 0 payout but mark as claimed
                         market.claimed.set(user.clone(), true);
@@ -1955,7 +2027,47 @@ impl PredictifyHybrid {
             }
         }
 
-        // Update market state
+        // 2. Distribute to Bettors
+        for user in bettors.iter() {
+            if let Some(mut bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
+                if bet.outcome == *winning_outcome {
+                    if market.claimed.get(user.clone()).unwrap_or(false) {
+                        // Already claimed (perhaps as a voter or double check)
+                        bet.status = BetStatus::Won;
+                        let _ = bets::BetStorage::store_bet(&env, &bet);
+                        continue;
+                    }
+
+                    if bet.amount > 0 {
+                        let user_share = (bet.amount * (fee_denominator - fee_percent)) / fee_denominator;
+                        let payout = (user_share * total_pool) / winning_total;
+
+                        if payout > 0 {
+                            market.claimed.set(user.clone(), true);
+                            total_distributed += payout;
+                            
+                            // Update bet status
+                            bet.status = BetStatus::Won;
+                            let _ = bets::BetStorage::store_bet(&env, &bet);
+
+                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+                            match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                                Ok(_) => {}
+                                Err(e) => panic_with_error!(env, e),
+                            }
+                        }
+                    }
+                } else {
+                    // Mark losing bet
+                    if bet.status == BetStatus::Active {
+                        bet.status = BetStatus::Lost;
+                        let _ = bets::BetStorage::store_bet(&env, &bet);
+                    }
+                }
+            }
+        }
+
+        // Save final market state
         env.storage().persistent().set(&market_id, &market);
 
         Ok(total_distributed)
@@ -2813,34 +2925,6 @@ impl PredictifyHybrid {
             additional_days,
             reason,
         )
-    }
-
-    /// Updates the market description (admin only, before bets).
-    ///
-    /// Allows the admin to correct or update the market question/description
-    /// provided that no activity (bets/votes) has occurred on the market.
-    pub fn update_market_description(
-        env: Env,
-        admin: Address,
-        market_id: Symbol,
-        new_description: String,
-    ) -> Result<(), Error> {
-        admin.require_auth();
-
-        // Verify admin
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .unwrap_or_else(|| {
-                panic_with_error!(env, Error::Unauthorized);
-            });
-
-        if admin != stored_admin {
-            return Err(Error::Unauthorized);
-        }
-
-        markets::MarketStateManager::update_description(&env, &market_id, new_description)
     }
 
     // ===== STORAGE OPTIMIZATION FUNCTIONS =====
