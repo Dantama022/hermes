@@ -1267,8 +1267,13 @@ impl PredictifyHybrid {
                 // Emit winnings claimed event
                 EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
 
-                // Transfer tokens
-                match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                // Credit tokens to user balance
+                match storage::BalanceStorage::add_balance(
+                    &env,
+                    &user,
+                    &types::ReflectorAsset::Stellar,
+                    payout,
+                ) {
                     Ok(_) => {}
                     Err(e) => panic_with_error!(env, e),
                 }
@@ -2178,6 +2183,11 @@ impl PredictifyHybrid {
 
         // Sum bet amounts (check if bet outcome is in winning outcomes for multi-outcome support)
         for user in bettors.iter() {
+            // Avoid double counting if user is already in votes (legacy support)
+            if market.votes.contains_key(user.clone()) {
+                continue;
+            }
+
             if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
                 if winning_outcomes.contains(&bet.outcome) {
                     winning_total += bet.amount;
@@ -2224,6 +2234,15 @@ impl PredictifyHybrid {
                             total_distributed = total_distributed
                                 .checked_add(payout)
                                 .ok_or(Error::InvalidInput)?;
+
+                            // Credit winnings to user balance
+                            storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            )?;
+
                             EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
                         }
                     }
@@ -2256,11 +2275,17 @@ impl PredictifyHybrid {
                             bet.status = BetStatus::Won;
                             let _ = bets::BetStorage::store_bet(&env, &bet);
 
-                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
-                            match bets::BetUtils::unlock_funds(&env, &user, payout) {
+                            // Credit winnings to user balance instead of direct transfer
+                            match storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            ) {
                                 Ok(_) => {}
                                 Err(e) => panic_with_error!(env, e),
                             }
+                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
                         }
                     }
                 } else {
@@ -3059,13 +3084,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit category update event
-        EventEmitter::emit_category_updated(
-            &env,
-            &market_id,
-            &old_category,
-            &category,
-            &admin,
-        );
+        EventEmitter::emit_category_updated(&env, &market_id, &old_category, &category, &admin);
 
         Ok(())
     }
@@ -3184,13 +3203,7 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         // Emit tags update event
-        EventEmitter::emit_tags_updated(
-            &env,
-            &market_id,
-            &old_tags,
-            &tags,
-            &admin,
-        );
+        EventEmitter::emit_tags_updated(&env, &market_id, &old_tags, &tags, &admin);
 
         Ok(())
     }
