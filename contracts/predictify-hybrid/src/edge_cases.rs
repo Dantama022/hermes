@@ -157,7 +157,7 @@ impl EdgeCaseHandler {
     /// ```
     pub fn handle_zero_stake_scenario(env: &Env, market_id: Symbol) -> Result<(), Error> {
         // Check reentrancy protection
-        ReentrancyGuard::check_reentrancy_state(env);
+        ReentrancyGuard::check_reentrancy_state(env).map_err(|_| Error::InvalidState)?;
         // Get market data
         let market = MarketStateManager::get_market(env, &market_id)?;
 
@@ -396,7 +396,7 @@ impl EdgeCaseHandler {
                 if config.max_single_user_percentage < 0
                     || config.max_single_user_percentage > 10000
                 {
-                    return Err(Error::ThresholdExceedsMaximum);
+                    return Err(Error::ThresholdTooHigh);
                 }
             }
             EdgeCaseScenario::LowParticipation => {
@@ -517,7 +517,7 @@ impl EdgeCaseHandler {
     /// Validate edge case configuration.
     fn validate_edge_case_config(env: &Env, config: &EdgeCaseConfig) -> Result<(), Error> {
         if config.min_total_stake < 0 {
-            return Err(Error::ThresholdBelowMinimum);
+            return Err(Error::ThresholdBelowMin);
         }
 
         if config.min_participation_rate < 0 || config.min_participation_rate > 10000 {
@@ -533,7 +533,7 @@ impl EdgeCaseHandler {
         }
 
         if config.max_single_user_percentage < 0 || config.max_single_user_percentage > 10000 {
-            return Err(Error::ThresholdExceedsMaximum);
+            return Err(Error::ThresholdTooHigh);
         }
 
         Ok(())
@@ -605,7 +605,7 @@ impl EdgeCaseHandler {
         config: &EdgeCaseConfig,
     ) -> Result<bool, Error> {
         // Check if market has ended but not resolved
-        if current_time > market.end_time && market.winning_outcome.is_none() {
+        if current_time > market.end_time && market.winning_outcomes.is_none() {
             let time_since_end = current_time - market.end_time;
             if time_since_end > config.max_orphan_time {
                 return Ok(true);

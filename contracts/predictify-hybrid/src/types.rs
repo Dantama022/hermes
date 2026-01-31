@@ -461,6 +461,8 @@ impl OracleProvider {
 pub struct OracleConfig {
     /// The oracle provider to use
     pub provider: OracleProvider,
+    /// The oracle contract address
+    pub oracle_address: Address,
     /// Oracle-specific identifier (e.g., "BTC/USD" for Pyth, "BTC" for Reflector)
     pub feed_id: String,
     /// Price threshold in cents (e.g., 10_000_00 = $10k)
@@ -473,12 +475,14 @@ impl OracleConfig {
     /// Create a new oracle configuration
     pub fn new(
         provider: OracleProvider,
+        oracle_address: Address,
         feed_id: String,
         threshold: i128,
         comparison: String,
     ) -> Self {
         Self {
             provider,
+            oracle_address,
             feed_id,
             threshold,
             comparison,
@@ -708,8 +712,12 @@ pub struct Market {
     pub outcomes: Vec<String>,
     /// Market end time (Unix timestamp)
     pub end_time: u64,
-    /// Oracle configuration for this market
+    /// Oracle configuration for this market (primary)
     pub oracle_config: OracleConfig,
+    /// Fallback oracle configuration
+    pub fallback_oracle_config: Option<OracleConfig>,
+    /// Resolution timeout in seconds after end_time
+    pub resolution_timeout: u64,
     /// Oracle result (set after market ends)
     pub oracle_result: Option<String>,
     /// User votes mapping (address -> outcome)
@@ -722,8 +730,10 @@ pub struct Market {
     pub total_staked: i128,
     /// Dispute stakes mapping (address -> dispute stake)
     pub dispute_stakes: Map<Address, i128>,
-    /// Winning outcome (set after resolution)
-    pub winning_outcome: Option<String>,
+    /// Winning outcome(s) (set after resolution)
+    /// For single winner: contains one outcome
+    /// For ties/multi-winner: contains multiple outcomes (pool split among winners)
+    pub winning_outcomes: Option<Vec<String>>,
     /// Whether fees have been collected
     pub fee_collected: bool,
     /// Current market state
@@ -736,6 +746,97 @@ pub struct Market {
 
     /// Extension history
     pub extension_history: Vec<MarketExtension>,
+
+    /// Optional category for the event (e.g., "sports", "crypto", "politics")
+    /// Used for filtering and display in client applications
+    pub category: Option<String>,
+    /// List of searchable tags for filtering events
+    /// Tags can be used to categorize events by multiple dimensions
+    pub tags: Vec<String>,
+}
+
+// ===== BET LIMITS =====
+
+/// Configurable minimum and maximum bet amount for an event or globally.
+///
+/// Used to bound bets so markets remain fair and liquid. Admin can set
+/// global defaults or per-event limits at creation or via set_bet_limits.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BetLimits {
+    /// Minimum bet amount (in base token units, e.g. stroops)
+    pub min_bet: i128,
+    /// Maximum bet amount (in base token units)
+    pub max_bet: i128,
+}
+
+// ===== EVENT ARCHIVE / HISTORICAL QUERY TYPES =====
+
+/// Summary of an event (market) for historical queries and analytics.
+///
+/// Contains only public metadata and outcome; no sensitive data (no votes, stakes, or addresses).
+/// Used by `query_events_history`, `query_events_by_resolution_status`, and `query_events_by_category`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventHistoryEntry {
+    /// Market/event ID
+    pub market_id: Symbol,
+    /// Question text (public)
+    pub question: String,
+    /// Outcome names (public)
+    pub outcomes: Vec<String>,
+    /// Market end time (Unix timestamp)
+    pub end_time: u64,
+    /// Creation timestamp (from registry)
+    pub created_at: u64,
+    /// Current market state (Active, Resolved, Cancelled, etc.)
+    pub state: MarketState,
+    /// Winning outcome if resolved
+    pub winning_outcome: Option<String>,
+    /// Total amount staked (public aggregate)
+    pub total_staked: i128,
+    /// When archived (if any); None if not archived
+    pub archived_at: Option<u64>,
+    /// Category / feed identifier (e.g. oracle feed_id) for filtering
+    pub category: String,
+    /// List of tags for filtering events by multiple dimensions
+    pub tags: Vec<String>,
+}
+
+// ===== STATISTICS TYPES =====
+
+/// Platform-wide usage statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformStatistics {
+    /// Total number of markets/events created
+    pub total_events_created: u64,
+    /// Total number of bets placed
+    pub total_bets_placed: u64,
+    /// Total volume (amount wagered) in token units
+    pub total_volume: i128,
+    /// Total fees collected in token units
+    pub total_fees_collected: i128,
+    /// Number of currently active (non-resolved) events
+    pub active_events_count: u32,
+}
+
+/// User-specific betting statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserStatistics {
+    /// Total number of bets placed by the user
+    pub total_bets_placed: u64,
+    /// Total amount wagered by the user
+    pub total_amount_wagered: i128,
+    /// Total winnings claimed by the user
+    pub total_winnings: i128,
+    /// Number of winning bets
+    pub total_bets_won: u64,
+    /// Win rate in basis points (0-10000, 100% = 10000)
+    pub win_rate: u32,
+    /// Timestamp of last activity
+    pub last_activity_ts: u64,
 }
 
 impl Market {
@@ -747,6 +848,8 @@ impl Market {
         outcomes: Vec<String>,
         end_time: u64,
         oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
         state: MarketState,
     ) -> Self {
         Self {
@@ -755,19 +858,24 @@ impl Market {
             outcomes,
             end_time,
             oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
             oracle_result: None,
             votes: Map::new(env),
             stakes: Map::new(env),
             claimed: Map::new(env),
             total_staked: 0,
             dispute_stakes: Map::new(env),
-            winning_outcome: None,
+            winning_outcomes: None,
             fee_collected: false,
             state,
 
             total_extension_days: 0,
             max_extension_days: 30, // Default maximum extension days
             extension_history: Vec::new(env),
+
+            category: None,
+            tags: Vec::new(env),
         }
     }
 
@@ -783,7 +891,26 @@ impl Market {
 
     /// Check if the market is resolved
     pub fn is_resolved(&self) -> bool {
-        self.winning_outcome.is_some()
+        self.winning_outcomes.is_some()
+    }
+
+    /// Get the primary winning outcome (first outcome if multiple, for backward compatibility)
+    pub fn get_winning_outcome(&self) -> Option<String> {
+        self.winning_outcomes.as_ref().and_then(|outcomes| {
+            if outcomes.len() > 0 {
+                Some(outcomes.get(0).unwrap().clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Check if a specific outcome is a winner (handles both single and multi-winner cases)
+    pub fn is_winning_outcome(&self, outcome: &String) -> bool {
+        self.winning_outcomes
+            .as_ref()
+            .map(|outcomes| outcomes.contains(outcome))
+            .unwrap_or(false)
     }
 
     /// Get total dispute stakes for the market
@@ -995,8 +1122,249 @@ impl Market {
 pub enum ReflectorAsset {
     /// Stellar Lumens (XLM)
     Stellar,
+    /// Bitcoin (BTC)
+    BTC,
+    /// Ethereum (ETH)
+    ETH,
     /// Other asset identified by symbol
     Other(Symbol),
+}
+
+// ===== ORACLE RESULT TYPES FOR AUTOMATIC RESULT VERIFICATION =====
+
+/// Comprehensive oracle result structure for automatic result verification.
+///
+/// This structure captures the complete oracle response including the fetched data,
+/// signature verification details, timestamp, and validation status. Used for
+/// automated event outcome verification from external data sources.
+///
+/// # Components
+///
+/// **Result Data:**
+/// - **market_id**: Market being resolved
+/// - **outcome**: Determined outcome ("yes"/"no" or custom)
+/// - **price**: Fetched price value from oracle
+/// - **threshold**: Configured threshold for comparison
+///
+/// **Verification Data:**
+/// - **provider**: Oracle provider used
+/// - **signature**: Oracle signature for authenticity (if available)
+/// - **is_verified**: Whether signature validation passed
+/// - **confidence_score**: Statistical confidence (0-100)
+///
+/// **Metadata:**
+/// - **timestamp**: When result was fetched
+/// - **block_number**: Ledger sequence at fetch time
+/// - **sources_count**: Number of oracle sources consulted
+///
+/// # Example Usage
+///
+/// ```rust
+/// # use soroban_sdk::{Env, Symbol, String, BytesN};
+/// # use predictify_hybrid::types::{OracleResult, OracleProvider};
+/// # let env = Env::default();
+///
+/// let oracle_result = OracleResult {
+///     market_id: Symbol::new(&env, "btc_50k"),
+///     outcome: String::from_str(&env, "yes"),
+///     price: 52_000_00,
+///     threshold: 50_000_00,
+///     comparison: String::from_str(&env, "gt"),
+///     provider: OracleProvider::Reflector,
+///     feed_id: String::from_str(&env, "BTC/USD"),
+///     timestamp: env.ledger().timestamp(),
+///     block_number: env.ledger().sequence(),
+///     is_verified: true,
+///     confidence_score: 95,
+///     sources_count: 3,
+///     signature: None,
+///     error_message: None,
+/// };
+/// ```
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OracleResult {
+    /// Market ID this result is for
+    pub market_id: Symbol,
+    /// Determined outcome ("yes", "no", or custom outcome)
+    pub outcome: String,
+    /// Fetched price from oracle
+    pub price: i128,
+    /// Threshold configured for this market
+    pub threshold: i128,
+    /// Comparison operator used ("gt", "lt", "eq")
+    pub comparison: String,
+    /// Oracle provider that provided the result
+    pub provider: OracleProvider,
+    /// Feed ID used for price lookup
+    pub feed_id: String,
+    /// Timestamp when result was fetched
+    pub timestamp: u64,
+    /// Ledger sequence number at fetch time
+    pub block_number: u32,
+    /// Whether the oracle response was verified (signature valid)
+    pub is_verified: bool,
+    /// Confidence score (0-100)
+    pub confidence_score: u32,
+    /// Number of oracle sources consulted
+    pub sources_count: u32,
+    /// Oracle signature bytes (optional, for providers that support signatures)
+    pub signature: Option<String>,
+    /// Error message if verification failed
+    pub error_message: Option<String>,
+}
+
+impl OracleResult {
+    /// Check if the oracle result is valid and verified
+    pub fn is_valid(&self) -> bool {
+        self.is_verified && self.confidence_score >= 50 && self.price > 0
+    }
+
+    /// Check if the oracle data is fresh (within max_age_seconds)
+    pub fn is_fresh(&self, current_time: u64, max_age_seconds: u64) -> bool {
+        current_time.saturating_sub(self.timestamp) <= max_age_seconds
+    }
+}
+
+/// Multi-oracle aggregated result for consensus-based verification.
+///
+/// This structure aggregates results from multiple oracle sources to provide
+/// a more reliable and tamper-resistant outcome determination.
+///
+/// # Example Usage
+///
+/// ```rust
+/// # use soroban_sdk::{Env, Symbol, String, Vec};
+/// # use predictify_hybrid::types::{MultiOracleResult, OracleResult, OracleProvider};
+/// # let env = Env::default();
+///
+/// let multi_result = MultiOracleResult {
+///     market_id: Symbol::new(&env, "btc_50k"),
+///     final_outcome: String::from_str(&env, "yes"),
+///     individual_results: Vec::new(&env),
+///     consensus_reached: true,
+///     consensus_threshold: 66,
+///     agreement_percentage: 100,
+///     timestamp: env.ledger().timestamp(),
+/// };
+/// ```
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiOracleResult {
+    /// Market ID this result is for
+    pub market_id: Symbol,
+    /// Final determined outcome based on consensus
+    pub final_outcome: String,
+    /// Individual results from each oracle source
+    pub individual_results: Vec<OracleResult>,
+    /// Whether consensus was reached among oracles
+    pub consensus_reached: bool,
+    /// Required consensus threshold (percentage, e.g., 66 for 2/3)
+    pub consensus_threshold: u32,
+    /// Actual agreement percentage among oracles
+    pub agreement_percentage: u32,
+    /// Aggregation timestamp
+    pub timestamp: u64,
+}
+
+impl MultiOracleResult {
+    /// Check if the multi-oracle result has sufficient consensus
+    pub fn has_consensus(&self) -> bool {
+        self.consensus_reached && self.agreement_percentage >= self.consensus_threshold
+    }
+}
+
+/// Oracle source configuration for multi-oracle support.
+///
+/// Defines a single oracle source with its configuration, weight, and status.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OracleSource {
+    /// Unique identifier for this oracle source
+    pub source_id: Symbol,
+    /// Oracle provider type
+    pub provider: OracleProvider,
+    /// Oracle contract address
+    pub contract_address: Address,
+    /// Weight for consensus calculation (1-100)
+    pub weight: u32,
+    /// Whether this source is currently active
+    pub is_active: bool,
+    /// Priority for fallback ordering (lower = higher priority)
+    pub priority: u32,
+    /// Last successful response timestamp
+    pub last_success: u64,
+    /// Consecutive failure count
+    pub failure_count: u32,
+}
+
+/// Oracle fetch request configuration.
+///
+/// Specifies parameters for fetching oracle data including timeout,
+/// retry settings, and source preferences.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OracleFetchRequest {
+    /// Market ID to fetch result for
+    pub market_id: Symbol,
+    /// Feed ID to query
+    pub feed_id: String,
+    /// Maximum age of data in seconds (staleness threshold)
+    pub max_data_age: u64,
+    /// Required number of confirmations/sources
+    pub required_confirmations: u32,
+    /// Whether to use fallback sources on primary failure
+    pub use_fallback: bool,
+    /// Minimum confidence score required
+    pub min_confidence: u32,
+}
+
+impl OracleFetchRequest {
+    /// Create a default fetch request for a market
+    pub fn new(env: &Env, market_id: Symbol, feed_id: String) -> Self {
+        Self {
+            market_id,
+            feed_id,
+            max_data_age: 300, // 5 minutes default
+            required_confirmations: 1,
+            use_fallback: true,
+            min_confidence: 50,
+        }
+    }
+
+    /// Create a strict fetch request requiring multiple confirmations
+    pub fn strict(env: &Env, market_id: Symbol, feed_id: String) -> Self {
+        Self {
+            market_id,
+            feed_id,
+            max_data_age: 60, // 1 minute
+            required_confirmations: 2,
+            use_fallback: true,
+            min_confidence: 80,
+        }
+    }
+}
+
+/// Oracle verification status for tracking verification state.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OracleVerificationStatus {
+    /// Verification not yet attempted
+    Pending,
+    /// Verification in progress
+    InProgress,
+    /// Verification successful
+    Verified,
+    /// Verification failed - invalid signature
+    InvalidSignature,
+    /// Verification failed - stale data
+    StaleData,
+    /// Verification failed - oracle unavailable
+    OracleUnavailable,
+    /// Verification failed - threshold not met
+    ThresholdNotMet,
+    /// Verification failed - consensus not reached
+    NoConsensus,
 }
 
 /// Comprehensive price data structure from Reflector Oracle.
@@ -2613,13 +2981,7 @@ impl Bet {
     /// # Returns
     ///
     /// A new `Bet` instance with `Active` status and current timestamp
-    pub fn new(
-        env: &Env,
-        user: Address,
-        market_id: Symbol,
-        outcome: String,
-        amount: i128,
-    ) -> Self {
+    pub fn new(env: &Env, user: Address, market_id: Symbol, outcome: String, amount: i128) -> Self {
         Self {
             user,
             market_id,
@@ -2699,4 +3061,49 @@ pub struct BetStats {
     pub unique_bettors: u32,
     /// Total amount locked per outcome
     pub outcome_totals: Map<String, i128>,
+}
+
+// ===== EVENT TYPES =====
+
+/// Represents a prediction market event with specified parameters.
+///
+/// This structure stores all metadata and configuration for a prediction event,
+/// including its description, possible outcomes, timing, and oracle integration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Event {
+    /// Unique identifier for the event
+    pub id: Symbol,
+    /// Event description or question
+    pub description: String,
+    /// Possible outcomes for the event (e.g., ["yes", "no"])
+    pub outcomes: Vec<String>,
+    /// When the event ends (Unix timestamp)
+    pub end_time: u64,
+    /// Oracle configuration for result verification (primary)
+    pub oracle_config: OracleConfig,
+    /// Fallback oracle configuration
+    pub fallback_oracle_config: Option<OracleConfig>,
+    /// Resolution timeout in seconds after end_time
+    pub resolution_timeout: u64,
+    /// Administrative address that created/manages the event
+    pub admin: Address,
+    /// When the event was created (Unix timestamp)
+    pub created_at: u64,
+    /// Current status of the event
+    pub status: MarketState,
+}
+
+impl ReflectorAsset {
+    pub fn is_xlm(&self) -> bool {
+        matches!(self, ReflectorAsset::Stellar)
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Balance {
+    pub user: Address,
+    pub asset: ReflectorAsset,
+    pub amount: i128,
 }

@@ -1,4 +1,10 @@
 #![no_std]
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_mut)]
+#![allow(deprecated)]
 
 extern crate alloc;
 extern crate wee_alloc;
@@ -8,6 +14,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 // Module declarations - all modules enabled
 mod admin;
+mod balances;
 mod batch_operations;
 mod bets;
 mod circuit_breaker;
@@ -15,6 +22,7 @@ mod config;
 mod disputes;
 mod edge_cases;
 mod errors;
+mod event_archive;
 mod events;
 mod extensions;
 mod fees;
@@ -31,6 +39,7 @@ mod rate_limiter;
 mod recovery;
 mod reentrancy_guard;
 mod resolution;
+mod statistics;
 mod storage;
 mod types;
 mod upgrade_manager;
@@ -46,6 +55,8 @@ mod bandprotocol {
 
 #[cfg(test)]
 mod circuit_breaker_tests;
+#[cfg(test)]
+mod oracle_fallback_timeout_tests;
 
 #[cfg(test)]
 mod batch_operations_tests;
@@ -66,6 +77,22 @@ mod upgrade_manager_tests;
 mod query_tests;
 mod bet_tests;
 
+#[cfg(test)]
+mod balance_tests;
+
+#[cfg(test)]
+mod event_management_tests;
+
+#[cfg(test)]
+mod category_tags_tests;
+mod statistics_tests;
+
+#[cfg(test)]
+mod resolution_delay_dispute_window_tests;
+
+#[cfg(test)]
+mod event_creation_tests;
+
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
 pub use errors::Error;
@@ -80,6 +107,7 @@ use crate::events::EventEmitter;
 use crate::graceful_degradation::{OracleBackup, OracleHealth};
 use crate::market_id_generator::MarketIdGenerator;
 use crate::reentrancy_guard::ReentrancyGuard;
+use crate::resolution::OracleResolution;
 use alloc::format;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, Address, Env, Map, String, Symbol, Vec,
@@ -176,18 +204,69 @@ impl PredictifyHybrid {
         EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
     }
 
+    /// Deposits funds into the user's balance.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user depositing funds.
+    /// * `asset` - The asset to deposit (e.g., XLM, BTC, ETH).
+    /// * `amount` - The amount to deposit.
+    pub fn deposit(
+        env: Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
+        balances::BalanceManager::deposit(&env, user, asset, amount)
+    }
+
+    /// Withdraws funds from the user's balance.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user withdrawing funds.
+    /// * `asset` - The asset to withdraw.
+    /// * `amount` - The amount to withdraw.
+    pub fn withdraw(
+        env: Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
+        balances::BalanceManager::withdraw(&env, user, asset, amount)
+    }
+
+    /// Gets the current balance of a user for a specific asset.
+    ///
+    /// # Parameters
+    /// * `env` - The environment.
+    /// * `user` - The user to check.
+    /// * `asset` - The asset to check.
+    pub fn get_balance(env: Env, user: Address, asset: ReflectorAsset) -> Balance {
+        storage::BalanceStorage::get_balance(&env, &user, &asset)
+    }
+
     /// Creates a new prediction market with specified parameters and oracle configuration.
     ///
     /// This function allows authorized administrators to create prediction markets
     /// with custom questions, possible outcomes, duration, and oracle integration.
     /// Each market gets a unique identifier and is stored in persistent contract storage.
     ///
+    /// # Multi-Outcome Support
+    ///
+    /// Markets support 2 to N outcomes, enabling both binary (yes/no) and multi-outcome
+    /// markets (e.g., Team A / Team B / Draw). The contract handles:
+    /// - Single winner resolution (one outcome wins)
+    /// - Tie/multi-winner resolution (multiple outcomes win, pool split proportionally)
+    /// - Outcome validation during bet placement
+    /// - Proportional payout distribution for ties
+    ///
     /// # Parameters
     ///
     /// * `env` - The Soroban environment for blockchain operations
     /// * `admin` - The administrator address creating the market (must be authorized)
     /// * `question` - The prediction question (must be non-empty)
-    /// * `outcomes` - Vector of possible outcomes (minimum 2 required, all non-empty)
+    /// * `outcomes` - Vector of possible outcomes (minimum 2 required, all non-empty, no duplicates)
     /// * `duration_days` - Market duration in days (must be between 1-365 days)
     /// * `oracle_config` - Configuration for oracle integration (Reflector, Pyth, etc.)
     ///
@@ -233,6 +312,39 @@ impl PredictifyHybrid {
     /// );
     /// ```
     ///
+    /// # Multi-Outcome Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, String, Vec};
+    /// # use predictify_hybrid::{PredictifyHybrid, OracleConfig, OracleProvider};
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    ///
+    /// // Create a 3-outcome market (e.g., match result)
+    /// let question = String::from_str(&env, "Match result?");
+    /// let outcomes = vec![
+    ///     &env,
+    ///     String::from_str(&env, "Team A"),
+    ///     String::from_str(&env, "Team B"),
+    ///     String::from_str(&env, "Draw"),
+    /// ];
+    /// let oracle_config = OracleConfig::new(
+    ///     OracleProvider::Reflector,
+    ///     String::from_str(&env, "BTC/USD"),
+    ///     50_000_00,
+    ///     String::from_str(&env, "gt"),
+    /// );
+    ///
+    /// let market_id = PredictifyHybrid::create_market(
+    ///     env.clone(),
+    ///     admin,
+    ///     question,
+    ///     outcomes,
+    ///     30,
+    ///     oracle_config
+    /// );
+    /// ```
+    ///
     /// # Market State
     ///
     /// New markets are created in `MarketState::Active` state, allowing immediate voting.
@@ -244,6 +356,8 @@ impl PredictifyHybrid {
         outcomes: Vec<String>,
         duration_days: u32,
         oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -285,18 +399,22 @@ impl PredictifyHybrid {
             outcomes: outcomes.clone(),
             end_time,
             oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
             oracle_result: None,
             votes: Map::new(&env),
             total_staked: 0,
             dispute_stakes: Map::new(&env),
             stakes: Map::new(&env),
             claimed: Map::new(&env),
-            winning_outcome: None,
+            winning_outcomes: None,
             fee_collected: false,
             state: MarketState::Active,
             total_extension_days: 0,
             max_extension_days: 30,
             extension_history: Vec::new(&env),
+            category: None,
+            tags: Vec::new(&env),
         };
 
         // Store the market
@@ -305,7 +423,121 @@ impl PredictifyHybrid {
         // Emit market created event
         EventEmitter::emit_market_created(&env, &market_id, &question, &outcomes, &admin, end_time);
 
+        // Record statistics
+        statistics::StatisticsManager::record_market_created(&env);
+
         market_id
+    }
+
+    /// Creates a new prediction event with specified parameters.
+    ///
+    /// This function allows authorized admins to create prediction events
+    /// with specific descriptions, possible outcomes, and end times. Unlike `create_market`,
+    /// this function accepts an absolute Unix timestamp for the end time.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `admin` - The administrator address (must be authorized)
+    /// * `description` - The event description or question
+    /// * `outcomes` - Vector of possible outcomes
+    /// * `end_time` - Absolute Unix timestamp for when the event ends
+    /// * `oracle_config` - Configuration for oracle integration
+    ///
+    /// # Returns
+    ///
+    /// Returns a unique `Symbol` serving as the event identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - Caller is not the contract admin
+    /// - validation fails (invalid description, outcomes, or end time)
+    pub fn create_event(
+        env: Env,
+        admin: Address,
+        description: String,
+        outcomes: Vec<String>,
+        end_time: u64,
+        oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
+    ) -> Symbol {
+        // Authenticate that the caller is the admin
+        admin.require_auth();
+
+        // Verify the caller is an admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic!("Admin not set");
+            });
+
+        if admin != stored_admin {
+            panic_with_error!(env, Error::Unauthorized);
+        }
+
+        // Validate inputs using EventValidator
+        if let Err(e) = crate::validation::EventValidator::validate_event_creation(
+            &env,
+            &admin,
+            &description,
+            &outcomes,
+            &end_time,
+        ) {
+            panic_with_error!(env, e.to_contract_error());
+        }
+
+        // Generate a unique collision-resistant event ID (reusing market ID generator)
+        let event_id = MarketIdGenerator::generate_market_id(&env, &admin);
+
+        // Create a new event
+        let event = Event {
+            id: event_id.clone(),
+            description: description.clone(),
+            outcomes: outcomes.clone(),
+            end_time,
+            oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
+            admin: admin.clone(),
+            created_at: env.ledger().timestamp(),
+            status: MarketState::Active,
+        };
+
+        // Store the event
+        crate::storage::EventManager::store_event(&env, &event);
+
+        // Emit event created event
+        EventEmitter::emit_event_created(
+            &env,
+            &event_id,
+            &description,
+            &outcomes,
+            &admin,
+            end_time,
+        );
+
+        // Record statistics (optional, can reuse market stats for now)
+        // statistics::StatisticsManager::record_market_created(&env);
+
+        event_id
+    }
+
+    /// Retrieves an event by its unique identifier.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `event_id` - Unique identifier of the event to retrieve
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(Event)` if found, or `None` otherwise.
+    pub fn get_event(env: Env, event_id: Symbol) -> Option<Event> {
+        crate::storage::EventManager::get_event(&env, &event_id).ok()
     }
 
     /// Allows users to vote on a market outcome by staking tokens.
@@ -387,6 +619,12 @@ impl PredictifyHybrid {
             panic_with_error!(env, Error::AlreadyVoted);
         }
 
+        // Lock funds (transfer from user to contract)
+        match bets::BetUtils::lock_funds(&env, &user, stake) {
+            Ok(_) => {}
+            Err(e) => panic_with_error!(env, e),
+        }
+
         // Store the vote and stake
         market.votes.set(user.clone(), outcome.clone());
         market.stakes.set(user.clone(), stake);
@@ -422,7 +660,7 @@ impl PredictifyHybrid {
     /// This function will panic with specific errors if:
     /// - `Error::MarketNotFound` - Market with given ID doesn't exist
     /// - `Error::MarketClosed` - Market betting period has ended or market is not active
-    /// - `Error::MarketAlreadyResolved` - Market has already been resolved
+    /// - `Error::MarketResolved` - Market has already been resolved
     /// - `Error::InvalidOutcome` - Outcome doesn't match any market outcomes
     /// - `Error::AlreadyBet` - User has already placed a bet on this market
     /// - `Error::InsufficientStake` - Bet amount is below minimum (0.1 XLM)
@@ -474,7 +712,59 @@ impl PredictifyHybrid {
     /// - User authentication via `require_auth()`
     /// - Balance validation before fund transfer
     /// - Atomic fund locking with bet creation
-    /// - Reentrancy protection via Soroban's design
+    /// - Reentrancy protection via reentrancy guard (guard flag in storage)
+    /// Places a bet on a specific outcome in a prediction market.
+    ///
+    /// This function allows users to place bets on markets with 2 or more outcomes.
+    /// The outcome must be one of the valid outcomes defined when the market was created.
+    /// Users can only place one bet per market.
+    ///
+    /// # Multi-Outcome Support
+    ///
+    /// - Validates that the selected outcome exists in the market's outcome list
+    /// - Works with binary (2 outcomes) and multi-outcome (N outcomes) markets
+    /// - Rejects invalid outcomes that don't match any market outcome
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `user` - The address of the user placing the bet (must be authenticated)
+    /// * `market_id` - Unique identifier of the market to bet on
+    /// * `outcome` - The outcome to bet on (must match one of the market's outcomes)
+    /// * `amount` - Amount of tokens to bet (must meet minimum/maximum bet limits)
+    ///
+    /// # Returns
+    ///
+    /// Returns the created `Bet` struct containing bet details.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketClosed` - Market is not active or has ended
+    /// - `Error::InvalidOutcome` - Outcome doesn't match any market outcomes
+    /// - `Error::AlreadyBet` - User has already placed a bet on this market
+    /// - `Error::InsufficientStake` - Bet amount is below minimum
+    /// - `Error::InvalidInput` - Bet amount exceeds maximum
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Place bet on "Team A" outcome
+    /// let bet = PredictifyHybrid::place_bet(
+    ///     env.clone(),
+    ///     user,
+    ///     market_id,
+    ///     String::from_str(&env, "Team A"),
+    ///     10_0000000, // 10 XLM
+    /// );
+    /// ```
     pub fn place_bet(
         env: Env,
         user: Address,
@@ -482,9 +772,84 @@ impl PredictifyHybrid {
         outcome: String,
         amount: i128,
     ) -> crate::types::Bet {
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            panic_with_error!(env, Error::InvalidState);
+        }
         // Use the BetManager to handle the bet placement
-        match bets::BetManager::place_bet(&env, user, market_id, outcome, amount) {
-            Ok(bet) => bet,
+        match bets::BetManager::place_bet(&env, user.clone(), market_id, outcome, amount) {
+            Ok(bet) => {
+                // Record statistics
+                statistics::StatisticsManager::record_bet_placed(&env, &user, amount);
+                bet
+            }
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    /// Places multiple bets in a single atomic transaction.
+    ///
+    /// This function enables users to place multiple bets across different markets
+    /// or outcomes in a single transaction, providing gas efficiency and atomicity.
+    /// All bets must succeed or the entire transaction reverts.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `user` - The address of the user placing the bets (must be authenticated)
+    /// * `bets` - Vector of tuples containing (market_id, outcome, amount) for each bet
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Vec<Bet>` containing all successfully placed bets.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - Any bet fails validation (market not found, closed, invalid outcome, etc.)
+    /// - User has insufficient balance for the total amount
+    /// - User has already bet on any of the markets
+    /// - Any bet amount is below minimum or above maximum
+    /// - The batch is empty or exceeds maximum batch size
+    ///
+    /// # Atomicity
+    ///
+    /// All bets are validated before any funds are locked. If any single bet
+    /// fails validation, the entire transaction reverts with no state changes.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, String, Symbol, Vec};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    ///
+    /// let bets = vec![
+    ///     &env,
+    ///     (
+    ///         Symbol::new(&env, "btc_100k"),
+    ///         String::from_str(&env, "yes"),
+    ///         10_000_000i128  // 1.0 XLM
+    ///     ),
+    ///     (
+    ///         Symbol::new(&env, "eth_5k"),
+    ///         String::from_str(&env, "no"),
+    ///         5_000_000i128   // 0.5 XLM
+    ///     ),
+    /// ];
+    ///
+    /// let placed_bets = PredictifyHybrid::place_bets(env.clone(), user, bets);
+    /// ```
+    pub fn place_bets(
+        env: Env,
+        user: Address,
+        bets: Vec<(Symbol, String, i128)>,
+    ) -> Vec<crate::types::Bet> {
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            panic_with_error!(env, Error::InvalidState);
+        }
+        match bets::BetManager::place_bets(&env, user, bets) {
+            Ok(placed_bets) => placed_bets,
             Err(e) => panic_with_error!(env, e),
         }
     }
@@ -593,6 +958,102 @@ impl PredictifyHybrid {
     /// ```
     pub fn get_market_bet_stats(env: Env, market_id: Symbol) -> crate::types::BetStats {
         bets::BetManager::get_market_bet_stats(&env, &market_id)
+    }
+
+    /// Calculate the payout amount for a user's bet on a resolved market.
+    ///
+    /// This function calculates how much a user will receive if they won their bet.
+    /// For multi-outcome markets with ties, the payout is calculated based on
+    /// the proportional share of the total pool split among all winners.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    /// * `user` - Address of the user to calculate payout for
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(i128)` with the payout amount in base token units, or `Err(Error)` if calculation fails.
+    /// Returns `Ok(0)` if the user didn't win or has no bet.
+    ///
+    /// # Errors
+    ///
+    /// - `Error::MarketNotFound` - Market doesn't exist
+    /// - `Error::MarketNotResolved` - Market hasn't been resolved yet
+    /// - `Error::NothingToClaim` - User has no bet on this market
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let market_id = Symbol::new(&env, "resolved_market");
+    /// # let user = Address::generate(&env);
+    ///
+    /// match PredictifyHybrid::calculate_bet_payout(env.clone(), market_id, user) {
+    ///     Ok(payout) => println!("User will receive {} stroops", payout),
+    ///     Err(e) => println!("Calculation failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Payout Calculation for Ties
+    ///
+    /// When multiple outcomes win (tie):
+    /// - Total pool is split proportionally among all winners
+    /// - Each winner's payout = (their_stake / total_winning_stakes) * total_pool * (1 - fee)
+    /// - This ensures fair distribution even when outcomes are tied
+    /// Calculates the payout amount for a user's bet on a resolved market.
+    ///
+    /// This function computes the payout based on:
+    /// - Whether the user's bet outcome is a winning outcome
+    /// - The user's stake relative to total winning stakes
+    /// - The total pool size
+    /// - Platform fees
+    ///
+    /// # Multi-Outcome Support
+    ///
+    /// For markets with multiple winning outcomes (ties):
+    /// - Payouts are calculated proportionally across all winning outcomes
+    /// - Total winning stakes = sum of all stakes on all winning outcomes
+    /// - User's share = (user_stake / total_winning_stakes) * total_pool * (1 - fee)
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    /// * `user` - Address of the user whose payout to calculate
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(i128)` with the payout amount in base token units if:
+    /// - Market is resolved
+    /// - User placed a bet
+    /// - User's outcome is a winning outcome
+    ///
+    /// Returns `Err(Error)` if:
+    /// - Market is not resolved
+    /// - User has no bet
+    /// - User's outcome did not win
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Calculate payout for user's winning bet
+    /// match PredictifyHybrid::calculate_bet_payout(env.clone(), market_id, user) {
+    ///     Ok(payout) => println!("Payout: {}", payout),
+    ///     Err(e) => println!("Error: {:?}", e),
+    /// }
+    /// ```
+    pub fn calculate_bet_payout(env: Env, market_id: Symbol, user: Address) -> Result<i128, Error> {
+        bets::BetManager::calculate_bet_payout(&env, &market_id, &user)
     }
 
     /// Calculates the implied probability for an outcome based on bet distribution.
@@ -721,6 +1182,9 @@ impl PredictifyHybrid {
     /// - User must not have previously claimed winnings
     pub fn claim_winnings(env: Env, user: Address, market_id: Symbol) {
         user.require_auth();
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            panic_with_error!(env, Error::InvalidState);
+        }
 
         let mut market: Market = env
             .storage()
@@ -736,8 +1200,8 @@ impl PredictifyHybrid {
         }
 
         // Check if market is resolved
-        let winning_outcome = match &market.winning_outcome {
-            Some(outcome) => outcome,
+        let winning_outcomes = match &market.winning_outcomes {
+            Some(outcomes) => outcomes,
             None => panic_with_error!(env, Error::MarketNotResolved),
         };
 
@@ -749,12 +1213,12 @@ impl PredictifyHybrid {
 
         let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
 
-        // Calculate payout if user won
-        if &user_outcome == winning_outcome {
-            // Calculate total winning stakes
+        // Calculate payout if user won (check if outcome is in winning outcomes)
+        if winning_outcomes.contains(&user_outcome) {
+            // Calculate total winning stakes across all winning outcomes
             let mut winning_total = 0;
             for (voter, outcome) in market.votes.iter() {
-                if &outcome == winning_outcome {
+                if winning_outcomes.contains(&outcome) {
                     winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
                 }
             }
@@ -763,13 +1227,50 @@ impl PredictifyHybrid {
                 // Retrieve dynamic platform fee percentage from configuration
                 let cfg = match crate::config::ConfigManager::get_config(&env) {
                     Ok(c) => c,
-                    Err(_) => panic_with_error!(env, Error::ConfigurationNotFound),
+                    Err(_) => panic_with_error!(env, Error::ConfigNotFound),
                 };
                 let fee_percent = cfg.fees.platform_fee_percentage;
-                let user_share =
-                    (user_stake * (PERCENTAGE_DENOMINATOR - fee_percent)) / PERCENTAGE_DENOMINATOR;
+                let user_share = (user_stake
+                    .checked_mul(PERCENTAGE_DENOMINATOR - fee_percent)
+                    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput)))
+                    / PERCENTAGE_DENOMINATOR;
                 let total_pool = market.total_staked;
-                let payout = (user_share * total_pool) / winning_total;
+                let product = user_share
+                    .checked_mul(total_pool)
+                    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
+                let payout = product / winning_total;
+
+                // Calculate fee amount for statistics
+                // Payout is net of fee. Fee was deducted in user_share calculation.
+                // Gross payout would be (user_stake * total_pool) / winning_total
+                // Logic check:
+                // user_share = user_stake * (1 - fee)
+                // payout = user_share * pool / winning_total
+                // payout = user_stake * (1-fee) * pool / winning_total
+                // payout = (user_stake * pool / winning_total) - (user_stake * pool / winning_total * fee)
+                // So Fee = (user_stake * pool / winning_total) * fee
+                // Or Fee = Payout / (1 - fee) * fee ? No, division precision.
+                // Simpler: Fee = (Payout * fee_percent) / (100 - fee_percent)?
+                // Let's rely on explicit calculation if possible or approximation.
+                // Actually, let's re-calculate gross to get fee.
+                // Gross = (user_stake * total_pool) / winning_total.
+                // Fee = Gross - Payout.
+
+                let gross_share = (user_stake
+                    .checked_mul(PERCENTAGE_DENOMINATOR)
+                    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput)))
+                    / PERCENTAGE_DENOMINATOR;
+                // Wait, user_stake * 100 / 100 = user_stake.
+                // The math above used PERCENTAGE_DENOMINATOR (100).
+
+                let product_gross = user_stake
+                    .checked_mul(total_pool)
+                    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
+                let gross_payout = product_gross / winning_total;
+                let fee_amount = gross_payout - payout;
+
+                statistics::StatisticsManager::record_winnings_claimed(&env, &user, payout);
+                statistics::StatisticsManager::record_fees_collected(&env, fee_amount);
 
                 // Mark as claimed
                 market.claimed.set(user.clone(), true);
@@ -778,7 +1279,17 @@ impl PredictifyHybrid {
                 // Emit winnings claimed event
                 EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
 
-                // In a real implementation, transfer tokens here
+                // Credit tokens to user balance
+                match storage::BalanceStorage::add_balance(
+                    &env,
+                    &user,
+                    &types::ReflectorAsset::Stellar,
+                    payout,
+                ) {
+                    Ok(_) => {}
+                    Err(e) => panic_with_error!(env, e),
+                }
+
                 return;
             }
         }
@@ -946,41 +1457,190 @@ impl PredictifyHybrid {
         // Capture old state for event
         let old_state = market.state.clone();
 
-        // Set winning outcome and update state
-        market.winning_outcome = Some(winning_outcome.clone());
+        // Set winning outcome(s) as a vector (single outcome for now, supports future multi-winner)
+        let mut winning_outcomes_vec = Vec::new(&env);
+        winning_outcomes_vec.push_back(winning_outcome.clone());
+        market.winning_outcomes = Some(winning_outcomes_vec.clone());
         market.state = MarketState::Resolved;
         env.storage().persistent().set(&market_id, &market);
 
-        // Emit market resolved event
+        // Resolve bets to mark them as won/lost
+        let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes_vec);
+
+        // Emit market resolved event (simplified to avoid segfaults)
         let oracle_result_str = market
             .oracle_result
             .clone()
             .unwrap_or_else(|| String::from_str(&env, "N/A"));
         let community_consensus_str = String::from_str(&env, "Manual");
+        let resolution_method = String::from_str(&env, "Manual");
 
+        // Emit events with defensive approach
         EventEmitter::emit_market_resolved(
             &env,
             &market_id,
             &winning_outcome,
             &oracle_result_str,
             &community_consensus_str,
-            &String::from_str(&env, "Manual"),
+            &resolution_method,
             100, // confidence score for manual resolution
         );
 
         // Emit state change event
+        let reason = String::from_str(&env, "Manual resolution by admin");
         EventEmitter::emit_state_change_event(
             &env,
             &market_id,
             &old_state,
             &MarketState::Resolved,
-            &String::from_str(&env, "Manual resolution by admin"),
+            &reason,
         );
 
-        // Trigger automatic payout distribution for dispute resolution
-        // Note: This can be called separately, but we include it here for convenience
-        // In production, you might want to make this optional or separate
-        let _ = Self::distribute_payouts(env.clone(), market_id.clone());
+        // Automatically distribute payouts to winners after resolution
+        let _ = Self::distribute_payouts(env.clone(), market_id);
+    }
+
+    /// Resolves a market with multiple winning outcomes (for tie cases).
+    ///
+    /// This function allows authorized administrators to resolve a market with
+    /// multiple winners when there's a tie. The pool will be split proportionally
+    /// among all winning outcomes based on stake distribution.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address performing the resolution (must be authorized)
+    /// * `market_id` - Unique identifier of the market to resolve
+    /// * `winning_outcomes` - Vector of outcomes to be declared as winners (minimum 1, all must be valid)
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketClosed` - Market hasn't ended yet
+    /// - `Error::InvalidOutcome` - One or more outcomes are not valid for this market
+    /// - `Error::InvalidInput` - Empty outcomes vector
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String, Vec};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "sports_match");
+    ///
+    /// // Resolve with tie (Team A and Team B both win)
+    /// let winning_outcomes = vec![
+    ///     &env,
+    ///     String::from_str(&env, "Team A"),
+    ///     String::from_str(&env, "Team B"),
+    /// ];
+    ///
+    /// PredictifyHybrid::resolve_market_with_ties(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     winning_outcomes
+    /// );
+    /// ```
+    ///
+    /// # Pool Split Logic
+    ///
+    /// When multiple outcomes win:
+    /// - Total pool is split proportionally among all winners
+    /// - Each winner receives: (their_stake / total_winning_stakes) * total_pool * (1 - fee)
+    /// - This ensures fair distribution even when outcomes are tied
+    pub fn resolve_market_with_ties(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        winning_outcomes: Vec<String>,
+    ) {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::Unauthorized);
+            });
+
+        if admin != stored_admin {
+            panic_with_error!(env, Error::Unauthorized);
+        }
+
+        // Validate outcomes vector is not empty
+        if winning_outcomes.len() == 0 {
+            panic_with_error!(env, Error::InvalidInput);
+        }
+
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .unwrap_or_else(|| {
+                panic_with_error!(env, Error::MarketNotFound);
+            });
+
+        // Check if market has ended
+        if env.ledger().timestamp() < market.end_time {
+            panic_with_error!(env, Error::MarketClosed);
+        }
+
+        // Validate all winning outcomes exist in market outcomes
+        for outcome in winning_outcomes.iter() {
+            let outcome_exists = market.outcomes.iter().any(|o| o == outcome);
+            if !outcome_exists {
+                panic_with_error!(env, Error::InvalidOutcome);
+            }
+        }
+
+        // Capture old state for event
+        let old_state = market.state.clone();
+
+        // Set winning outcome(s) - supports multiple winners for ties
+        market.winning_outcomes = Some(winning_outcomes.clone());
+        market.state = MarketState::Resolved;
+        env.storage().persistent().set(&market_id, &market);
+
+        // Resolve bets to mark them as won/lost
+        let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes);
+
+        // Emit market resolved event
+        let primary_outcome = winning_outcomes.get(0).unwrap().clone();
+        let oracle_result_str = market
+            .oracle_result
+            .clone()
+            .unwrap_or_else(|| String::from_str(&env, "N/A"));
+        let community_consensus_str = String::from_str(&env, "Manual");
+        let resolution_method = String::from_str(&env, "Manual");
+
+        EventEmitter::emit_market_resolved(
+            &env,
+            &market_id,
+            &primary_outcome,
+            &oracle_result_str,
+            &community_consensus_str,
+            &resolution_method,
+            100, // confidence score for manual resolution
+        );
+
+        // Emit state change event
+        let reason = String::from_str(&env, "Manual resolution with ties by admin");
+        EventEmitter::emit_state_change_event(
+            &env,
+            &market_id,
+            &old_state,
+            &MarketState::Resolved,
+            &reason,
+        );
+
+        // Automatically distribute payouts (handles split pool for ties)
+        let _ = Self::distribute_payouts(env.clone(), market_id);
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
@@ -1005,7 +1665,7 @@ impl PredictifyHybrid {
     ///
     /// This function returns specific errors:
     /// - `Error::MarketNotFound` - Market with given ID doesn't exist
-    /// - `Error::MarketAlreadyResolved` - Market already has oracle result set
+    /// - `Error::MarketResolved` - Market already has oracle result set
     /// - `Error::MarketClosed` - Market hasn't reached its end time yet
     /// - Oracle-specific errors from the resolution module
     ///
@@ -1060,7 +1720,7 @@ impl PredictifyHybrid {
 
         // Validate market state
         if market.oracle_result.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+            return Err(Error::MarketResolved);
         }
 
         // Check if market has ended
@@ -1077,6 +1737,267 @@ impl PredictifyHybrid {
         )?;
 
         Ok(oracle_resolution.oracle_result)
+    pub fn fetch_oracle_result(env: Env, market_id: Symbol) -> Result<OracleResolution, Error> {
+        resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)
+    }
+
+    /// Verifies and fetches event outcome from external oracle sources automatically.
+    ///
+    /// This function implements the complete oracle integration mechanism that:
+    /// - Automatically fetches event outcomes from configured external data sources
+    /// - Validates oracle responses and signatures/authority
+    /// - Supports multiple oracle sources with consensus-based verification
+    /// - Handles oracle failures gracefully with fallback mechanisms
+    /// - Emits result verification events for transparency
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `caller` - The address initiating the verification (must be authenticated)
+    /// * `market_id` - Unique identifier of the market to verify
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<OracleResult, Error>` where:
+    /// - `Ok(OracleResult)` - Complete oracle verification result including:
+    ///   - `outcome`: The determined outcome ("yes"/"no" or custom)
+    ///   - `price`: The fetched price from oracle
+    ///   - `threshold`: The configured threshold for comparison
+    ///   - `confidence_score`: Statistical confidence (0-100)
+    ///   - `is_verified`: Whether the result passed all validations
+    ///   - `sources_count`: Number of oracle sources consulted
+    /// - `Err(Error)` - Specific error if verification fails
+    ///
+    /// # Errors
+    ///
+    /// This function returns specific errors:
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketNotReadyForVerification` - Market hasn't ended yet
+    /// - `Error::OracleVerified` - Result already verified for this market
+    /// - `Error::OracleUnavailable` - Oracle service is unavailable
+    /// - `Error::OracleStale` - Oracle data is too old
+    /// - `Error::OracleConsensusNotReached` - Multiple oracles disagree
+    /// - `Error::InvalidOracleConfig` - Oracle not whitelisted/authorized
+    /// - `Error::OracleAllSourcesFailed` - All oracle sources failed
+    /// - `Error::InsufficientOracleSources` - No active oracle sources available
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let caller = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "btc_50k_2024");
+    ///
+    /// // Verify result for an ended market
+    /// match PredictifyHybrid::verify_result(env.clone(), caller, market_id) {
+    ///     Ok(result) => {
+    ///         println!("Outcome: {}", result.outcome);
+    ///         println!("Price: ${}", result.price / 100);
+    ///         println!("Confidence: {}%", result.confidence_score);
+    ///         println!("Sources consulted: {}", result.sources_count);
+    ///         
+    ///         if result.is_verified {
+    ///             println!("Result is verified and authoritative");
+    ///         }
+    ///     },
+    ///     Err(e) => {
+    ///         println!("Verification failed: {:?}", e);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Oracle Integration
+    ///
+    /// This function integrates with multiple oracle providers:
+    /// - **Reflector**: Primary oracle for Stellar Network (production ready)
+    /// - **Band Protocol**: Decentralized oracle network
+    /// - **Custom Oracles**: Can be added via whitelist system
+    ///
+    /// # Multi-Oracle Consensus
+    ///
+    /// When multiple oracle sources are configured:
+    /// 1. All active sources are queried in parallel
+    /// 2. Responses are validated for freshness and authority
+    /// 3. Consensus is calculated (default: 66% agreement required)
+    /// 4. Confidence score reflects agreement level and price stability
+    ///
+    /// # Security Features
+    ///
+    /// - **Whitelist Validation**: Only whitelisted oracles are queried
+    /// - **Authority Verification**: Oracle responses are validated for authenticity
+    /// - **Staleness Protection**: Data older than 5 minutes is rejected
+    /// - **Price Range Validation**: Ensures prices are within reasonable bounds
+    /// - **Consensus Requirement**: Multiple sources must agree for high-value markets
+    ///
+    /// # Events Emitted
+    ///
+    /// - `OracleVerificationInitiated`: When verification begins
+    /// - `OracleResultVerified`: When verification succeeds
+    /// - `OracleVerificationFailed`: When verification fails
+    /// - `OracleConsensusReached`: When multiple sources agree
+    ///
+    /// # Market State Requirements
+    ///
+    /// - Market must exist in storage
+    /// - Market end time must have passed
+    /// - Result must not already be verified
+    /// - At least one active oracle source must be available
+    pub fn verify_result(
+        env: Env,
+        caller: Address,
+        market_id: Symbol,
+    ) -> Result<OracleResult, Error> {
+        // Authenticate the caller
+        caller.require_auth();
+
+        // Use the OracleIntegrationManager to perform verification
+        oracles::OracleIntegrationManager::verify_result(&env, &market_id, &caller)
+    }
+
+    /// Verifies oracle result with retry logic for resilience.
+    ///
+    /// This function is similar to `verify_result` but includes automatic
+    /// retry logic to handle transient oracle failures. Useful in production
+    /// environments where network issues may cause temporary unavailability.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `caller` - The address initiating the verification
+    /// * `market_id` - Unique identifier of the market to verify
+    /// * `max_retries` - Maximum number of retry attempts (capped at 3)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<OracleResult, Error>` - Same as `verify_result`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let caller = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "btc_50k_2024");
+    ///
+    /// // Verify with up to 3 retries
+    /// let result = PredictifyHybrid::verify_result_with_retry(
+    ///     env.clone(),
+    ///     caller,
+    ///     market_id,
+    ///     3
+    /// );
+    /// ```
+    pub fn verify_result_with_retry(
+        env: Env,
+        caller: Address,
+        market_id: Symbol,
+        max_retries: u32,
+    ) -> Result<OracleResult, Error> {
+        caller.require_auth();
+        oracles::OracleIntegrationManager::verify_result_with_retry(
+            &env,
+            &market_id,
+            &caller,
+            max_retries,
+        )
+    }
+
+    /// Retrieves a previously verified oracle result for a market.
+    ///
+    /// This function returns the stored oracle verification result for a market
+    /// that has already been verified. Useful for checking verification status
+    /// and retrieving historical verification data.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `market_id` - Unique identifier of the market
+    ///
+    /// # Returns
+    ///
+    /// Returns `Option<OracleResult>`:
+    /// - `Some(OracleResult)` - The stored verification result
+    /// - `None` - Market has not been verified yet
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let market_id = Symbol::new(&env, "btc_50k_2024");
+    ///
+    /// match PredictifyHybrid::get_verified_result(env.clone(), market_id) {
+    ///     Some(result) => {
+    ///         println!("Market verified with outcome: {}", result.outcome);
+    ///     },
+    ///     None => {
+    ///         println!("Market not yet verified");
+    ///     }
+    /// }
+    /// ```
+    pub fn get_verified_result(env: Env, market_id: Symbol) -> Option<OracleResult> {
+        oracles::OracleIntegrationManager::get_oracle_result(&env, &market_id)
+    }
+
+    /// Checks if a market's result has been verified via oracle.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `market_id` - Unique identifier of the market
+    ///
+    /// # Returns
+    ///
+    /// Returns `bool` - `true` if verified, `false` otherwise
+    pub fn is_result_verified(env: Env, market_id: Symbol) -> bool {
+        oracles::OracleIntegrationManager::is_result_verified(&env, &market_id)
+    }
+
+    /// Admin override for oracle result verification.
+    ///
+    /// Allows an authorized admin to manually set the verification result
+    /// when automatic verification fails or produces incorrect results.
+    /// This is a privileged operation requiring admin authorization.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `admin` - Admin address (must be authorized)
+    /// * `market_id` - Market to override
+    /// * `outcome` - The outcome to set ("yes"/"no" or custom)
+    /// * `reason` - Reason for the manual override
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<(), Error>`:
+    /// - `Ok(())` - Override successful
+    /// - `Err(Error::Unauthorized)` - Caller is not admin
+    ///
+    /// # Security
+    ///
+    /// This function should be used sparingly and only when:
+    /// - Automatic oracle verification has failed repeatedly
+    /// - Oracle data is known to be incorrect
+    /// - Emergency situations requiring immediate resolution
+    pub fn admin_override_verification(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        outcome: String,
+        reason: String,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        oracles::OracleIntegrationManager::admin_override_result(
+            &env,
+            &admin,
+            &market_id,
+            &outcome,
+            &reason,
+        )
     }
 
     /// Resolves a market automatically using oracle data and community consensus.
@@ -1101,7 +2022,7 @@ impl PredictifyHybrid {
     /// This function returns specific errors:
     /// - `Error::MarketNotFound` - Market with given ID doesn't exist
     /// - `Error::MarketNotEnded` - Market hasn't reached its end time
-    /// - `Error::MarketAlreadyResolved` - Market is already resolved
+    /// - `Error::MarketResolved` - Market is already resolved
     /// - `Error::InsufficientData` - Not enough data for resolution
     /// - Resolution-specific errors from the resolution module
     ///
@@ -1151,6 +2072,9 @@ impl PredictifyHybrid {
     pub fn resolve_market(env: Env, market_id: Symbol) -> Result<(), Error> {
         // Use the resolution module to resolve the market
         let _resolution = resolution::MarketResolutionManager::resolve_market(&env, &market_id)?;
+
+        statistics::StatisticsManager::record_market_resolved(&env);
+
         Ok(())
     }
 
@@ -1427,7 +2351,7 @@ impl PredictifyHybrid {
     /// This function will panic with specific errors if:
     /// - `Error::MarketNotFound` - Market with given ID doesn't exist
     /// - `Error::MarketNotResolved` - Market hasn't been resolved yet
-    /// - `Error::MarketAlreadyResolved` - Payouts have already been distributed
+    /// - `Error::MarketResolved` - Payouts have already been distributed
     ///
     /// # Example
     ///
@@ -1460,6 +2384,9 @@ impl PredictifyHybrid {
     ///
     /// This function emits `WinningsClaimedEvent` for each user who receives a payout.
     pub fn distribute_payouts(env: Env, market_id: Symbol) -> Result<i128, Error> {
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
         let mut market: Market = env
             .storage()
             .persistent()
@@ -1469,16 +2396,31 @@ impl PredictifyHybrid {
             });
 
         // Check if market is resolved
-        let winning_outcome = match &market.winning_outcome {
-            Some(outcome) => outcome,
+        let winning_outcomes = match &market.winning_outcomes {
+            Some(outcomes) => outcomes,
             None => return Err(Error::MarketNotResolved),
         };
 
-        // Check if payouts have already been distributed (tracked via a flag or all users claimed)
-        // For simplicity, we'll check if there are any unclaimed winners
+        // Get all bettors
+        let bettors = bets::BetStorage::get_all_bets_for_market(&env, &market_id);
+
+        // Get fee from legacy storage (backward compatible)
+        let fee_percent = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "platform_fee"))
+            .unwrap_or(200); // Default 2% if not set
+
+        // Since place_bet now updates market.votes and market.stakes,
+        // we can use the vote-based payout system for both bets and votes
+        let mut total_distributed = 0;
+
+        // Check if payouts have already been distributed
         let mut has_unclaimed_winners = false;
+
+        // Check voters
         for (user, outcome) in market.votes.iter() {
-            if &outcome == winning_outcome {
+            if winning_outcomes.contains(&outcome) {
                 if !market.claimed.get(user.clone()).unwrap_or(false) {
                     has_unclaimed_winners = true;
                     break;
@@ -1486,68 +2428,201 @@ impl PredictifyHybrid {
             }
         }
 
+        // Check bettors
         if !has_unclaimed_winners {
-            // All winners have been paid or no winners exist
+            for user in bettors.iter() {
+                if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
+                    if winning_outcomes.contains(&bet.outcome)
+                        && !market.claimed.get(user.clone()).unwrap_or(false)
+                    {
+                        has_unclaimed_winners = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !has_unclaimed_winners {
             return Ok(0);
         }
 
-        // Calculate total winning stakes
+        // Calculate total winning stakes across all winning outcomes (for split pool calculation)
+        // Supports both single winner and multi-winner (tie) scenarios
         let mut winning_total = 0;
+
+        // Sum voter stakes
         for (voter, outcome) in market.votes.iter() {
-            if &outcome == winning_outcome {
+            if winning_outcomes.contains(&outcome) {
                 winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
             }
         }
 
+        // Sum bet amounts (check if bet outcome is in winning outcomes for multi-outcome support)
+        for user in bettors.iter() {
+            // Avoid double counting if user is already in votes (legacy support)
+            if market.votes.contains_key(user.clone()) {
+                continue;
+            }
+
+            if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
+                if winning_outcomes.contains(&bet.outcome) {
+                    winning_total += bet.amount;
+                }
+            }
+        }
+
         if winning_total == 0 {
-            // No winners, nothing to distribute
             return Ok(0);
         }
 
-        // Get fee configuration
-        let cfg = match crate::config::ConfigManager::get_config(&env) {
-            Ok(c) => c,
-            Err(_) => return Err(Error::ConfigurationNotFound),
-        };
-        let fee_percent = cfg.fees.platform_fee_percentage;
         let total_pool = market.total_staked;
+        let fee_denominator = 10000i128; // Fee is in basis points
 
-        // Distribute payouts to all winners
-        let mut total_distributed = 0;
+        let mut total_distributed: i128 = 0;
+
+        // 1. Distribute to Voters
+        // Distribute payouts to all winners (handles both single and multi-winner cases)
+        // For multi-winner (ties), pool is split proportionally among all winners
         for (user, outcome) in market.votes.iter() {
-            if &outcome == winning_outcome {
-                // Skip if already claimed
+            if winning_outcomes.contains(&outcome) {
                 if market.claimed.get(user.clone()).unwrap_or(false) {
                     continue;
                 }
 
                 let user_stake = market.stakes.get(user.clone()).unwrap_or(0);
                 if user_stake > 0 {
-                    // Calculate payout
-                    // Fee is in basis points (100 = 1%), so we use 10000 as denominator
                     let fee_denominator = 10000i128;
-                    let user_share = (user_stake * (fee_denominator - fee_percent)) / fee_denominator;
-                    let payout = (user_share * total_pool) / winning_total;
+                    let user_share = (user_stake
+                        .checked_mul(fee_denominator - fee_percent)
+                        .ok_or(Error::InvalidInput)?)
+                        / fee_denominator;
+                    // Payout calculation: (user_stake / total_winning_stakes) * total_pool
+                    // This automatically handles split pools for ties - each winner gets proportional share
+                    let payout = (user_share
+                        .checked_mul(total_pool)
+                        .ok_or(Error::InvalidInput)?)
+                        / winning_total;
 
-                    if payout > 0 {
-                        // Mark as claimed
+                    if payout >= 0 {
+                        // Allow 0 payout but mark as claimed
                         market.claimed.set(user.clone(), true);
-                        total_distributed += payout;
+                        if payout > 0 {
+                            total_distributed = total_distributed
+                                .checked_add(payout)
+                                .ok_or(Error::InvalidInput)?;
 
-                        // Emit winnings claimed event
-                        EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+                            // Credit winnings to user balance
+                            storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            )?;
 
-                        // In a real implementation, transfer tokens here
-                        // For now, we'll just track the distribution
+                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+                        }
                     }
                 }
             }
         }
 
-        // Update market state
+        // 2. Distribute to Bettors
+        // Check if bet outcome is in winning outcomes (supports multi-outcome/tie scenarios)
+        for user in bettors.iter() {
+            if let Some(mut bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
+                if winning_outcomes.contains(&bet.outcome) {
+                    if market.claimed.get(user.clone()).unwrap_or(false) {
+                        // Already claimed (perhaps as a voter or double check)
+                        bet.status = BetStatus::Won;
+                        let _ = bets::BetStorage::store_bet(&env, &bet);
+                        continue;
+                    }
+
+                    if bet.amount > 0 {
+                        let user_share =
+                            (bet.amount * (fee_denominator - fee_percent)) / fee_denominator;
+                        let payout = (user_share * total_pool) / winning_total;
+
+                        if payout > 0 {
+                            market.claimed.set(user.clone(), true);
+                            total_distributed += payout;
+
+                            // Update bet status
+                            bet.status = BetStatus::Won;
+                            let _ = bets::BetStorage::store_bet(&env, &bet);
+
+                            // Credit winnings to user balance instead of direct transfer
+                            match storage::BalanceStorage::add_balance(
+                                &env,
+                                &user,
+                                &types::ReflectorAsset::Stellar,
+                                payout,
+                            ) {
+                                Ok(_) => {}
+                                Err(e) => panic_with_error!(env, e),
+                            }
+                            EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+                        }
+                    }
+                } else {
+                    // Mark losing bet
+                    if bet.status == BetStatus::Active {
+                        bet.status = BetStatus::Lost;
+                        let _ = bets::BetStorage::store_bet(&env, &bet);
+                    }
+                }
+            }
+        }
+
+        // Save final market state
         env.storage().persistent().set(&market_id, &market);
 
         Ok(total_distributed)
+    }
+
+    // ===== EVENT ARCHIVE AND HISTORICAL QUERY =====
+
+    /// Mark a resolved or cancelled event (market) as archived. Admin only.
+    /// Market must be in Resolved or Cancelled state. Returns InvalidState if not
+    /// eligible, AlreadyClaimed if already archived.
+    pub fn archive_event(env: Env, admin: Address, market_id: Symbol) -> Result<(), Error> {
+        crate::event_archive::EventArchive::archive_event(&env, &admin, &market_id)
+    }
+
+    /// Query events by creation time range. Returns public metadata only (no votes/stakes).
+    /// Paginated: cursor is start index, limit capped at 30. Returns (entries, next_cursor).
+    pub fn query_events_history(
+        env: Env,
+        from_ts: u64,
+        to_ts: u64,
+        cursor: u32,
+        limit: u32,
+    ) -> (Vec<EventHistoryEntry>, u32) {
+        crate::event_archive::EventArchive::query_events_history(
+            &env, from_ts, to_ts, cursor, limit,
+        )
+    }
+
+    /// Query events by resolution status (e.g. Resolved, Cancelled). Paginated.
+    pub fn query_events_by_status(
+        env: Env,
+        status: MarketState,
+        cursor: u32,
+        limit: u32,
+    ) -> (Vec<EventHistoryEntry>, u32) {
+        crate::event_archive::EventArchive::query_events_by_resolution_status(
+            &env, status, cursor, limit,
+        )
+    }
+
+    /// Query events by category (oracle feed_id). Paginated.
+    pub fn query_events_by_category(
+        env: Env,
+        category: String,
+        cursor: u32,
+        limit: u32,
+    ) -> (Vec<EventHistoryEntry>, u32) {
+        crate::event_archive::EventArchive::query_events_by_category(&env, &category, cursor, limit)
     }
 
     /// Set the platform fee percentage (admin only).
@@ -1593,22 +2668,17 @@ impl PredictifyHybrid {
     /// - Minimum fee: 0% (0 basis points)
     /// - Maximum fee: 10% (1000 basis points)
     /// - Default fee: 2% (200 basis points)
-    pub fn set_platform_fee(
-        env: Env,
-        admin: Address,
-        fee_percentage: i128,
-    ) -> Result<(), Error> {
+    pub fn set_platform_fee(env: Env, admin: Address, fee_percentage: i128) -> Result<(), Error> {
+        // Require authentication
         admin.require_auth();
 
-        // Verify admin
-        let stored_admin: Address = env
-            .storage()
-            .persistent()
-            .get(&Symbol::new(&env, "Admin"))
-            .unwrap_or_else(|| {
-                panic_with_error!(env, Error::Unauthorized);
-            });
+        // Verify admin - get from storage with defensive check
+        let admin_key = Symbol::new(&env, "Admin");
+        if !env.storage().persistent().has(&admin_key) {
+            return Err(Error::Unauthorized);
+        }
 
+        let stored_admin: Address = env.storage().persistent().get(&admin_key).unwrap();
         if admin != stored_admin {
             return Err(Error::Unauthorized);
         }
@@ -1618,19 +2688,65 @@ impl PredictifyHybrid {
             return Err(Error::InvalidFeeConfig);
         }
 
-        // Update fee configuration
-        let mut cfg = match crate::config::ConfigManager::get_config(&env) {
-            Ok(c) => c,
-            Err(_) => return Err(Error::ConfigurationNotFound),
-        };
-
-        cfg.fees.platform_fee_percentage = fee_percentage;
-        crate::config::ConfigManager::update_config(&env, &cfg)?;
-
-        // Emit fee set event
-        EventEmitter::emit_platform_fee_set(&env, fee_percentage, &admin);
+        // Update fee in legacy storage
+        let fee_key = Symbol::new(&env, "platform_fee");
+        env.storage().persistent().set(&fee_key, &fee_percentage);
 
         Ok(())
+    }
+
+    /// Set global minimum and maximum bet limits (admin only).
+    /// Applies to all events that do not have per-event limits.
+    /// Rejects if min > max or outside absolute bounds (MIN_BET_AMOUNT..=MAX_BET_AMOUNT).
+    pub fn set_global_bet_limits(
+        env: Env,
+        admin: Address,
+        min_bet: i128,
+        max_bet: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::AdminNotSet));
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+        let limits = BetLimits { min_bet, max_bet };
+        crate::bets::set_global_bet_limits(&env, &limits)?;
+        let scope = Symbol::new(&env, "global");
+        EventEmitter::emit_bet_limits_updated(&env, &admin, &scope, min_bet, max_bet);
+        Ok(())
+    }
+
+    /// Set per-event minimum and maximum bet limits (admin only).
+    /// Overrides global limits for the given market.
+    pub fn set_event_bet_limits(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        min_bet: i128,
+        max_bet: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::AdminNotSet));
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+        let limits = BetLimits { min_bet, max_bet };
+        crate::bets::set_event_bet_limits(&env, &market_id, &limits)?;
+        EventEmitter::emit_bet_limits_updated(&env, &admin, &market_id, min_bet, max_bet);
+        Ok(())
+    }
+
+    /// Get effective bet limits for a market (per-event if set, else global, else defaults).
+    pub fn get_effective_bet_limits(env: Env, market_id: Symbol) -> BetLimits {
+        crate::bets::get_effective_bet_limits(&env, &market_id)
     }
 
     /// Withdraw collected platform fees (admin only).
@@ -1671,12 +2787,11 @@ impl PredictifyHybrid {
     ///     Err(e) => println!("Withdrawal failed: {:?}", e),
     /// }
     /// ```
-    pub fn withdraw_collected_fees(
-        env: Env,
-        admin: Address,
-        amount: i128,
-    ) -> Result<i128, Error> {
+    pub fn withdraw_collected_fees(env: Env, admin: Address, amount: i128) -> Result<i128, Error> {
         admin.require_auth();
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
 
         // Verify admin
         let stored_admin: Address = env
@@ -1693,11 +2808,7 @@ impl PredictifyHybrid {
 
         // Get collected fees from storage (using the same key as FeeTracker)
         let fees_key = Symbol::new(&env, "tot_fees");
-        let collected_fees: i128 = env
-            .storage()
-            .persistent()
-            .get(&fees_key)
-            .unwrap_or(0);
+        let collected_fees: i128 = env.storage().persistent().get(&fees_key).unwrap_or(0);
 
         if collected_fees == 0 {
             return Err(Error::NoFeesToCollect);
@@ -1710,8 +2821,10 @@ impl PredictifyHybrid {
             amount
         };
 
-        // Update collected fees
-        let remaining_fees = collected_fees - withdrawal_amount;
+        // Update collected fees (checked to prevent underflow)
+        let remaining_fees = collected_fees
+            .checked_sub(withdrawal_amount)
+            .ok_or(Error::InvalidInput)?;
         env.storage().persistent().set(&fees_key, &remaining_fees);
 
         // Emit fee withdrawal event
@@ -1727,6 +2840,671 @@ impl PredictifyHybrid {
         // For now, we'll just track the withdrawal
 
         Ok(withdrawal_amount)
+    }
+
+    /// Extends the deadline of an active market by a specified number of days (admin only).
+    ///
+    /// This function allows contract administrators to extend the voting/betting period
+    /// of active markets. Extensions can be used to allow more time for participation,
+    /// respond to unforeseen circumstances, or adjust to market conditions. The function
+    /// enforces maximum extension limits and validates market state before applying changes.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address performing the extension (must be authorized)
+    /// * `market_id` - Unique identifier of the market to extend
+    /// * `additional_days` - Number of days to add to the current end time
+    /// * `reason` - Explanation for why the extension is needed
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<(), Error>` where:
+    /// - `Ok(())` - Market deadline extended successfully
+    /// - `Err(Error)` - Specific error if extension fails
+    ///
+    /// # Errors
+    ///
+    /// This function returns specific errors:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketResolved` - Cannot extend a resolved market
+    /// - `Error::InvalidDuration` - Extension would exceed maximum allowed limit
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Extend market by 7 days
+    /// match PredictifyHybrid::extend_deadline(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     7,
+    ///     String::from_str(&env, "Low participation - extending to allow more votes")
+    /// ) {
+    ///     Ok(()) => println!("Market deadline extended successfully"),
+    ///     Err(e) => println!("Extension failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Extension Rules
+    ///
+    /// - Market must be in Active or Ended state (not Resolved, Closed, or Cancelled)
+    /// - Total extensions cannot exceed `max_extension_days` (default 30 days)
+    /// - Extensions are recorded in market's extension history
+    /// - Admin must pay extension fee if configured
+    ///
+    /// # Security
+    ///
+    /// This function requires admin authentication and should be used carefully.
+    /// Excessive extensions may affect user trust and market integrity. All
+    /// extensions are logged with timestamps and reasons for transparency.
+    pub fn extend_deadline(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        additional_days: u32,
+        reason: String,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::Unauthorized));
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Get market
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        // Validate market state - cannot extend resolved, closed, or cancelled markets
+        if market.state == MarketState::Resolved
+            || market.state == MarketState::Closed
+            || market.state == MarketState::Cancelled
+        {
+            return Err(Error::MarketResolved);
+        }
+
+        // Validate extension limit
+        let new_total_extension_days = market.total_extension_days + additional_days;
+        if new_total_extension_days > market.max_extension_days {
+            return Err(Error::InvalidDuration);
+        }
+
+        // Calculate new end time
+        let seconds_per_day: u64 = 24 * 60 * 60;
+        let extension_seconds: u64 = (additional_days as u64) * seconds_per_day;
+        let old_end_time = market.end_time;
+        let new_end_time = old_end_time + extension_seconds;
+
+        // Calculate extension fee (could be configured per market or globally)
+        let extension_fee = 0i128; // No fee for now, but can be configured
+
+        // Create extension record
+        let extension = MarketExtension::new(
+            &env,
+            additional_days,
+            admin.clone(),
+            reason.clone(),
+            extension_fee,
+        );
+
+        // Update market
+        market.end_time = new_end_time;
+        market.total_extension_days = new_total_extension_days;
+        market.extension_history.push_back(extension);
+
+        // Save market
+        env.storage().persistent().set(&market_id, &market);
+
+        // Emit extension event
+        EventEmitter::emit_market_deadline_extended(
+            &env,
+            &market_id,
+            old_end_time,
+            new_end_time,
+            additional_days,
+            &admin,
+            &reason,
+            extension_fee,
+        );
+
+        Ok(())
+    }
+
+    /// Updates the description/question of a market (admin only, before betting starts).
+    ///
+    /// This function allows contract administrators to update the market question
+    /// or description before any bets have been placed. This ensures that market
+    /// parameters can be corrected or clarified without affecting existing user
+    /// commitments or predictions.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address performing the update (must be authorized)
+    /// * `market_id` - Unique identifier of the market to update
+    /// * `new_description` - The updated market question or description
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<(), Error>` where:
+    /// - `Ok(())` - Market description updated successfully
+    /// - `Err(Error)` - Specific error if update fails
+    ///
+    /// # Errors
+    ///
+    /// This function returns specific errors:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketResolved` - Cannot update a resolved market
+    /// - `Error::BetsAlreadyPlaced` - Cannot update after bets have been placed
+    /// - `Error::InvalidQuestion` - New description is empty or invalid
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Update market description
+    /// match PredictifyHybrid::update_event_description(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     String::from_str(&env, "Will Bitcoin reach $100,000 by December 31, 2024?")
+    /// ) {
+    ///     Ok(()) => println!("Market description updated successfully"),
+    ///     Err(e) => println!("Update failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Update Rules
+    ///
+    /// - Market must be in Active state
+    /// - No bets can have been placed yet
+    /// - Market must not be resolved
+    /// - New description must be non-empty and meet length requirements
+    ///
+    /// # Security
+    ///
+    /// This function requires admin authentication and validates that no user
+    /// funds are at risk. Updates are only allowed before any betting activity
+    /// to maintain fairness and transparency.
+    pub fn update_event_description(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        new_description: String,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::Unauthorized));
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Validate new description
+        if new_description.is_empty() {
+            return Err(Error::InvalidQuestion);
+        }
+
+        // Get market
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        // Validate market state - cannot update resolved, closed, or cancelled markets
+        if market.state != MarketState::Active {
+            return Err(Error::MarketResolved);
+        }
+
+        // Check if any bets have been placed
+        let bet_stats = bets::BetManager::get_market_bet_stats(&env, &market_id);
+        if bet_stats.total_bets > 0 {
+            return Err(Error::BetsAlreadyPlaced);
+        }
+
+        // Check if any votes have been placed
+        if market.total_staked > 0 {
+            return Err(Error::AlreadyVoted);
+        }
+
+        // Store old description for event
+        let old_description = market.question.clone();
+
+        // Update market description
+        market.question = new_description.clone();
+
+        // Save market
+        env.storage().persistent().set(&market_id, &market);
+
+        // Emit description update event
+        EventEmitter::emit_market_description_updated(
+            &env,
+            &market_id,
+            &old_description,
+            &new_description,
+            &admin,
+        );
+
+        Ok(())
+    }
+
+    /// Updates the outcomes of a market (admin only, before betting starts).
+    ///
+    /// This function allows contract administrators to update the available
+    /// outcomes for a market before any bets have been placed. This ensures
+    /// that market parameters can be corrected or adjusted without affecting
+    /// existing user commitments.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address performing the update (must be authorized)
+    /// * `market_id` - Unique identifier of the market to update
+    /// * `new_outcomes` - The updated list of possible outcomes
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<(), Error>` where:
+    /// - `Ok(())` - Market outcomes updated successfully
+    /// - `Err(Error)` - Specific error if update fails
+    ///
+    /// # Errors
+    ///
+    /// This function returns specific errors:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketResolved` - Cannot update a resolved market
+    /// - `Error::BetsAlreadyPlaced` - Cannot update after bets have been placed
+    /// - `Error::InvalidOutcomes` - New outcomes list is invalid (< 2 outcomes or empty strings)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String, Vec};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Update market outcomes
+    /// let new_outcomes = Vec::from_array(&env, [
+    ///     String::from_str(&env, "Yes"),
+    ///     String::from_str(&env, "No"),
+    ///     String::from_str(&env, "Uncertain")
+    /// ]);
+    ///
+    /// match PredictifyHybrid::update_event_outcomes(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     new_outcomes
+    /// ) {
+    ///     Ok(()) => println!("Market outcomes updated successfully"),
+    ///     Err(e) => println!("Update failed: {:?}", e),
+    /// }
+    /// ```
+    ///
+    /// # Update Rules
+    ///
+    /// - Market must be in Active state
+    /// - No bets can have been placed yet
+    /// - Market must not be resolved
+    /// - New outcomes must have at least 2 options
+    /// - All outcome strings must be non-empty
+    ///
+    /// # Security
+    ///
+    /// This function requires admin authentication and validates that no user
+    /// funds are at risk. Updates are only allowed before any betting activity
+    /// to maintain fairness and transparency.
+    pub fn update_event_outcomes(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        new_outcomes: Vec<String>,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::Unauthorized));
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Validate new outcomes
+        if new_outcomes.len() < 2 {
+            return Err(Error::InvalidOutcomes);
+        }
+
+        // Check all outcomes are non-empty
+        for outcome in new_outcomes.iter() {
+            if outcome.is_empty() {
+                return Err(Error::InvalidOutcome);
+            }
+        }
+
+        // Get market
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        // Validate market state - cannot update resolved, closed, or cancelled markets
+        if market.state != MarketState::Active {
+            return Err(Error::MarketResolved);
+        }
+
+        // Check if any bets have been placed
+        let bet_stats = bets::BetManager::get_market_bet_stats(&env, &market_id);
+        if bet_stats.total_bets > 0 {
+            return Err(Error::BetsAlreadyPlaced);
+        }
+
+        // Check if any votes have been placed
+        if market.total_staked > 0 {
+            return Err(Error::AlreadyVoted);
+        }
+
+        // Store old outcomes for event
+        let old_outcomes = market.outcomes.clone();
+
+        // Update market outcomes
+        market.outcomes = new_outcomes.clone();
+
+        // Save market
+        env.storage().persistent().set(&market_id, &market);
+
+        // Emit outcomes update event
+        EventEmitter::emit_market_outcomes_updated(
+            &env,
+            &market_id,
+            &old_outcomes,
+            &new_outcomes,
+            &admin,
+        );
+
+        Ok(())
+    }
+
+    /// Updates the category of a market (admin only, before betting starts).
+    ///
+    /// This function allows contract administrators to set or update the category
+    /// for a market before any bets have been placed. Categories help clients
+    /// filter and display markets by type (e.g., sports, crypto, politics).
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address performing the update (must be authorized)
+    /// * `market_id` - Unique identifier of the market to update
+    /// * `category` - The new category (None to clear the category)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<(), Error>` where:
+    /// - `Ok(())` - Market category updated successfully
+    /// - `Err(Error)` - Specific error if update fails
+    ///
+    /// # Errors
+    ///
+    /// This function returns specific errors:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketResolved` - Cannot update a resolved market
+    /// - `Error::BetsAlreadyPlaced` - Cannot update after bets have been placed
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Set market category
+    /// match PredictifyHybrid::update_event_category(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     Some(String::from_str(&env, "sports"))
+    /// ) {
+    ///     Ok(()) => println!("Market category updated successfully"),
+    ///     Err(e) => println!("Update failed: {:?}", e),
+    /// }
+    /// ```
+    pub fn update_event_category(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        category: Option<String>,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::Unauthorized));
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Get market
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        // Validate market state - cannot update resolved, closed, or cancelled markets
+        if market.state != MarketState::Active {
+            return Err(Error::MarketResolved);
+        }
+
+        // Check if any bets have been placed
+        let bet_stats = bets::BetManager::get_market_bet_stats(&env, &market_id);
+        if bet_stats.total_bets > 0 {
+            return Err(Error::BetsAlreadyPlaced);
+        }
+
+        // Check if any votes have been placed
+        if market.total_staked > 0 {
+            return Err(Error::AlreadyVoted);
+        }
+
+        // Store old category for event
+        let old_category = market.category.clone();
+
+        // Update market category
+        market.category = category.clone();
+
+        // Save market
+        env.storage().persistent().set(&market_id, &market);
+
+        // Emit category update event
+        EventEmitter::emit_category_updated(&env, &market_id, &old_category, &category, &admin);
+
+        Ok(())
+    }
+
+    /// Updates the tags of a market (admin only, before betting starts).
+    ///
+    /// This function allows contract administrators to set or update tags
+    /// for a market before any bets have been placed. Tags help clients
+    /// filter and search markets by multiple dimensions.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `admin` - The administrator address performing the update (must be authorized)
+    /// * `market_id` - Unique identifier of the market to update
+    /// * `tags` - The new list of tags (empty Vec to clear all tags)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Result<(), Error>` where:
+    /// - `Ok(())` - Market tags updated successfully
+    /// - `Err(Error)` - Specific error if update fails
+    ///
+    /// # Errors
+    ///
+    /// This function returns specific errors:
+    /// - `Error::Unauthorized` - Caller is not the contract admin
+    /// - `Error::MarketNotFound` - Market with given ID doesn't exist
+    /// - `Error::MarketResolved` - Cannot update a resolved market
+    /// - `Error::BetsAlreadyPlaced` - Cannot update after bets have been placed
+    /// - `Error::InvalidInput` - One or more tags are empty strings
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol, String, vec};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let admin = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "market_1");
+    ///
+    /// // Set market tags
+    /// let tags = vec![
+    ///     &env,
+    ///     String::from_str(&env, "bitcoin"),
+    ///     String::from_str(&env, "crypto"),
+    ///     String::from_str(&env, "price-prediction")
+    /// ];
+    ///
+    /// match PredictifyHybrid::update_event_tags(
+    ///     env.clone(),
+    ///     admin,
+    ///     market_id,
+    ///     tags
+    /// ) {
+    ///     Ok(()) => println!("Market tags updated successfully"),
+    ///     Err(e) => println!("Update failed: {:?}", e),
+    /// }
+    /// ```
+    pub fn update_event_tags(
+        env: Env,
+        admin: Address,
+        market_id: Symbol,
+        tags: Vec<String>,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::Unauthorized));
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        // Validate tags - none should be empty
+        for tag in tags.iter() {
+            if tag.is_empty() {
+                return Err(Error::InvalidInput);
+            }
+        }
+
+        // Get market
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        // Validate market state - cannot update resolved, closed, or cancelled markets
+        if market.state != MarketState::Active {
+            return Err(Error::MarketResolved);
+        }
+
+        // Check if any bets have been placed
+        let bet_stats = bets::BetManager::get_market_bet_stats(&env, &market_id);
+        if bet_stats.total_bets > 0 {
+            return Err(Error::BetsAlreadyPlaced);
+        }
+
+        // Check if any votes have been placed
+        if market.total_staked > 0 {
+            return Err(Error::AlreadyVoted);
+        }
+
+        // Store old tags for event
+        let old_tags = market.tags.clone();
+
+        // Update market tags
+        market.tags = tags.clone();
+
+        // Save market
+        env.storage().persistent().set(&market_id, &market);
+
+        // Emit tags update event
+        EventEmitter::emit_tags_updated(&env, &market_id, &old_tags, &tags, &admin);
+
+        Ok(())
+    }
+
+    /// Query events by tags (paginated, bounded).
+    ///
+    /// Returns events that have ANY of the provided tags (OR logic).
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `tags` - Tags to filter by (events matching any tag are returned)
+    /// * `cursor` - Pagination cursor
+    /// * `limit` - Maximum results per page
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (events, next_cursor)
+    pub fn query_events_by_tags(
+        env: Env,
+        tags: Vec<String>,
+        cursor: u32,
+        limit: u32,
+    ) -> (Vec<EventHistoryEntry>, u32) {
+        event_archive::EventArchive::query_events_by_tags(&env, &tags, cursor, limit)
     }
 
     /// Cancel an event and automatically refund all placed bets (admin only).
@@ -1753,7 +3531,7 @@ impl PredictifyHybrid {
     /// This function will panic with specific errors if:
     /// - `Error::Unauthorized` - Caller is not the contract admin
     /// - `Error::MarketNotFound` - Market with given ID doesn't exist
-    /// - `Error::MarketAlreadyResolved` - Market has already been resolved
+    /// - `Error::MarketResolved` - Market has already been resolved
     /// - `Error::InvalidState` - Market is in an invalid state for cancellation
     ///
     /// # Example
@@ -1822,7 +3600,7 @@ impl PredictifyHybrid {
 
         // Validate cancellation conditions
         if market.state == MarketState::Resolved {
-            return Err(Error::MarketAlreadyResolved);
+            return Err(Error::MarketResolved);
         }
 
         if market.state == MarketState::Cancelled {
@@ -1842,8 +3620,16 @@ impl PredictifyHybrid {
         market.state = MarketState::Cancelled;
         env.storage().persistent().set(&market_id, &market);
 
-        // Refund all bets
-        bets::BetManager::refund_market_bets(&env, &market_id)?;
+        // Refund all bets under reentrancy lock (batch of token transfers)
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        if ReentrancyGuard::before_external_call(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        let refund_result = bets::BetManager::refund_market_bets(&env, &market_id);
+        ReentrancyGuard::after_external_call(&env);
+        refund_result?;
 
         // Calculate total refunded (sum of all bets)
         let total_refunded = market.total_staked;
@@ -1859,6 +3645,75 @@ impl PredictifyHybrid {
 
         // Emit market closed event
         EventEmitter::emit_market_closed(&env, &market_id, &admin);
+
+        Ok(total_refunded)
+    }
+
+    /// Refund all bets when oracle resolution fails or times out (automatic refund path).
+    ///
+    /// Callable when: market has ended, no oracle result, and either (1) resolution
+    /// timeout has passed since market end, or (2) caller is admin (confirmed failure).
+    /// Refunds full bet amount per user (no fee deduction). Marks market as cancelled and
+    /// prevents further resolution. Emits refund events. Idempotent when already cancelled.
+    pub fn refund_on_oracle_failure(
+        env: Env,
+        caller: Address,
+        market_id: Symbol,
+    ) -> Result<i128, Error> {
+        caller.require_auth();
+
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        if market.state == MarketState::Cancelled {
+            return Ok(0);
+        }
+        if market.winning_outcomes.is_some() {
+            return Err(Error::MarketResolved);
+        }
+        if market.oracle_result.is_some() {
+            return Err(Error::MarketResolved);
+        }
+        let current_time = env.ledger().timestamp();
+        if current_time < market.end_time {
+            return Err(Error::MarketClosed);
+        }
+
+        let stored_admin: Option<Address> =
+            env.storage().persistent().get(&Symbol::new(&env, "Admin"));
+        let is_admin = stored_admin.as_ref().map_or(false, |a| a == &caller);
+        let timeout_passed = current_time.saturating_sub(market.end_time)
+            >= config::DEFAULT_RESOLUTION_TIMEOUT_SECONDS;
+        if !is_admin && !timeout_passed {
+            return Err(Error::Unauthorized);
+        }
+
+        let old_state = market.state.clone();
+        market.state = MarketState::Cancelled;
+        env.storage().persistent().set(&market_id, &market);
+
+        if reentrancy_guard::ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        if reentrancy_guard::ReentrancyGuard::before_external_call(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        let refund_result = bets::BetManager::refund_market_bets(&env, &market_id);
+        reentrancy_guard::ReentrancyGuard::after_external_call(&env);
+        refund_result?;
+
+        let total_refunded = market.total_staked;
+        EventEmitter::emit_state_change_event(
+            &env,
+            &market_id,
+            &old_state,
+            &MarketState::Cancelled,
+            &String::from_str(&env, "Refund on oracle failure/timeout"),
+        );
+        EventEmitter::emit_refund_on_oracle_failure(&env, &market_id, total_refunded);
 
         Ok(total_refunded)
     }
@@ -3155,205 +5010,15 @@ impl PredictifyHybrid {
             &env, metrics, thresholds,
         )
     }
-
-    // ===== QUERY FUNCTIONS =====
-    // Gas-efficient read-only queries for event/market data, user bets, and contract state
-
-    /// Query comprehensive details about a specific market/event.
-    ///
-    /// Returns complete market information including question, outcomes, status,
-    /// oracle configuration, and current statistics. This is a read-only function
-    /// suitable for frequent client-side queries.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment for blockchain operations
-    /// * `market_id` - The ID of the market to query
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(EventDetailsQuery)` - Complete market details
-    /// * `Err(Error::MarketNotFound)` - If market doesn't exist
-    /// * `Err(Error::InvalidMarket)` - If market data is corrupted
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let details = PredictifyHybrid::query_event_details(env, market_id)?;
-    /// println!("Question: {}", details.question);
-    /// println!("Status: {:?}", details.status);
-    /// ```
-    pub fn query_event_details(env: Env, market_id: Symbol) -> Result<EventDetailsQuery, Error> {
-        QueryManager::query_event_details(&env, market_id)
+    /// Get platform-wide statistics
+    pub fn get_platform_statistics(env: Env) -> PlatformStatistics {
+        statistics::StatisticsManager::get_platform_stats(&env)
     }
 
-    /// Query market status and end time.
-    ///
-    /// Lightweight query returning only status and end time for quick status checks.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    /// * `market_id` - Market ID to query
-    ///
-    /// # Returns
-    ///
-    /// * `Ok((MarketStatus, u64))` - Market status and end timestamp
-    /// * `Err(Error::MarketNotFound)` - Market not found
-    pub fn query_event_status(env: Env, market_id: Symbol) -> Result<(MarketStatus, u64), Error> {
-        QueryManager::query_event_status(&env, market_id)
+    /// Get user-specific statistics
+    pub fn get_user_statistics(env: Env, user: Address) -> UserStatistics {
+        statistics::StatisticsManager::get_user_stats(&env, &user)
     }
-
-    /// Query all market IDs in the contract.
-    ///
-    /// Returns list of all market identifiers created on this contract.
-    /// Useful for discovering available markets.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Vec<Symbol>)` - List of all market IDs
-    pub fn get_all_markets(env: Env) -> Result<Vec<Symbol>, Error> {
-        QueryManager::get_all_markets(&env)
-    }
-
-    /// Query user's bet details for a specific market.
-    ///
-    /// Returns comprehensive information about a user's participation in a market
-    /// including voted outcome, stake amount, payout eligibility, and claim status.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    /// * `user` - User address to query
-    /// * `market_id` - Market ID to query
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(UserBetQuery)` - Complete bet details
-    /// * `Err(Error::MarketNotFound)` - Market doesn't exist
-    /// * `Err(Error::UserNotFound)` - User hasn't participated in market
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let bet = PredictifyHybrid::query_user_bet(env, user, market_id)?;
-    /// println!("Staked: {} stroops", bet.stake_amount);
-    /// println!("Winning: {}", bet.is_winning);
-    /// ```
-    pub fn query_user_bet(
-        env: Env,
-        user: Address,
-        market_id: Symbol,
-    ) -> Result<UserBetQuery, Error> {
-        QueryManager::query_user_bet(&env, user, market_id)
-    }
-
-    /// Query all bets for a user across all markets.
-    ///
-    /// Returns user's participation in all markets with aggregated statistics
-    /// including total stake, total potential payout, and winning bet count.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    /// * `user` - User address to query
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(MultipleBetsQuery)` - All user bets with aggregates
-    pub fn query_user_bets(env: Env, user: Address) -> Result<MultipleBetsQuery, Error> {
-        QueryManager::query_user_bets(&env, user)
-    }
-
-    /// Query user's account balance and participation metrics.
-    ///
-    /// Returns comprehensive view of user's account including available balance,
-    /// total staked amount, total winnings, and participation counts.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    /// * `user` - User address to query
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(UserBalanceQuery)` - Complete balance information
-    pub fn query_user_balance(env: Env, user: Address) -> Result<UserBalanceQuery, Error> {
-        QueryManager::query_user_balance(&env, user)
-    }
-
-    /// Query market pool distribution and implied probabilities.
-    ///
-    /// Returns stake distribution across outcomes and calculated implied probabilities.
-    /// Useful for price discovery, liquidity analysis, and probability assessment.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    /// * `market_id` - Market ID to query
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(MarketPoolQuery)` - Pool distribution and probabilities
-    /// * `Err(Error::MarketNotFound)` - Market not found
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let pool = PredictifyHybrid::query_market_pool(env, market_id)?;
-    /// println!("Total pool: {} stroops", pool.total_pool);
-    /// println!("Implied prob (yes): {}%", pool.implied_probability_yes);
-    /// ```
-    pub fn query_market_pool(env: Env, market_id: Symbol) -> Result<MarketPoolQuery, Error> {
-        QueryManager::query_market_pool(&env, market_id)
-    }
-
-    /// Query total pool size across all markets.
-    ///
-    /// Returns aggregate liquidity and total value locked across the entire platform.
-    /// Useful for platform-level monitoring and dashboards.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(i128)` - Total value locked in stroops
-    pub fn query_total_pool_size(env: Env) -> Result<i128, Error> {
-        QueryManager::query_total_pool_size(&env)
-    }
-
-    /// Query global contract state and statistics.
-    ///
-    /// Returns system-level metrics including total markets, active markets,
-    /// total value locked, and user statistics. Useful for platform dashboards
-    /// and monitoring systems.
-    ///
-    /// # Parameters
-    ///
-    /// * `env` - Soroban environment
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(ContractStateQuery)` - Global contract state and metrics
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let state = PredictifyHybrid::query_contract_state(env)?;
-    /// println!("Total markets: {}", state.total_markets);
-    /// println!("Total value locked: {} stroops", state.total_value_locked);
-    /// println!("Active markets: {}", state.active_markets);
-    /// ```
-    pub fn query_contract_state(env: Env) -> Result<ContractStateQuery, Error> {
-        QueryManager::query_contract_state(&env)
-    }
-
 }
 
 mod test;

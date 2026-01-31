@@ -441,6 +441,10 @@ impl ContractMonitor {
             end_time: env.ledger().timestamp() + 86400,
             oracle_config: OracleConfig {
                 provider: OracleProvider::Reflector,
+                oracle_address: Address::from_str(
+                    env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
                 feed_id: String::from_str(env, "sample_feed"),
                 threshold: 100,
                 comparison: String::from_str(env, ">="),
@@ -451,12 +455,14 @@ impl ContractMonitor {
             claimed: Map::new(env),
             total_staked: 0,
             dispute_stakes: Map::new(env),
-            winning_outcome: None,
+            winning_outcomes: None,
             fee_collected: false,
             state: MarketState::Active,
             total_extension_days: 0,
             max_extension_days: 7,
             extension_history: Vec::new(env),
+            category: None,
+            tags: Vec::new(env),
         })
     }
 
