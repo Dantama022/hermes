@@ -2605,6 +2605,33 @@ pub struct BetStats {
     pub outcome_totals: Map<String, i128>,
 }
 
+// ===== EVENT TYPES =====
+
+/// Represents a prediction market event with specified parameters.
+///
+/// This structure stores all metadata and configuration for a prediction event,
+/// including its description, possible outcomes, timing, and oracle integration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Event {
+    /// Unique identifier for the event
+    pub id: Symbol,
+    /// Event description or question
+    pub description: String,
+    /// Possible outcomes for the event (e.g., ["yes", "no"])
+    pub outcomes: Vec<String>,
+    /// When the event ends (Unix timestamp)
+    pub end_time: u64,
+    /// Oracle configuration for result verification
+    pub oracle_config: OracleConfig,
+    /// Administrative address that created/manages the event
+    pub admin: Address,
+    /// When the event was created (Unix timestamp)
+    pub created_at: u64,
+    /// Current status of the event
+    pub status: MarketState,
+}
+
 impl ReflectorAsset {
     pub fn is_xlm(&self) -> bool {
         matches!(self, ReflectorAsset::Stellar)

@@ -38,6 +38,7 @@ mod rate_limiter;
 mod recovery;
 mod reentrancy_guard;
 mod resolution;
+mod statistics;
 mod storage;
 mod types;
 mod upgrade_manager;
@@ -46,7 +47,6 @@ mod validation;
 mod validation_tests;
 mod versioning;
 mod voting;
-mod statistics;
 // THis is the band protocol wasm std_reference.wasm
 mod bandprotocol {
     soroban_sdk::contractimport!(file = "./std_reference.wasm");
@@ -83,6 +83,8 @@ mod event_management_tests;
 mod category_tags_tests;
 mod statistics_tests;
 
+#[cfg(test)]
+mod event_creation_tests;
 
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
@@ -200,7 +202,12 @@ impl PredictifyHybrid {
     /// * `user` - The user depositing funds.
     /// * `asset` - The asset to deposit (e.g., XLM, BTC, ETH).
     /// * `amount` - The amount to deposit.
-    pub fn deposit(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn deposit(
+        env: Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         balances::BalanceManager::deposit(&env, user, asset, amount)
     }
 
@@ -211,7 +218,12 @@ impl PredictifyHybrid {
     /// * `user` - The user withdrawing funds.
     /// * `asset` - The asset to withdraw.
     /// * `amount` - The amount to withdraw.
-    pub fn withdraw(env: Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn withdraw(
+        env: Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         balances::BalanceManager::withdraw(&env, user, asset, amount)
     }
 
@@ -360,6 +372,113 @@ impl PredictifyHybrid {
         statistics::StatisticsManager::record_market_created(&env);
 
         market_id
+    }
+
+    /// Creates a new prediction event with specified parameters.
+    ///
+    /// This function allows authorized admins to create prediction events
+    /// with specific descriptions, possible outcomes, and end times. Unlike `create_market`,
+    /// this function accepts an absolute Unix timestamp for the end time.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `admin` - The administrator address (must be authorized)
+    /// * `description` - The event description or question
+    /// * `outcomes` - Vector of possible outcomes
+    /// * `end_time` - Absolute Unix timestamp for when the event ends
+    /// * `oracle_config` - Configuration for oracle integration
+    ///
+    /// # Returns
+    ///
+    /// Returns a unique `Symbol` serving as the event identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - Caller is not the contract admin
+    /// - validation fails (invalid description, outcomes, or end time)
+    pub fn create_event(
+        env: Env,
+        admin: Address,
+        description: String,
+        outcomes: Vec<String>,
+        end_time: u64,
+        oracle_config: OracleConfig,
+    ) -> Symbol {
+        // Authenticate that the caller is the admin
+        admin.require_auth();
+
+        // Verify the caller is an admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| {
+                panic!("Admin not set");
+            });
+
+        if admin != stored_admin {
+            panic_with_error!(env, Error::Unauthorized);
+        }
+
+        // Validate inputs using EventValidator
+        if let Err(e) = crate::validation::EventValidator::validate_event_creation(
+            &env,
+            &admin,
+            &description,
+            &outcomes,
+            &end_time,
+        ) {
+            panic_with_error!(env, e.to_contract_error());
+        }
+
+        // Generate a unique collision-resistant event ID (reusing market ID generator)
+        let event_id = MarketIdGenerator::generate_market_id(&env, &admin);
+
+        // Create a new event
+        let event = Event {
+            id: event_id.clone(),
+            description: description.clone(),
+            outcomes: outcomes.clone(),
+            end_time,
+            oracle_config,
+            admin: admin.clone(),
+            created_at: env.ledger().timestamp(),
+            status: MarketState::Active,
+        };
+
+        // Store the event
+        crate::storage::EventManager::store_event(&env, &event);
+
+        // Emit event created event
+        EventEmitter::emit_event_created(
+            &env,
+            &event_id,
+            &description,
+            &outcomes,
+            &admin,
+            end_time,
+        );
+
+        // Record statistics (optional, can reuse market stats for now)
+        // statistics::StatisticsManager::record_market_created(&env);
+
+        event_id
+    }
+
+    /// Retrieves an event by its unique identifier.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `event_id` - Unique identifier of the event to retrieve
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(Event)` if found, or `None` otherwise.
+    pub fn get_event(env: Env, event_id: Symbol) -> Option<Event> {
+        crate::storage::EventManager::get_event(&env, &event_id).ok()
     }
 
     /// Allows users to vote on a market outcome by staking tokens.
@@ -551,7 +670,7 @@ impl PredictifyHybrid {
                 // Record statistics
                 statistics::StatisticsManager::record_bet_placed(&env, &user, amount);
                 bet
-            },
+            }
             Err(e) => panic_with_error!(env, e),
         }
     }
@@ -913,7 +1032,7 @@ impl PredictifyHybrid {
                     .checked_mul(total_pool)
                     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
                 let payout = product / winning_total;
-                
+
                 // Calculate fee amount for statistics
                 // Payout is net of fee. Fee was deducted in user_share calculation.
                 // Gross payout would be (user_stake * total_pool) / winning_total
@@ -927,22 +1046,22 @@ impl PredictifyHybrid {
                 // Simpler: Fee = (Payout * fee_percent) / (100 - fee_percent)?
                 // Let's rely on explicit calculation if possible or approximation.
                 // Actually, let's re-calculate gross to get fee.
-                // Gross = (user_stake * total_pool) / winning_total. 
+                // Gross = (user_stake * total_pool) / winning_total.
                 // Fee = Gross - Payout.
-                
+
                 let gross_share = (user_stake
                     .checked_mul(PERCENTAGE_DENOMINATOR)
                     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput)))
-                    / PERCENTAGE_DENOMINATOR; 
-                // Wait, user_stake * 100 / 100 = user_stake. 
+                    / PERCENTAGE_DENOMINATOR;
+                // Wait, user_stake * 100 / 100 = user_stake.
                 // The math above used PERCENTAGE_DENOMINATOR (100).
-                
+
                 let product_gross = user_stake
                     .checked_mul(total_pool)
                     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
                 let gross_payout = product_gross / winning_total;
                 let fee_amount = gross_payout - payout;
-                
+
                 statistics::StatisticsManager::record_winnings_claimed(&env, &user, payout);
                 statistics::StatisticsManager::record_fees_collected(&env, fee_amount);
 
@@ -1336,9 +1455,9 @@ impl PredictifyHybrid {
     pub fn resolve_market(env: Env, market_id: Symbol) -> Result<(), Error> {
         // Use the resolution module to resolve the market
         let _resolution = resolution::MarketResolutionManager::resolve_market(&env, &market_id)?;
-        
+
         statistics::StatisticsManager::record_market_resolved(&env);
-        
+
         Ok(())
     }
 
@@ -1678,10 +1797,10 @@ impl PredictifyHybrid {
         // Since place_bet now updates market.votes and market.stakes,
         // we can use the vote-based payout system for both bets and votes
         let mut total_distributed = 0;
-        
+
         // Check if payouts have already been distributed
         let mut has_unclaimed_winners = false;
-        
+
         // Check voters
         for (user, outcome) in market.votes.iter() {
             if &outcome == winning_outcome {
@@ -1691,12 +1810,14 @@ impl PredictifyHybrid {
                 }
             }
         }
-        
+
         // Check bettors
         if !has_unclaimed_winners {
             for user in bettors.iter() {
                 if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
-                    if bet.outcome == *winning_outcome && !market.claimed.get(user.clone()).unwrap_or(false) {
+                    if bet.outcome == *winning_outcome
+                        && !market.claimed.get(user.clone()).unwrap_or(false)
+                    {
                         has_unclaimed_winners = true;
                         break;
                     }
@@ -1710,14 +1831,14 @@ impl PredictifyHybrid {
 
         // Calculate total winning stakes (voters + bettors)
         let mut winning_total = 0;
-        
+
         // Sum voter stakes
         for (voter, outcome) in market.votes.iter() {
             if outcome == *winning_outcome {
                 winning_total += market.stakes.get(voter.clone()).unwrap_or(0);
             }
         }
-        
+
         // Sum bet amounts
         for user in bettors.iter() {
             if let Some(bet) = bets::BetStorage::get_bet(&env, &market_id, &user) {
@@ -1756,7 +1877,6 @@ impl PredictifyHybrid {
                         .ok_or(Error::InvalidInput)?)
                         / winning_total;
 
-
                     if payout >= 0 {
                         // Allow 0 payout but mark as claimed
                         market.claimed.set(user.clone(), true);
@@ -1783,13 +1903,14 @@ impl PredictifyHybrid {
                     }
 
                     if bet.amount > 0 {
-                        let user_share = (bet.amount * (fee_denominator - fee_percent)) / fee_denominator;
+                        let user_share =
+                            (bet.amount * (fee_denominator - fee_percent)) / fee_denominator;
                         let payout = (user_share * total_pool) / winning_total;
 
                         if payout > 0 {
                             market.claimed.set(user.clone(), true);
                             total_distributed += payout;
-                            
+
                             // Update bet status
                             bet.status = BetStatus::Won;
                             let _ = bets::BetStorage::store_bet(&env, &bet);
@@ -1835,7 +1956,9 @@ impl PredictifyHybrid {
         cursor: u32,
         limit: u32,
     ) -> (Vec<EventHistoryEntry>, u32) {
-        crate::event_archive::EventArchive::query_events_history(&env, from_ts, to_ts, cursor, limit)
+        crate::event_archive::EventArchive::query_events_history(
+            &env, from_ts, to_ts, cursor, limit,
+        )
     }
 
     /// Query events by resolution status (e.g. Resolved, Cancelled). Paginated.
@@ -2929,10 +3052,10 @@ impl PredictifyHybrid {
             return Err(Error::MarketClosed);
         }
 
-        let stored_admin: Option<Address> = env.storage().persistent().get(&Symbol::new(&env, "Admin"));
+        let stored_admin: Option<Address> =
+            env.storage().persistent().get(&Symbol::new(&env, "Admin"));
         let is_admin = stored_admin.as_ref().map_or(false, |a| a == &caller);
-        let timeout_passed = current_time
-            .saturating_sub(market.end_time)
+        let timeout_passed = current_time.saturating_sub(market.end_time)
             >= config::DEFAULT_RESOLUTION_TIMEOUT_SECONDS;
         if !is_admin && !timeout_passed {
             return Err(Error::Unauthorized);
