@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_variables)]
 
 use soroban_sdk::{contracttype, Env, String, Symbol, Vec};
 

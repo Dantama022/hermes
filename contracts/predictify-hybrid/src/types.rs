@@ -1077,6 +1077,10 @@ impl Market {
 pub enum ReflectorAsset {
     /// Stellar Lumens (XLM)
     Stellar,
+    /// Bitcoin (BTC)
+    BTC,
+    /// Ethereum (ETH)
+    ETH,
     /// Other asset identified by symbol
     Other(Symbol),
 }
@@ -2614,4 +2618,18 @@ pub struct Event {
     pub created_at: u64,
     /// Current status of the event
     pub status: MarketState,
+}
+
+impl ReflectorAsset {
+    pub fn is_xlm(&self) -> bool {
+        matches!(self, ReflectorAsset::Stellar)
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Balance {
+    pub user: Address,
+    pub asset: ReflectorAsset,
+    pub amount: i128,
 }

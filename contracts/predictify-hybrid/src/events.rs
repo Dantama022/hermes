@@ -853,6 +853,21 @@ pub struct MarketClosedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a market is refunded due to oracle resolution failure or timeout.
+///
+/// Emitted after all bets are refunded in full (no fee deduction). The market is marked
+/// as cancelled and no further resolution is possible.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundOnOracleFailureEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Total amount refunded to all participants
+    pub total_refunded: i128,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
 /// Market finalized event
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1858,6 +1873,20 @@ impl EventEmitter {
         Self::store_event(env, &symbol_short!("mkt_close"), &event);
     }
 
+    /// Emit refund on oracle failure event (market cancelled, all bets refunded in full).
+    pub fn emit_refund_on_oracle_failure(
+        env: &Env,
+        market_id: &Symbol,
+        total_refunded: i128,
+    ) {
+        let event = RefundOnOracleFailureEvent {
+            market_id: market_id.clone(),
+            total_refunded,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ref_oracl"), &event);
+    }
+
     /// Emit market finalized event
     pub fn emit_market_finalized(env: &Env, market_id: &Symbol, admin: &Address, outcome: &String) {
         let event = MarketFinalizedEvent {
@@ -2260,23 +2289,23 @@ impl EventEmitter {
     ///
     /// EventEmitter::emit_error_event(&env, Error::NothingToClaim, &context);
     /// ```
-    pub fn emit_error_event(
+    pub fn emit_diagnostic_event(
         env: &Env,
-        error: crate::errors::Error,
+        error: Error,
         context: &crate::errors::ErrorContext,
     ) {
         let error_code = error as u32;
 
         // Convert error enum to message string
         let error_msg = match error {
-            crate::errors::Error::Unauthorized => "Unauthorized access",
-            crate::errors::Error::MarketNotFound => "Market not found",
-            crate::errors::Error::MarketClosed => "Market closed",
-            crate::errors::Error::InvalidOutcome => "Invalid outcome",
-            crate::errors::Error::AlreadyVoted => "Already voted",
-            crate::errors::Error::AlreadyClaimed => "Already claimed",
-            crate::errors::Error::MarketNotResolved => "Market not resolved",
-            crate::errors::Error::NothingToClaim => "Nothing to claim",
+            Error::Unauthorized => "Unauthorized access",
+            Error::MarketNotFound => "Market not found",
+            Error::MarketClosed => "Market closed",
+            Error::InvalidOutcome => "Invalid outcome",
+            Error::AlreadyVoted => "Already voted",
+            Error::AlreadyClaimed => "Already claimed",
+            Error::MarketNotResolved => "Market not resolved",
+            Error::NothingToClaim => "Nothing to claim",
             _ => "Unknown error",
         };
         let message = String::from_str(env, error_msg);
@@ -2390,6 +2419,22 @@ impl EventEmitter {
 
         Self::store_event(env, &symbol_short!("up_prop"), &event);
     }
+
+    /// Emit balance changed event for deposits and withdrawals
+    pub fn emit_balance_changed(
+        env: &Env,
+        user: &Address,
+        asset: &crate::types::ReflectorAsset,
+        operation: &String,
+        amount: i128,
+        new_balance: i128,
+    ) {
+        env.events().publish(
+            (symbol_short!("bal_chg"), user, asset.clone()),
+            (operation.clone(), amount, new_balance, env.ledger().timestamp()),
+        );
+    }
+
 
     /// Store event in persistent storage
     fn store_event<T>(env: &Env, event_key: &Symbol, event_data: &T)
