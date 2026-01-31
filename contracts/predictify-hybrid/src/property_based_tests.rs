@@ -78,7 +78,7 @@ impl PropertyBasedTestSuite {
     }
 
     /// Create a client for contract interactions
-    pub fn client(&self) -> PredictifyHybridClient {
+    pub fn client(&self) -> PredictifyHybridClient<'_> {
         PredictifyHybridClient::new(&self.env, &self.contract_id)
     }
 

@@ -115,7 +115,7 @@ impl BetTestSetup {
     }
 
     /// Get client for contract interactions
-    fn client(&self) -> PredictifyHybridClient {
+    fn client(&self) -> PredictifyHybridClient<'_> {
         PredictifyHybridClient::new(&self.env, &self.contract_id)
     }
 

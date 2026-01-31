@@ -29,7 +29,7 @@ use soroban_sdk::{
 };
 
 // Test setup structures
-struct TokenTest {
+pub struct TokenTest {
     pub token_id: Address,
     env: Env,
 }
