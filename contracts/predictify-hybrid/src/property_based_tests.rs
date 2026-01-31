@@ -49,7 +49,7 @@ impl PropertyBasedTestSuite {
         let token_admin = Address::generate(&env);
         let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
         let token_id = token_contract.address();
-        
+
         // Store TokenID
         env.as_contract(&contract_id, || {
             env.storage()
@@ -63,7 +63,7 @@ impl PropertyBasedTestSuite {
         // Mint tokens to admin and users
         let stellar_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
         stellar_client.mint(&admin, &1_000_000_000_000); // Mint ample funds
-        
+
         for user in &users {
             stellar_client.mint(user, &1_000_000_000_000);
         }

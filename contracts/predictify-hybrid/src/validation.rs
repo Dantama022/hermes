@@ -1299,7 +1299,10 @@ impl InputValidator {
     }
 
     /// Validate sufficient balance for withdrawal/transfer
-    pub fn validate_sufficient_balance(current: i128, required: i128) -> Result<(), ValidationError> {
+    pub fn validate_sufficient_balance(
+        current: i128,
+        required: i128,
+    ) -> Result<(), ValidationError> {
         if current < required {
             return Err(ValidationError::NumberOutOfRange);
         }
@@ -1995,7 +1998,7 @@ impl MarketValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2020,7 +2023,7 @@ impl MarketValidator {
         }
 
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2044,7 +2047,7 @@ impl MarketValidator {
         }
 
         // Check if market is resolved
-        if market.winning_outcome.is_none() {
+        if market.winning_outcomes.is_none() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2489,7 +2492,7 @@ impl DisputeValidator {
             return Err(ValidationError::InvalidMarket);
         }
 
-        if market.winning_outcome.is_none() {
+        if market.winning_outcomes.is_none() {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2830,7 +2833,7 @@ impl ComprehensiveValidator {
         }
 
         // Check market resolution
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             result.add_warning();
         }
 

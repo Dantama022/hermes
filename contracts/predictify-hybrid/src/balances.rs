@@ -6,7 +6,7 @@ use crate::markets::MarketUtils;
 use crate::storage::BalanceStorage;
 use crate::types::{Balance, ReflectorAsset};
 use crate::validation::InputValidator;
-use soroban_sdk::{Env, Address, String};
+use soroban_sdk::{Address, Env, String};
 
 /// Manages user balances for deposits and withdrawals.
 ///
@@ -27,7 +27,12 @@ impl BalanceManager {
     ///
     /// # Returns
     /// * `Result<Balance, Error>` - The updated balance or an error.
-    pub fn deposit(env: &Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn deposit(
+        env: &Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         user.require_auth();
 
         // Validate amount
@@ -42,7 +47,7 @@ impl BalanceManager {
         };
 
         // Transfer funds from user to contract
-        // The user must have authorized this transfer (allowance) or we use transfer_from if supported, 
+        // The user must have authorized this transfer (allowance) or we use transfer_from if supported,
         // but standard Soroban token interface uses transfer(from, to, amount) where 'from' must auth.
         // Since we called user.require_auth(), we can try to transfer.
         // Note: The token contract will check if 'user' signed the tx.
@@ -74,7 +79,12 @@ impl BalanceManager {
     ///
     /// # Returns
     /// * `Result<Balance, Error>` - The updated balance or an error.
-    pub fn withdraw(env: &Env, user: Address, asset: ReflectorAsset, amount: i128) -> Result<Balance, Error> {
+    pub fn withdraw(
+        env: &Env,
+        user: Address,
+        asset: ReflectorAsset,
+        amount: i128,
+    ) -> Result<Balance, Error> {
         user.require_auth();
 
         // Validate amount
@@ -148,7 +158,7 @@ impl BalanceManager {
         // So `BalanceStorage` only tracks "Idle" funds.
         //
         // So for `withdraw`, if `BalanceStorage` is "Idle Funds", then checking `balance.amount >= amount` is sufficient.
-        
+
         // Resolve token client
         let token_client = match asset {
             ReflectorAsset::Stellar => MarketUtils::get_token_client(env)?,

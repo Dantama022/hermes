@@ -200,7 +200,7 @@ fn test_complete_market_lifecycle() {
     // Step 7: Verify market is resolved
     let market = test_suite.get_market(&market_id);
     assert_eq!(market.state, MarketState::Resolved);
-    assert!(market.winning_outcome.is_some());
+    assert!(market.winning_outcomes.is_some());
 }
 
 #[test]

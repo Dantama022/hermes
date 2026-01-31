@@ -1087,7 +1087,9 @@ impl Error {
             Error::InvalidOutcome => "Invalid outcome choice",
             Error::AlreadyVoted => "User has already voted",
             Error::AlreadyBet => "User has already placed a bet on this market",
-            Error::BetsAlreadyPlaced => "Bets have already been placed on this market (cannot update)",
+            Error::BetsAlreadyPlaced => {
+                "Bets have already been placed on this market (cannot update)"
+            }
             Error::InsufficientBalance => "Insufficient balance for operation",
             Error::OracleUnavailable => "Oracle is unavailable",
             Error::InvalidOracleConfig => "Invalid oracle configuration",
