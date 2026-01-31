@@ -54,6 +54,8 @@ mod bandprotocol {
 
 #[cfg(test)]
 mod circuit_breaker_tests;
+#[cfg(test)]
+mod oracle_fallback_timeout_tests;
 
 #[cfg(test)]
 mod batch_operations_tests;
@@ -82,6 +84,9 @@ mod event_management_tests;
 #[cfg(test)]
 mod category_tags_tests;
 mod statistics_tests;
+
+#[cfg(test)]
+mod resolution_delay_dispute_window_tests;
 
 #[cfg(test)]
 mod event_creation_tests;
@@ -1473,9 +1478,6 @@ impl PredictifyHybrid {
             &MarketState::Resolved,
             &reason,
         );
-
-        // Automatically distribute payouts
-        let _ = Self::distribute_payouts(env.clone(), market_id);
     }
 
     /// Resolves a market with multiple winning outcomes (for tie cases).
