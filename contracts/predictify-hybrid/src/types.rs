@@ -738,6 +738,88 @@ pub struct Market {
     pub extension_history: Vec<MarketExtension>,
 }
 
+// ===== BET LIMITS =====
+
+/// Configurable minimum and maximum bet amount for an event or globally.
+///
+/// Used to bound bets so markets remain fair and liquid. Admin can set
+/// global defaults or per-event limits at creation or via set_bet_limits.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BetLimits {
+    /// Minimum bet amount (in base token units, e.g. stroops)
+    pub min_bet: i128,
+    /// Maximum bet amount (in base token units)
+    pub max_bet: i128,
+}
+
+// ===== EVENT ARCHIVE / HISTORICAL QUERY TYPES =====
+
+/// Summary of an event (market) for historical queries and analytics.
+///
+/// Contains only public metadata and outcome; no sensitive data (no votes, stakes, or addresses).
+/// Used by `query_events_history`, `query_events_by_resolution_status`, and `query_events_by_category`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventHistoryEntry {
+    /// Market/event ID
+    pub market_id: Symbol,
+    /// Question text (public)
+    pub question: String,
+    /// Outcome names (public)
+    pub outcomes: Vec<String>,
+    /// Market end time (Unix timestamp)
+    pub end_time: u64,
+    /// Creation timestamp (from registry)
+    pub created_at: u64,
+    /// Current market state (Active, Resolved, Cancelled, etc.)
+    pub state: MarketState,
+    /// Winning outcome if resolved
+    pub winning_outcome: Option<String>,
+    /// Total amount staked (public aggregate)
+    pub total_staked: i128,
+    /// When archived (if any); None if not archived
+    pub archived_at: Option<u64>,
+    /// Category / feed identifier (e.g. oracle feed_id) for filtering
+    pub category: String,
+}
+
+// ===== STATISTICS TYPES =====
+
+/// Platform-wide usage statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformStatistics {
+    /// Total number of markets/events created
+    pub total_events_created: u64,
+    /// Total number of bets placed
+    pub total_bets_placed: u64,
+    /// Total volume (amount wagered) in token units
+    pub total_volume: i128,
+    /// Total fees collected in token units
+    pub total_fees_collected: i128,
+    /// Number of currently active (non-resolved) events
+    pub active_events_count: u32,
+}
+
+/// User-specific betting statistics
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserStatistics {
+    /// Total number of bets placed by the user
+    pub total_bets_placed: u64,
+    /// Total amount wagered by the user
+    pub total_amount_wagered: i128,
+    /// Total winnings claimed by the user
+    pub total_winnings: i128,
+    /// Number of winning bets
+    pub total_bets_won: u64,
+    /// Win rate in basis points (0-10000, 100% = 10000)
+    pub win_rate: u32,
+    /// Timestamp of last activity
+    pub last_activity_ts: u64,
+}
+
 impl Market {
     /// Create a new market
     pub fn new(

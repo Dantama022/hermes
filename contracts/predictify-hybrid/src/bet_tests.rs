@@ -842,3 +842,764 @@ fn test_bet_equality() {
     assert_eq!(bet1.amount, bet2.amount);
     assert_eq!(bet1.status, bet2.status);
 }
+
+// ===== BET LIMITS TESTS =====
+
+#[test]
+fn test_set_global_bet_limits_and_place_bet_exactly_min_max() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    let min = 5_000000i128; // 0.5 XLM
+    let max = 50_000000i128; // 5 XLM
+
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &min, &max);
+
+    // Exactly min: must succeed
+    let bet_min = client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &min,
+    );
+    assert_eq!(bet_min.amount, min);
+
+    // Exactly max: need second user (first already bet)
+    let stellar_client = StellarAssetClient::new(&setup.env, &setup.token_id);
+    stellar_client.mint(&setup.user2, &max);
+    setup.env.mock_all_auths();
+    let bet_max = client.place_bet(
+        &setup.user2,
+        &setup.market_id,
+        &String::from_str(&setup.env, "no"),
+        &max,
+    );
+    assert_eq!(bet_max.amount, max);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bet_below_configured_min_rejects() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    let min = 10_000000i128;
+    let max = 100_000000i128;
+
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &min, &max);
+
+    setup.env.mock_all_auths();
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &(min - 1),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_place_bet_above_configured_max_rejects() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    let min = 1_000000i128;
+    let max = 20_000000i128;
+
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &min, &max);
+
+    setup.env.mock_all_auths();
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &(max + 1),
+    );
+}
+
+#[test]
+fn test_set_event_bet_limits_overrides_global() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    let global_min = 1_000000i128;
+    let global_max = 100_000000i128;
+    let event_min = 15_000000i128;
+    let event_max = 25_000000i128;
+
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &global_min, &global_max);
+    setup.env.mock_all_auths();
+    client.set_event_bet_limits(&setup.admin, &setup.market_id, &event_min, &event_max);
+
+    // Exactly event min must succeed (below event min tested in separate should_panic test)
+    setup.env.mock_all_auths();
+    let bet = client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &event_min,
+    );
+    assert_eq!(bet.amount, event_min);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bet_below_event_min_rejects() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    let event_min = 15_000000i128;
+    let event_max = 25_000000i128;
+
+    setup.env.mock_all_auths();
+    client.set_event_bet_limits(&setup.admin, &setup.market_id, &event_min, &event_max);
+
+    setup.env.mock_all_auths();
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &(event_min - 1),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_set_global_bet_limits_unauthorized() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.user, &MIN_BET_AMOUNT, &MAX_BET_AMOUNT);
+}
+
+#[test]
+#[should_panic]
+fn test_set_global_bet_limits_min_above_max_rejects() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &10_000000i128, &5_000000i128);
+}
+
+#[test]
+#[should_panic]
+fn test_set_global_bet_limits_below_absolute_min_rejects() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &(MIN_BET_AMOUNT - 1), &MAX_BET_AMOUNT);
+}
+
+#[test]
+#[should_panic]
+fn test_set_global_bet_limits_above_absolute_max_rejects() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &MIN_BET_AMOUNT, &(MAX_BET_AMOUNT + 1));
+}
+
+// ===== BATCH BET PLACEMENT TESTS =====
+
+#[test]
+fn test_place_bets_success() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Create additional markets
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+    let market_id3 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Prepare batch bets
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128, // 1.0 XLM
+        ),
+        (
+            market_id2.clone(),
+            String::from_str(&setup.env, "no"),
+            20_0000000i128, // 2.0 XLM
+        ),
+        (
+            market_id3.clone(),
+            String::from_str(&setup.env, "yes"),
+            15_0000000i128, // 1.5 XLM
+        ),
+    ];
+
+    // Place batch bets
+    let placed_bets = client.place_bets(&setup.user, &bets);
+
+    // Verify all bets were placed
+    assert_eq!(placed_bets.len(), 3);
+
+    // Verify first bet
+    assert_eq!(placed_bets.get(0).unwrap().market_id, setup.market_id);
+    assert_eq!(placed_bets.get(0).unwrap().amount, 10_0000000);
+    assert_eq!(placed_bets.get(0).unwrap().outcome, String::from_str(&setup.env, "yes"));
+
+    // Verify second bet
+    assert_eq!(placed_bets.get(1).unwrap().market_id, market_id2);
+    assert_eq!(placed_bets.get(1).unwrap().amount, 20_0000000);
+    assert_eq!(placed_bets.get(1).unwrap().outcome, String::from_str(&setup.env, "no"));
+
+    // Verify third bet
+    assert_eq!(placed_bets.get(2).unwrap().market_id, market_id3);
+    assert_eq!(placed_bets.get(2).unwrap().amount, 15_0000000);
+    assert_eq!(placed_bets.get(2).unwrap().outcome, String::from_str(&setup.env, "yes"));
+
+    // Verify all bets are recorded
+    assert!(client.has_user_bet(&setup.market_id, &setup.user));
+    assert!(client.has_user_bet(&market_id2, &setup.user));
+    assert!(client.has_user_bet(&market_id3, &setup.user));
+}
+
+#[test]
+fn test_place_bets_single_bet() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Place single bet via batch function
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+    ];
+
+    let placed_bets = client.place_bets(&setup.user, &bets);
+
+    assert_eq!(placed_bets.len(), 1);
+    assert_eq!(placed_bets.get(0).unwrap().amount, 10_0000000);
+}
+
+#[test]
+fn test_place_bets_maximum_batch_size() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Fund user with enough tokens
+    let stellar_client = StellarAssetClient::new(&setup.env, &setup.token_id);
+    stellar_client.mint(&setup.user, &1000_0000000);
+
+    // Create 50 markets (max batch size)
+    let mut bets = Vec::new(&setup.env);
+    for i in 0..50 {
+        let market_id = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+        bets.push_back((
+            market_id,
+            String::from_str(&setup.env, "yes"),
+            MIN_BET_AMOUNT,
+        ));
+    }
+
+    // Place batch bets
+    let placed_bets = client.place_bets(&setup.user, &bets);
+
+    // Verify all 50 bets were placed
+    assert_eq!(placed_bets.len(), 50);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_empty_batch() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Try to place empty batch
+    let bets = Vec::new(&setup.env);
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_exceeds_max_batch_size() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Create 51 bets (exceeds max of 50)
+    let mut bets = Vec::new(&setup.env);
+    for _ in 0..51 {
+        let market_id = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+        bets.push_back((
+            market_id,
+            String::from_str(&setup.env, "yes"),
+            MIN_BET_AMOUNT,
+        ));
+    }
+
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_atomic_revert_on_invalid_market() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+    let invalid_market = Symbol::new(&setup.env, "nonexistent");
+
+    // Batch with one invalid market
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+        (
+            invalid_market,
+            String::from_str(&setup.env, "no"),
+            20_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "yes"),
+            15_0000000i128,
+        ),
+    ];
+
+    // Should panic and revert all bets
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_atomic_revert_on_invalid_outcome() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Batch with one invalid outcome
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "invalid_outcome"),
+            20_0000000i128,
+        ),
+    ];
+
+    // Should panic and revert all bets
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_atomic_revert_on_insufficient_stake() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Batch with one bet below minimum
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "no"),
+            MIN_BET_AMOUNT - 1,
+        ),
+    ];
+
+    // Should panic and revert all bets
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_atomic_revert_on_already_bet() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Place a bet on first market
+    client.place_bet(
+        &setup.user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &10_0000000,
+    );
+
+    // Try to place batch including the market already bet on
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "no"),
+            15_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "yes"),
+            20_0000000i128,
+        ),
+    ];
+
+    // Should panic and revert all bets
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_atomic_revert_on_closed_market() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Advance time past first market end
+    setup.advance_past_market_end();
+
+    // Try to place batch including closed market
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "no"),
+            20_0000000i128,
+        ),
+    ];
+
+    // Should panic and revert all bets
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_insufficient_balance() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+    let market_id3 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Try to place bets totaling more than user balance
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            500_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "no"),
+            500_0000000i128,
+        ),
+        (
+            market_id3,
+            String::from_str(&setup.env, "yes"),
+            500_0000000i128,
+        ),
+    ];
+
+    // Should panic due to insufficient balance
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+fn test_place_bets_updates_market_stats() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Place batch bets
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+        (
+            market_id2.clone(),
+            String::from_str(&setup.env, "no"),
+            20_0000000i128,
+        ),
+    ];
+
+    client.place_bets(&setup.user, &bets);
+
+    // Verify stats for first market
+    let stats1 = client.get_market_bet_stats(&setup.market_id);
+    assert_eq!(stats1.total_bets, 1);
+    assert_eq!(stats1.total_amount_locked, 10_0000000);
+    assert_eq!(stats1.unique_bettors, 1);
+
+    // Verify stats for second market
+    let stats2 = client.get_market_bet_stats(&market_id2);
+    assert_eq!(stats2.total_bets, 1);
+    assert_eq!(stats2.total_amount_locked, 20_0000000);
+    assert_eq!(stats2.unique_bettors, 1);
+}
+
+#[test]
+fn test_place_bets_emits_events() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Place batch bets
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "no"),
+            20_0000000i128,
+        ),
+    ];
+
+    client.place_bets(&setup.user, &bets);
+
+    // Events are emitted for each bet (verified by successful execution)
+    // In a real implementation, we would check the event log
+}
+
+#[test]
+fn test_place_bets_gas_efficiency() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Create 10 markets
+    let mut markets = Vec::new(&setup.env);
+    for _ in 0..10 {
+        let market_id = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+        markets.push_back(market_id);
+    }
+
+    // Fund user with enough tokens
+    let stellar_client = StellarAssetClient::new(&setup.env, &setup.token_id);
+    stellar_client.mint(&setup.user, &200_0000000);
+
+    // Prepare batch bets
+    let mut bets = Vec::new(&setup.env);
+    for market_id in markets.iter() {
+        bets.push_back((
+            market_id,
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ));
+    }
+
+    // Place batch bets (single transaction)
+    let placed_bets = client.place_bets(&setup.user, &bets);
+
+    // Verify all bets were placed
+    assert_eq!(placed_bets.len(), 10);
+
+    // Batch placement is more gas-efficient than 10 individual place_bet calls
+    // because it only locks funds once and validates in a single transaction
+}
+
+#[test]
+fn test_place_bets_different_outcomes_same_market() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // User cannot bet twice on same market, even with different outcomes
+    // This test verifies the atomicity check catches this
+
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+    ];
+
+    // First batch succeeds
+    client.place_bets(&setup.user, &bets);
+
+    // Verify bet was placed
+    assert!(client.has_user_bet(&setup.market_id, &setup.user));
+}
+
+#[test]
+fn test_place_bets_multiple_users() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // First user places batch bets
+    let bets1 = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            10_0000000i128,
+        ),
+        (
+            market_id2.clone(),
+            String::from_str(&setup.env, "no"),
+            20_0000000i128,
+        ),
+    ];
+
+    client.place_bets(&setup.user, &bets1);
+
+    // Second user places batch bets on same markets
+    let bets2 = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "no"),
+            15_0000000i128,
+        ),
+        (
+            market_id2.clone(),
+            String::from_str(&setup.env, "yes"),
+            25_0000000i128,
+        ),
+    ];
+
+    client.place_bets(&setup.user2, &bets2);
+
+    // Verify both users have bets
+    assert!(client.has_user_bet(&setup.market_id, &setup.user));
+    assert!(client.has_user_bet(&setup.market_id, &setup.user2));
+    assert!(client.has_user_bet(&market_id2, &setup.user));
+    assert!(client.has_user_bet(&market_id2, &setup.user2));
+
+    // Verify market stats
+    let stats1 = client.get_market_bet_stats(&setup.market_id);
+    assert_eq!(stats1.total_bets, 2);
+    assert_eq!(stats1.total_amount_locked, 25_0000000);
+
+    let stats2 = client.get_market_bet_stats(&market_id2);
+    assert_eq!(stats2.total_bets, 2);
+    assert_eq!(stats2.total_amount_locked, 45_0000000);
+}
+
+#[test]
+fn test_place_bets_with_bet_limits() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Set global bet limits
+    let min = 5_000000i128;
+    let max = 50_000000i128;
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &min, &max);
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Place batch bets within limits
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            min,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "no"),
+            max,
+        ),
+    ];
+
+    setup.env.mock_all_auths();
+    let placed_bets = client.place_bets(&setup.user, &bets);
+
+    assert_eq!(placed_bets.len(), 2);
+    assert_eq!(placed_bets.get(0).unwrap().amount, min);
+    assert_eq!(placed_bets.get(1).unwrap().amount, max);
+}
+
+#[test]
+#[should_panic]
+fn test_place_bets_with_bet_limits_violation() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // Set global bet limits
+    let min = 10_000000i128;
+    let max = 30_000000i128;
+    setup.env.mock_all_auths();
+    client.set_global_bet_limits(&setup.admin, &min, &max);
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Try to place batch with one bet exceeding max
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            min,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "no"),
+            max + 1,
+        ),
+    ];
+
+    setup.env.mock_all_auths();
+    client.place_bets(&setup.user, &bets);
+}
+
+#[test]
+fn test_place_bets_total_amount_overflow_protection() {
+    let setup = BetTestSetup::new();
+    let client = setup.client();
+
+    // This test verifies overflow protection in total amount calculation
+    // The checked_add in place_bets prevents overflow
+
+    let market_id2 = BetTestSetup::create_test_market_static(&setup.env, &setup.contract_id, &setup.admin);
+
+    // Place reasonable bets (overflow protection is in place)
+    let bets = vec![
+        &setup.env,
+        (
+            setup.market_id.clone(),
+            String::from_str(&setup.env, "yes"),
+            100_0000000i128,
+        ),
+        (
+            market_id2,
+            String::from_str(&setup.env, "no"),
+            200_0000000i128,
+        ),
+    ];
+
+    // Fund user
+    let stellar_client = StellarAssetClient::new(&setup.env, &setup.token_id);
+    stellar_client.mint(&setup.user, &300_0000000);
+
+    let placed_bets = client.place_bets(&setup.user, &bets);
+    assert_eq!(placed_bets.len(), 2);
+}

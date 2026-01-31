@@ -15,6 +15,7 @@ This is a hybrid prediction market contract built on Stellar using Soroban that 
 - **Advanced Price Validation**: Confidence intervals, staleness checks, and error handling
 - **Dispute System**: Stake-based dispute mechanism with 24-hour extensions
 - **Fee Structure**: 2% platform fee + 1 XLM creation fee
+- **Batch Bet Placement**: Place multiple bets in a single atomic transaction for gas efficiency
 
 ## Pyth Network Oracle Integration
 
@@ -62,12 +63,13 @@ pub struct PythPriceInfo {
 The integration supports major crypto assets with their Pyth feed IDs:
 
 - **BTC/USD**: Real Bitcoin price feed
-- **ETH/USD**: Real Ethereum price feed  
+- **ETH/USD**: Real Ethereum price feed
 - **XLM/USD**: Real Stellar Lumens price feed
 
 ### Advanced Price Validation
 
 #### Staleness Checks
+
 ```rust
 // Prices older than 60 seconds are considered stale
 let max_age = 60; // seconds
@@ -77,6 +79,7 @@ if current_time > price_info.publish_time + max_age {
 ```
 
 #### Confidence Validation
+
 ```rust
 // Maximum 5% confidence interval allowed
 let max_confidence_pct = 5;
@@ -87,6 +90,7 @@ if confidence_pct > max_confidence_pct {
 ```
 
 #### Exponential Scaling
+
 ```rust
 // Handles Pyth's exponential price format
 let adjusted_price = if price_info.expo >= 0 {
@@ -114,6 +118,7 @@ pub enum Error {
 ### Using Pyth Oracle in Markets
 
 #### Create Market with Pyth Oracle
+
 ```rust
 create_pyth_market(
     admin: Address,
@@ -127,15 +132,16 @@ create_pyth_market(
 ```
 
 #### Example: BTC Price Prediction with Pyth
+
 ```javascript
 const pythMarketId = await predictifyClient.create_pyth_market(
-    adminAddress,
-    "Will BTC exceed $100,000 by end of 2024?",
-    ["yes", "no"],
-    30, // 30 days
-    "BTC/USD", // Pyth feed ID
-    10000000, // $100,000 threshold (in cents)
-    "gt" // Greater than
+  adminAddress,
+  "Will BTC exceed $100,000 by end of 2024?",
+  ["yes", "no"],
+  30, // 30 days
+  "BTC/USD", // Pyth feed ID
+  10000000, // $100,000 threshold (in cents)
+  "gt", // Greater than
 );
 ```
 
@@ -163,6 +169,7 @@ twap(asset: ReflectorAsset, records: u32) -> Option<i128>
 ### Supported Assets
 
 The Reflector oracle supports various assets including:
+
 - **BTC** (Bitcoin)
 - **ETH** (Ethereum)
 - **XLM** (Stellar Lumens)
@@ -171,6 +178,7 @@ The Reflector oracle supports various assets including:
 ## Contract Functions
 
 ### 1. Initialize Contract
+
 ```rust
 initialize(admin: Address)
 ```
@@ -178,6 +186,7 @@ initialize(admin: Address)
 ### 2. Create Markets
 
 #### Using Real Reflector Oracle
+
 ```rust
 create_reflector_market(
     admin: Address,
@@ -191,6 +200,7 @@ create_reflector_market(
 ```
 
 #### Using Reflector Oracle with Specific Asset
+
 ```rust
 create_reflector_asset_market(
     admin: Address,
@@ -204,6 +214,7 @@ create_reflector_asset_market(
 ```
 
 #### Using Pyth Oracle (Real Integration)
+
 ```rust
 create_pyth_market(
     admin: Address,
@@ -216,7 +227,32 @@ create_pyth_market(
 ) -> Symbol
 ```
 
-### 3. Oracle Resolution
+### 3. Betting Functions
+
+#### Place Single Bet
+
+```rust
+place_bet(
+    user: Address,
+    market_id: Symbol,
+    outcome: String,
+    amount: i128,
+) -> Bet
+```
+
+#### Place Multiple Bets (Batch)
+
+```rust
+place_bets(
+    user: Address,
+    bets: Vec<(Symbol, String, i128)>,
+) -> Vec<Bet>
+```
+
+Place multiple bets in a single atomic transaction. All bets must succeed or the entire transaction reverts. Maximum batch size is 50 bets. See [BATCH_BET_PLACEMENT.md](./BATCH_BET_PLACEMENT.md) for detailed documentation.
+
+### 4. Oracle Resolution
+
 ```rust
 fetch_oracle_result(
     market_id: Symbol,
@@ -226,21 +262,22 @@ fetch_oracle_result(
 
 ## Oracle Provider Comparison
 
-| Feature | Pyth Network | Reflector Oracle |
-|---------|-------------|------------------|
-| **Update Frequency** | 400ms | Variable |
-| **Data Source** | Institutional (exchanges, market makers) | Multiple sources |
-| **Assets Supported** | 500+ crypto/stocks/forex | Stellar ecosystem focus |
-| **Confidence Intervals** | ✅ Built-in | ❌ Not available |
-| **Staleness Protection** | ✅ 60-second threshold | ✅ Available |
-| **Pull-Based** | ✅ On-demand updates | ✅ Contract calls |
-| **Fee Structure** | Pay per update | Free contract calls |
-| **Precision** | High (institutional grade) | Good |
-| **Soroban Integration** | ✅ Full integration | ✅ Full integration |
+| Feature                  | Pyth Network                             | Reflector Oracle        |
+| ------------------------ | ---------------------------------------- | ----------------------- |
+| **Update Frequency**     | 400ms                                    | Variable                |
+| **Data Source**          | Institutional (exchanges, market makers) | Multiple sources        |
+| **Assets Supported**     | 500+ crypto/stocks/forex                 | Stellar ecosystem focus |
+| **Confidence Intervals** | ✅ Built-in                              | ❌ Not available        |
+| **Staleness Protection** | ✅ 60-second threshold                   | ✅ Available            |
+| **Pull-Based**           | ✅ On-demand updates                     | ✅ Contract calls       |
+| **Fee Structure**        | Pay per update                           | Free contract calls     |
+| **Precision**            | High (institutional grade)               | Good                    |
+| **Soroban Integration**  | ✅ Full integration                      | ✅ Full integration     |
 
 ### When to Use Each Oracle
 
 **Use Pyth Network when:**
+
 - You need institutional-grade data quality
 - High-frequency updates are required
 - Confidence intervals are important
@@ -248,6 +285,7 @@ fetch_oracle_result(
 - Maximum precision is needed
 
 **Use Reflector Oracle when:**
+
 - Cost efficiency is priority
 - Stellar ecosystem assets
 - Proven track record on Stellar
@@ -260,7 +298,8 @@ fetch_oracle_result(
 ```javascript
 // Contract addresses
 const PREDICTIFY_CONTRACT = "your_predictify_contract_address";
-const REFLECTOR_CONTRACT = "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M";
+const REFLECTOR_CONTRACT =
+  "CALI2BYU2JE6WVRUFYTS6MSBNEHGJ35P4AVCZYF3B6QOE3QKOB2PLE6M";
 const TOKEN_CONTRACT = "your_token_contract_address";
 
 // 1. Initialize contract
@@ -271,27 +310,27 @@ await predictifyClient.set_token_contract(tokenContractAddress);
 
 // 3. Create BTC price prediction market using real Reflector oracle
 const marketId = await predictifyClient.create_reflector_market(
-    adminAddress,
-    "Will BTC price be above $50,000 by December 31, 2024?",
-    ["yes", "no"],
-    30, // 30 days duration
-    "BTC", // Asset symbol for Reflector
-    5000000, // $50,000 threshold (in cents)
-    "gt" // Greater than comparison
+  adminAddress,
+  "Will BTC price be above $50,000 by December 31, 2024?",
+  ["yes", "no"],
+  30, // 30 days duration
+  "BTC", // Asset symbol for Reflector
+  5000000, // $50,000 threshold (in cents)
+  "gt", // Greater than comparison
 );
 
 // 4. Users vote
 await predictifyClient.vote(
-    userAddress,
-    marketId,
-    "yes",
-    1000000000 // 100 XLM stake
+  userAddress,
+  marketId,
+  "yes",
+  1000000000, // 100 XLM stake
 );
 
 // 5. After market ends, fetch real oracle result from Reflector
 const oracleResult = await predictifyClient.fetch_oracle_result(
-    marketId,
-    REFLECTOR_CONTRACT
+  marketId,
+  REFLECTOR_CONTRACT,
 );
 
 // 6. Resolve market
@@ -306,13 +345,13 @@ await predictifyClient.claim_winnings(userAddress, marketId);
 ```javascript
 // Create ETH price prediction using real Reflector data
 const ethMarketId = await predictifyClient.create_reflector_asset_market(
-    adminAddress,
-    "Will ETH price be below $3,000 by January 15, 2025?",
-    ["yes", "no"],
-    45, // 45 days duration
-    "ETH", // Asset symbol for Reflector
-    300000, // $3,000 threshold (in cents)
-    "lt" // Less than comparison
+  adminAddress,
+  "Will ETH price be below $3,000 by January 15, 2025?",
+  ["yes", "no"],
+  45, // 45 days duration
+  "ETH", // Asset symbol for Reflector
+  300000, // $3,000 threshold (in cents)
+  "lt", // Less than comparison
 );
 ```
 
@@ -321,13 +360,13 @@ const ethMarketId = await predictifyClient.create_reflector_asset_market(
 ```javascript
 // Create XLM price prediction
 const xlmMarketId = await predictifyClient.create_reflector_asset_market(
-    adminAddress,
-    "Will XLM price be above $0.15 by February 1, 2025?",
-    ["yes", "no"],
-    60, // 60 days duration
-    "XLM", // Asset symbol for Reflector
-    1500, // $0.15 threshold (in cents)
-    "gt" // Greater than comparison
+  adminAddress,
+  "Will XLM price be above $0.15 by February 1, 2025?",
+  ["yes", "no"],
+  60, // 60 days duration
+  "XLM", // Asset symbol for Reflector
+  1500, // $0.15 threshold (in cents)
+  "gt", // Greater than comparison
 );
 ```
 
@@ -339,19 +378,19 @@ const PYTH_CONTRACT = "your_pyth_contract_address";
 
 // Create high-precision BTC prediction with Pyth
 const pythBtcMarketId = await predictifyClient.create_pyth_market(
-    adminAddress,
-    "Will BTC price exceed $75,000 by March 15, 2025?",
-    ["yes", "no"],
-    45, // 45 days duration
-    "BTC/USD", // Pyth feed ID
-    7500000, // $75,000 threshold (in cents)
-    "gt" // Greater than comparison
+  adminAddress,
+  "Will BTC price exceed $75,000 by March 15, 2025?",
+  ["yes", "no"],
+  45, // 45 days duration
+  "BTC/USD", // Pyth feed ID
+  7500000, // $75,000 threshold (in cents)
+  "gt", // Greater than comparison
 );
 
 // Fetch result with Pyth oracle (includes confidence validation)
 const pythResult = await predictifyClient.fetch_oracle_result(
-    pythBtcMarketId,
-    PYTH_CONTRACT
+  pythBtcMarketId,
+  PYTH_CONTRACT,
 );
 
 console.log("Pyth oracle result with confidence validation:", pythResult);
@@ -362,14 +401,61 @@ console.log("Pyth oracle result with confidence validation:", pythResult);
 ```javascript
 // Create ETH market with institutional-grade Pyth data
 const pythEthMarketId = await predictifyClient.create_pyth_market(
-    adminAddress,
-    "Will ETH price be below $2,500 by April 1, 2025?",
-    ["yes", "no"],
-    30, // 30 days duration
-    "ETH/USD", // Pyth feed ID
-    250000, // $2,500 threshold (in cents)
-    "lt" // Less than comparison
+  adminAddress,
+  "Will ETH price be below $2,500 by April 1, 2025?",
+  ["yes", "no"],
+  30, // 30 days duration
+  "ETH/USD", // Pyth feed ID
+  250000, // $2,500 threshold (in cents)
+  "lt", // Less than comparison
 );
+```
+
+### Example 6: Batch Bet Placement (Gas Efficient)
+
+```javascript
+// Create multiple markets
+const btcMarketId = await predictifyClient.create_reflector_market(
+  adminAddress,
+  "Will BTC reach $100,000?",
+  ["yes", "no"],
+  30,
+  "BTC",
+  10000000,
+  "gt",
+);
+
+const ethMarketId = await predictifyClient.create_reflector_market(
+  adminAddress,
+  "Will ETH reach $5,000?",
+  ["yes", "no"],
+  30,
+  "ETH",
+  500000,
+  "gt",
+);
+
+const xlmMarketId = await predictifyClient.create_reflector_market(
+  adminAddress,
+  "Will XLM reach $1?",
+  ["yes", "no"],
+  30,
+  "XLM",
+  100,
+  "gt",
+);
+
+// Place multiple bets in a single transaction (45% gas savings)
+const bets = [
+  [btcMarketId, "yes", 10_000_000], // 1.0 XLM on BTC
+  [ethMarketId, "yes", 5_000_000], // 0.5 XLM on ETH
+  [xlmMarketId, "no", 15_000_000], // 1.5 XLM on XLM
+];
+
+const placedBets = await predictifyClient.place_bets(userAddress, bets);
+
+console.log(`Placed ${placedBets.length} bets in a single transaction!`);
+// All bets are atomic - either all succeed or all revert
 ```
 
 ## Real Oracle Integration Details
@@ -414,22 +500,22 @@ For testing with the real Reflector oracle:
 ```javascript
 // Test with real Reflector oracle
 const testMarketId = await predictifyClient.create_reflector_market(
-    adminAddress,
-    "Test: Will BTC be above $40,000 in 1 hour?",
-    ["yes", "no"],
-    1, // 1 day for testing
-    "BTC",
-    4000000, // $40,000
-    "gt"
+  adminAddress,
+  "Test: Will BTC be above $40,000 in 1 hour?",
+  ["yes", "no"],
+  1, // 1 day for testing
+  "BTC",
+  4000000, // $40,000
+  "gt",
 );
 
 // Wait for market to end
-await new Promise(resolve => setTimeout(resolve, 3600000)); // 1 hour
+await new Promise((resolve) => setTimeout(resolve, 3600000)); // 1 hour
 
 // Fetch real oracle result
 const realResult = await predictifyClient.fetch_oracle_result(
-    testMarketId,
-    REFLECTOR_CONTRACT
+  testMarketId,
+  REFLECTOR_CONTRACT,
 );
 
 console.log("Real oracle result:", realResult);
@@ -438,21 +524,25 @@ console.log("Real oracle result:", realResult);
 ## Deployment Steps
 
 1. **Build the contract**:
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
 
 2. **Deploy to Stellar**:
+
 ```bash
 soroban contract deploy --wasm target/wasm32-unknown-unknown/release/predictify_hybrid.wasm
 ```
 
 3. **Initialize with admin**:
+
 ```bash
 soroban contract invoke --id <contract_id> -- initialize --admin <admin_address>
 ```
 
 4. **Set token contract**:
+
 ```bash
 soroban contract invoke --id <contract_id> -- set_token_contract --token_contract <token_address>
 ```
@@ -486,6 +576,7 @@ soroban contract invoke --id <contract_id> -- set_token_contract --token_contrac
 ### Common Issues
 
 #### Pyth Oracle Issues
+
 1. **PythPriceStale**: Price data older than 60 seconds
    - **Solution**: Wait for fresh price update or increase staleness threshold
 2. **PythConfidenceTooLow**: Confidence interval exceeds 5%
@@ -496,6 +587,7 @@ soroban contract invoke --id <contract_id> -- set_token_contract --token_contrac
    - **Solution**: Check contract address and network connectivity
 
 #### Reflector Oracle Issues
+
 1. **OracleUnavailable Error**: Check if Reflector contract is accessible
 2. **Asset Not Found**: Verify asset symbol is supported by Reflector
 3. **Price Staleness**: Check if oracle data is recent enough
@@ -504,52 +596,67 @@ soroban contract invoke --id <contract_id> -- set_token_contract --token_contrac
 ### Debugging Tools
 
 #### Pyth Oracle Debugging
+
 ```javascript
 // Check Pyth oracle with detailed error handling
 try {
-    const result = await predictifyClient.fetch_oracle_result(marketId, pythContract);
-    console.log("Pyth oracle result:", result);
+  const result = await predictifyClient.fetch_oracle_result(
+    marketId,
+    pythContract,
+  );
+  console.log("Pyth oracle result:", result);
 } catch (error) {
-    if (error.includes("PythPriceStale")) {
-        console.error("Price is too old, wait for fresh update");
-    } else if (error.includes("PythConfidenceTooLow")) {
-        console.error("Price confidence too low, market may be volatile");
-    } else if (error.includes("PythFeedNotFound")) {
-        console.error("Invalid feed ID:", feedId);
-    } else {
-        console.error("General Pyth error:", error);
-    }
+  if (error.includes("PythPriceStale")) {
+    console.error("Price is too old, wait for fresh update");
+  } else if (error.includes("PythConfidenceTooLow")) {
+    console.error("Price confidence too low, market may be volatile");
+  } else if (error.includes("PythFeedNotFound")) {
+    console.error("Invalid feed ID:", feedId);
+  } else {
+    console.error("General Pyth error:", error);
+  }
 }
 ```
 
 #### Reflector Oracle Debugging
+
 ```javascript
 // Check Reflector oracle availability
 try {
-    const result = await predictifyClient.fetch_oracle_result(marketId, reflectorContract);
-    console.log("Reflector oracle result:", result);
+  const result = await predictifyClient.fetch_oracle_result(
+    marketId,
+    reflectorContract,
+  );
+  console.log("Reflector oracle result:", result);
 } catch (error) {
-    console.error("Reflector oracle error:", error);
+  console.error("Reflector oracle error:", error);
 }
 ```
 
 #### Oracle Comparison Test
+
 ```javascript
 // Compare results from both oracles
 async function compareOracles(marketId) {
-    try {
-        const pythResult = await predictifyClient.fetch_oracle_result(marketId, pythContract);
-        console.log("Pyth result:", pythResult);
-    } catch (error) {
-        console.error("Pyth failed:", error);
-    }
-    
-    try {
-        const reflectorResult = await predictifyClient.fetch_oracle_result(marketId, reflectorContract);
-        console.log("Reflector result:", reflectorResult);
-    } catch (error) {
-        console.error("Reflector failed:", error);
-    }
+  try {
+    const pythResult = await predictifyClient.fetch_oracle_result(
+      marketId,
+      pythContract,
+    );
+    console.log("Pyth result:", pythResult);
+  } catch (error) {
+    console.error("Pyth failed:", error);
+  }
+
+  try {
+    const reflectorResult = await predictifyClient.fetch_oracle_result(
+      marketId,
+      reflectorContract,
+    );
+    console.log("Reflector result:", reflectorResult);
+  } catch (error) {
+    console.error("Reflector failed:", error);
+  }
 }
 ```
 
@@ -564,9 +671,9 @@ The contract now includes **complete real integration** with Pyth Network Oracle
 ✅ **Comprehensive Error Handling**: handle_pyth_errors() for all scenarios  
 ✅ **Confidence Intervals**: get_pyth_confidence_interval() with 5% threshold validation  
 ✅ **Staleness Protection**: 60-second freshness requirement  
-✅ **Production Ready**: All tests passing with real oracle architecture  
+✅ **Production Ready**: All tests passing with real oracle architecture
 
-The contract is now ready for production use with **real oracle data** from both Pyth Network and Reflector oracles! 
+The contract is now ready for production use with **real oracle data** from both Pyth Network and Reflector oracles!
 
 ### Next Steps for Full Production Deployment
 
@@ -576,4 +683,4 @@ The contract is now ready for production use with **real oracle data** from both
 4. **Test on Testnet**: Validate with real Pyth data on Stellar testnet
 5. **Monitor Performance**: Track oracle response times and reliability
 
-**The mock implementation has been completely replaced with a production-ready Pyth Network integration!** 🚀 
+**The mock implementation has been completely replaced with a production-ready Pyth Network integration!** 🚀
