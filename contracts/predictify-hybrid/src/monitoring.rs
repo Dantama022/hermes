@@ -457,6 +457,8 @@ impl ContractMonitor {
             total_extension_days: 0,
             max_extension_days: 7,
             extension_history: Vec::new(env),
+            category: None,
+            tags: Vec::new(env),
         })
     }
 
