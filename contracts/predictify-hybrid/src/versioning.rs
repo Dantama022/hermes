@@ -249,7 +249,7 @@ impl VersionMigration {
     }
 
     /// Validate migration configuration
-    pub fn validate(&self, env: &Env) -> Result<(), Error> {
+    pub fn validate(&self, _env: &Env) -> Result<(), Error> {
         // Check if from_version is different from to_version
         if self.from_version.version_number() >= self.to_version.version_number() {
             return Err(Error::InvalidInput);
@@ -529,7 +529,7 @@ impl VersionManager {
     /// Validate version compatibility
     pub fn validate_version_compatibility(
         &self,
-        env: &Env,
+        _env: &Env,
         old_version: &Version,
         new_version: &Version,
     ) -> Result<bool, Error> {

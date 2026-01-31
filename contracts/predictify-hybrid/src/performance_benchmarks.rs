@@ -348,7 +348,7 @@ impl PerformanceBenchmarkManager {
 
     /// Validate performance against thresholds
     pub fn validate_performance_thresholds(
-        env: &Env,
+        _env: &Env,
         metrics: PerformanceMetrics,
         thresholds: PerformanceThresholds,
     ) -> Result<bool, Error> {

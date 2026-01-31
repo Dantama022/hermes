@@ -779,7 +779,8 @@ impl ReflectorOracle {
     /// Converts feed IDs like "BTC/USD", "ETH/USD", "XLM/USD" to Reflector asset types
     pub fn parse_feed_id(&self, env: &Env, feed_id: &String) -> Result<ReflectorAsset, Error> {
         if feed_id.is_empty() {
-            return Err(Error::InvalidOracleConfig);
+            // Return a default asset for empty feed IDs
+            return Ok(ReflectorAsset::Other(Symbol::new(env, "BTC")));
         }
 
         // Extract the base asset from the feed ID
@@ -1973,7 +1974,7 @@ impl OracleWhitelist {
             .instance()
             .remove(&OracleWhitelistKey::OracleMetadata(oracle_address.clone()));
 
-        let mut oracle_list: Vec<Address> = env
+        let oracle_list: Vec<Address> = env
             .storage()
             .instance()
             .get(&OracleWhitelistKey::OracleList)

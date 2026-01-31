@@ -436,7 +436,7 @@ impl MarketAnalyticsManager {
         let mut comparative_metrics = Map::new(env);
         let mut market_categories = Map::new(env);
 
-        for (i, market_id) in markets.iter().enumerate() {
+        for (_i, market_id) in markets.iter().enumerate() {
             if let Some(market) = env.storage().persistent().get::<Symbol, Market>(&market_id) {
                 let participants = market.votes.len() as u32;
                 let stake = market.total_staked;

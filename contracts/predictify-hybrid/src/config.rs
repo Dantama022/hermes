@@ -2792,7 +2792,6 @@ impl ConfigTesting {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_config_manager_default_configs() {

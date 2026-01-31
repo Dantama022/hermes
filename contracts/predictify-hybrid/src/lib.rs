@@ -100,7 +100,6 @@ pub use queries::QueryManager;
 pub use types::*;
 
 use crate::config::{
-    ConfigChanges, ConfigManager, ConfigUpdateRecord, ContractConfig, MarketLimits,
     DEFAULT_PLATFORM_FEE_PERCENTAGE, MAX_PLATFORM_FEE_PERCENTAGE, MIN_PLATFORM_FEE_PERCENTAGE,
 };
 use crate::events::EventEmitter;
@@ -2413,7 +2412,7 @@ impl PredictifyHybrid {
 
         // Since place_bet now updates market.votes and market.stakes,
         // we can use the vote-based payout system for both bets and votes
-        let mut total_distributed = 0;
+        let _total_distributed = 0;
 
         // Check if payouts have already been distributed
         let mut has_unclaimed_winners = false;
