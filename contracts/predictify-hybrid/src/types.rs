@@ -2592,3 +2592,17 @@ pub struct BetStats {
     /// Total amount locked per outcome
     pub outcome_totals: Map<String, i128>,
 }
+
+impl ReflectorAsset {
+    pub fn is_xlm(&self) -> bool {
+        matches!(self, ReflectorAsset::Stellar)
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Balance {
+    pub user: Address,
+    pub asset: ReflectorAsset,
+    pub amount: i128,
+}

@@ -470,7 +470,7 @@ impl BalanceStorage {
 
     pub fn add_balance(env: &Env, user: &Address, asset: &ReflectorAsset, amount: i128) -> Result<Balance, Error> {
         let mut balance = Self::get_balance(env, user, asset);
-        balance.amount = balance.amount.checked_add(amount).ok_or(Error::IntegerOverflow)?;
+        balance.amount = balance.amount.checked_add(amount).ok_or(Error::InvalidInput)?;
         Self::set_balance(env, &balance);
         Ok(balance)
     }

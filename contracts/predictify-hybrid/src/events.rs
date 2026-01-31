@@ -2362,8 +2362,8 @@ impl EventEmitter {
         new_balance: i128,
     ) {
         env.events().publish(
-            (symbol_short!("bal_chg"), user, asset),
-            (operation, amount, new_balance, env.ledger().timestamp()),
+            (symbol_short!("bal_chg"), user, asset.clone()),
+            (operation.clone(), amount, new_balance, env.ledger().timestamp()),
         );
     }
 
