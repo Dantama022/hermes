@@ -471,7 +471,7 @@ pub struct VersionManager;
 
 impl VersionManager {
     /// Initialize version manager
-    pub fn new(env: &Env) -> Self {
+    pub fn new(_env: &Env) -> Self {
         Self
     }
 
@@ -622,7 +622,7 @@ impl VersionManager {
     }
 
     /// Execute migration logic
-    fn execute_migration(&self, env: &Env, migration: &VersionMigration) -> Result<(), Error> {
+    fn execute_migration(&self, _env: &Env, _migration: &VersionMigration) -> Result<(), Error> {
         // In a real implementation, this would execute the actual migration
         // For now, just return success
         Ok(())

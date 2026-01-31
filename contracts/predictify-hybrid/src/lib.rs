@@ -34,6 +34,7 @@ mod markets;
 mod monitoring;
 mod oracles;
 mod performance_benchmarks;
+mod queries;
 mod rate_limiter;
 mod recovery;
 mod reentrancy_guard;
@@ -73,6 +74,7 @@ mod property_based_tests;
 mod upgrade_manager_tests;
 
 #[cfg(test)]
+mod query_tests;
 mod bet_tests;
 
 #[cfg(test)]
@@ -94,6 +96,7 @@ mod event_creation_tests;
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
 pub use errors::Error;
+pub use queries::QueryManager;
 pub use types::*;
 
 use crate::config::{
