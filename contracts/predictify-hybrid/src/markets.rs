@@ -188,6 +188,7 @@ impl MarketCreator {
     pub fn create_reflector_market(
         _env: &Env,
         admin: Address,
+        oracle_address: Address,
         question: String,
         outcomes: Vec<String>,
         duration_days: u32,
@@ -197,6 +198,7 @@ impl MarketCreator {
     ) -> Result<Symbol, Error> {
         let oracle_config = OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address,
             feed_id: asset_symbol,
             threshold,
             comparison,
@@ -268,6 +270,7 @@ impl MarketCreator {
     pub fn create_pyth_market(
         _env: &Env,
         admin: Address,
+        oracle_address: Address,
         question: String,
         outcomes: Vec<String>,
         duration_days: u32,
@@ -277,6 +280,7 @@ impl MarketCreator {
     ) -> Result<Symbol, Error> {
         let oracle_config = OracleConfig {
             provider: OracleProvider::Pyth,
+            oracle_address,
             feed_id,
             threshold,
             comparison,
@@ -348,6 +352,7 @@ impl MarketCreator {
     pub fn create_reflector_asset_market(
         _env: &Env,
         admin: Address,
+        oracle_address: Address,
         question: String,
         outcomes: Vec<String>,
         duration_days: u32,
@@ -358,6 +363,7 @@ impl MarketCreator {
         Self::create_reflector_market(
             _env,
             admin,
+            oracle_address,
             question,
             outcomes,
             duration_days,

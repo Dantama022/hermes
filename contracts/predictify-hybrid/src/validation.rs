@@ -1902,6 +1902,8 @@ impl MarketValidator {
         outcomes: &Vec<String>,
         duration_days: &u32,
         oracle_config: &OracleConfig,
+        fallback_oracle_config: &Option<OracleConfig>,
+        resolution_timeout: &u64,
     ) -> ValidationResult {
         let mut result = ValidationResult::valid();
 
@@ -1934,6 +1936,18 @@ impl MarketValidator {
 
         // Validate oracle config
         if let Err(_) = OracleValidator::validate_oracle_config(env, oracle_config) {
+            result.add_error();
+        }
+
+        // Validate fallback oracle config if provided
+        if let Some(ref fallback) = fallback_oracle_config {
+            if let Err(_) = OracleValidator::validate_oracle_config(env, fallback) {
+                result.add_error();
+            }
+        }
+
+        // Validate resolution timeout
+        if let Err(_) = OracleConfigValidator::validate_resolution_timeout(resolution_timeout) {
             result.add_error();
         }
 
@@ -2966,6 +2980,7 @@ impl ValidationTestingUtils {
             env.ledger().timestamp() + 86400,
             OracleConfig {
                 provider: OracleProvider::Pyth,
+                oracle_address: Address::generate(env),
                 feed_id: String::from_str(env, "BTC/USD"),
                 threshold: 2500000,
                 comparison: String::from_str(env, "gt"),
@@ -2978,6 +2993,7 @@ impl ValidationTestingUtils {
     pub fn create_test_oracle_config(env: &Env) -> OracleConfig {
         OracleConfig {
             provider: OracleProvider::Pyth,
+            oracle_address: Address::generate(env),
             feed_id: String::from_str(env, "BTC/USD"),
             threshold: 2500000,
             comparison: String::from_str(env, "gt"),
@@ -4126,6 +4142,18 @@ impl OracleConfigValidator {
     /// **Band Protocol & DIA:**
     /// - Not supported on Stellar network
     /// - Returns validation error
+    pub fn validate_resolution_timeout(timeout: &u64) -> Result<(), ValidationError> {
+        if *timeout < 3600 {
+            // 1 hour minimum
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        if *timeout > 31_536_000 {
+            // 1 year maximum
+            return Err(ValidationError::NumberOutOfRange);
+        }
+        Ok(())
+    }
+
     pub fn validate_feed_id_format(
         feed_id: &String,
         provider: &OracleProvider,

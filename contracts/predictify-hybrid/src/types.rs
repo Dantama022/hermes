@@ -461,6 +461,8 @@ impl OracleProvider {
 pub struct OracleConfig {
     /// The oracle provider to use
     pub provider: OracleProvider,
+    /// The oracle contract address
+    pub oracle_address: Address,
     /// Oracle-specific identifier (e.g., "BTC/USD" for Pyth, "BTC" for Reflector)
     pub feed_id: String,
     /// Price threshold in cents (e.g., 10_000_00 = $10k)
@@ -473,12 +475,14 @@ impl OracleConfig {
     /// Create a new oracle configuration
     pub fn new(
         provider: OracleProvider,
+        oracle_address: Address,
         feed_id: String,
         threshold: i128,
         comparison: String,
     ) -> Self {
         Self {
             provider,
+            oracle_address,
             feed_id,
             threshold,
             comparison,
@@ -708,8 +712,12 @@ pub struct Market {
     pub outcomes: Vec<String>,
     /// Market end time (Unix timestamp)
     pub end_time: u64,
-    /// Oracle configuration for this market
+    /// Oracle configuration for this market (primary)
     pub oracle_config: OracleConfig,
+    /// Fallback oracle configuration
+    pub fallback_oracle_config: Option<OracleConfig>,
+    /// Resolution timeout in seconds after end_time
+    pub resolution_timeout: u64,
     /// Oracle result (set after market ends)
     pub oracle_result: Option<String>,
     /// User votes mapping (address -> outcome)
@@ -840,6 +848,8 @@ impl Market {
         outcomes: Vec<String>,
         end_time: u64,
         oracle_config: OracleConfig,
+        fallback_oracle_config: Option<OracleConfig>,
+        resolution_timeout: u64,
         state: MarketState,
     ) -> Self {
         Self {
@@ -848,6 +858,8 @@ impl Market {
             outcomes,
             end_time,
             oracle_config,
+            fallback_oracle_config,
+            resolution_timeout,
             oracle_result: None,
             votes: Map::new(env),
             stakes: Map::new(env),
@@ -2643,8 +2655,12 @@ pub struct Event {
     pub outcomes: Vec<String>,
     /// When the event ends (Unix timestamp)
     pub end_time: u64,
-    /// Oracle configuration for result verification
+    /// Oracle configuration for result verification (primary)
     pub oracle_config: OracleConfig,
+    /// Fallback oracle configuration
+    pub fallback_oracle_config: Option<OracleConfig>,
+    /// Resolution timeout in seconds after end_time
+    pub resolution_timeout: u64,
     /// Administrative address that created/manages the event
     pub admin: Address,
     /// When the event was created (Unix timestamp)

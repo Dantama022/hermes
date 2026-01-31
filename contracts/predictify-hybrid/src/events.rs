@@ -999,6 +999,30 @@ pub struct GovernanceVoteCastEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a fallback oracle is used for market resolution.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FallbackUsedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Primary oracle address
+    pub primary_oracle: Address,
+    /// Fallback oracle address
+    pub fallback_oracle: Address,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when a market resolution timeout is reached.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolutionTimeoutEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Timeout timestamp
+    pub timeout_timestamp: u64,
+}
+
 /// Governance proposal executed event
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1442,6 +1466,33 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("mkt_crt"), &event);
+    }
+
+    /// Emit fallback used event
+    pub fn emit_fallback_used(
+        env: &Env,
+        market_id: &Symbol,
+        primary_oracle: &Address,
+        fallback_oracle: &Address,
+    ) {
+        let event = FallbackUsedEvent {
+            market_id: market_id.clone(),
+            primary_oracle: primary_oracle.clone(),
+            fallback_oracle: fallback_oracle.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+
+        Self::store_event(env, &symbol_short!("fbk_used"), &event);
+    }
+
+    /// Emit resolution timeout event
+    pub fn emit_resolution_timeout(env: &Env, market_id: &Symbol, timeout_timestamp: u64) {
+        let event = ResolutionTimeoutEvent {
+            market_id: market_id.clone(),
+            timeout_timestamp,
+        };
+
+        Self::store_event(env, &symbol_short!("res_tmo"), &event);
     }
 
     /// Emit event created event

@@ -140,10 +140,13 @@ impl PredictifyTest {
             &30,
             &OracleConfig {
                 provider: OracleProvider::Reflector,
+                oracle_address: Address::generate(&self.env),
                 feed_id: String::from_str(&self.env, "BTC"),
                 threshold: 2500000,
                 comparison: String::from_str(&self.env, "gt"),
             },
+            &None,
+            &0,
         )
     }
 }
@@ -168,10 +171,13 @@ fn test_create_market_successful() {
         &duration_days,
         &OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
             feed_id: String::from_str(&test.env, "BTC"),
             threshold: 2500000,
             comparison: String::from_str(&test.env, "gt"),
         },
+        &None,
+        &0,
     );
 
     let market = test.env.as_contract(&test.contract_id, || {
@@ -3238,10 +3244,13 @@ fn test_get_market_returns_correct_data() {
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
             feed_id: String::from_str(&test.env, "BTC_USD"),
             threshold: 100_000_0000000,
             comparison: String::from_str(&test.env, "gt"),
         },
+        &None,
+        &0,
     );
 
     let market = client.get_market(&market_id);
