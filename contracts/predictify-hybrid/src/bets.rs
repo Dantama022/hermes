@@ -620,9 +620,16 @@ impl BetManager {
             return Ok(0);
         }
 
-        // Get platform fee percentage from config
-        let cfg = crate::config::ConfigManager::get_config(env)?;
-        let fee_percentage = cfg.fees.platform_fee_percentage;
+        // Get platform fee percentage from config (with fallback to legacy storage)
+        let fee_percentage = crate::config::ConfigManager::get_config(env)
+            .map(|cfg| cfg.fees.platform_fee_percentage)
+            .unwrap_or_else(|_| {
+                // Fallback to legacy storage for backward compatibility
+                env.storage()
+                    .persistent()
+                    .get(&Symbol::new(env, "platform_fee"))
+                    .unwrap_or(200) // Default 2% if not set
+            });
 
         // Calculate payout
         let payout = MarketUtils::calculate_payout(
