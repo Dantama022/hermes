@@ -1705,7 +1705,7 @@ impl PredictifyHybrid {
     /// - Market must exist and be past its end time
     /// - Market must not already have an oracle result
     /// - Oracle contract must be accessible and responsive
-    pub fn fetch_oracle_result(
+    pub fn fetch_oracle_with_contract(
         env: Env,
         market_id: Symbol,
         oracle_contract: Address,
@@ -1736,6 +1736,8 @@ impl PredictifyHybrid {
         )?;
 
         Ok(oracle_resolution.oracle_result)
+    }
+
     pub fn fetch_oracle_result(env: Env, market_id: Symbol) -> Result<OracleResolution, Error> {
         resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)
     }
@@ -5009,6 +5011,7 @@ impl PredictifyHybrid {
             &env, metrics, thresholds,
         )
     }
+
     /// Get platform-wide statistics
     pub fn get_platform_statistics(env: Env) -> PlatformStatistics {
         statistics::StatisticsManager::get_platform_stats(&env)
@@ -5021,3 +5024,4 @@ impl PredictifyHybrid {
 }
 
 mod test;
+mod gas_tracking_tests;
