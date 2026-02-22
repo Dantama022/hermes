@@ -2238,3 +2238,536 @@ fn test_claim_by_loser() {
             .unwrap()
     });
 
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // 3. Resolve market
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+
+    // 4. Claim winnings (should succeed with 0 payout for loser)
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
+}
+
+// ===== LEDGER-BASED TIMESTAMP VALIDATION TESTS =====
+
+#[test]
+fn test_bet_accepted_before_deadline() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Set time to 1 second before deadline
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time - 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    // Verify bet was accepted
+    let updated_market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert!(updated_market.stakes.get(test.user.clone()).unwrap_or(0) > 0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")] // MarketClosed = 3
+fn test_bet_rejected_at_deadline() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Set time exactly at deadline
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")] // MarketClosed = 3
+fn test_bet_rejected_after_deadline() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Set time after deadline
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 100,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")] // MarketClosed = 3
+fn test_resolution_rejected_before_event_end() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Set time before event end
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time - 100,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+}
+
+#[test]
+fn test_resolution_accepted_at_event_end() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    // Place vote before deadline
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Set time exactly at event end
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    
+    let resolved_market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert_eq!(resolved_market.state, MarketState::Resolved);
+}
+
+#[test]
+fn test_resolution_accepted_after_event_end() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    // Place vote before deadline
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Set time after event end
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 3600,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    
+    let resolved_market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert_eq!(resolved_market.state, MarketState::Resolved);
+}
+
+#[test]
+fn test_dispute_window_timing() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    // Place vote and resolve
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    
+    // Verify dispute can be raised within window
+    let dispute_user = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.dispute_market(&dispute_user, &market_id, &10_0000000, &None);
+}
+
+#[test]
+fn test_multiple_bets_at_boundary() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Set time to 10 seconds before deadline
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time - 10,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    // Multiple users place bets
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "yes"), &50_0000000);
+    
+    test.env.mock_all_auths();
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "no"), &50_0000000);
+    
+    // Verify both bets accepted
+    let updated_market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert!(updated_market.stakes.get(user1.clone()).unwrap_or(0) > 0);
+    assert!(updated_market.stakes.get(user2.clone()).unwrap_or(0) > 0);
+}
+
+#[test]
+fn test_ledger_time_consistency_across_operations() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    let initial_time = test.env.ledger().timestamp();
+    
+    // Place bet
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    // Advance to end time
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    let resolution_time = test.env.ledger().timestamp();
+    assert!(resolution_time > initial_time);
+    assert!(resolution_time >= market.end_time);
+    
+    // Resolve
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    
+    // Claim
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
+}
+
+#[test]
+fn test_bet_deadline_boundary_precision() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Test at deadline - 1 second (should succeed)
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time - 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    let user1 = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "yes"), &50_0000000);
+}
+
+#[test]
+fn test_resolution_timeout_boundary() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    // Place vote
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Advance to exactly at resolution timeout
+    let timeout_time = market.end_time + market.resolution_timeout;
+    test.env.ledger().set(LedgerInfo {
+        timestamp: timeout_time,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    // Resolution should still be possible at timeout boundary
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+}
+
+#[test]
+fn test_sequential_time_advancement() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    let start_time = test.env.ledger().timestamp();
+    
+    // Advance time in steps
+    for i in 1..=5 {
+        let new_time = start_time + (i * 100);
+        if new_time < market.end_time {
+            test.env.ledger().set(LedgerInfo {
+                timestamp: new_time,
+                protocol_version: 22,
+                sequence_number: test.env.ledger().sequence() + i as u32,
+                network_id: Default::default(),
+                base_reserve: 10,
+                min_temp_entry_ttl: 1,
+                min_persistent_entry_ttl: 1,
+                max_entry_ttl: 10000,
+            });
+            
+            let user = test.create_funded_user();
+            test.env.mock_all_auths();
+            client.vote(&user, &market_id, &String::from_str(&test.env, "yes"), &10_0000000);
+        }
+    }
+}
+
+#[test]
+fn test_timestamp_validation_across_entrypoints() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    // Test vote entrypoint before deadline
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time - 100,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    // Test resolution entrypoint after deadline
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    
+    // Test claim entrypoint after resolution
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
+}
+
+#[test]
+fn test_ledger_timestamp_monotonicity() {
+    let test = PredictifyTest::setup();
+    let _market_id = test.create_test_market();
+    
+    let t1 = test.env.ledger().timestamp();
+    
+    test.env.ledger().set(LedgerInfo {
+        timestamp: t1 + 100,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    let t2 = test.env.ledger().timestamp();
+    assert!(t2 > t1);
+    
+    test.env.ledger().set(LedgerInfo {
+        timestamp: t2 + 100,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    let t3 = test.env.ledger().timestamp();
+    assert!(t3 > t2);
+}
+
+#[test]
+fn test_market_lifecycle_timing() {
+    let test = PredictifyTest::setup();
+    let market_id = test.create_test_market();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    
+    let creation_time = test.env.ledger().timestamp();
+    assert!(market.end_time > creation_time);
+    
+    // Betting phase
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    
+    // End phase
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    
+    let end_time = test.env.ledger().timestamp();
+    assert!(end_time >= market.end_time);
+    
+    // Resolution phase
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+    
+    let resolution_time = test.env.ledger().timestamp();
+    assert!(resolution_time >= end_time);
+}
