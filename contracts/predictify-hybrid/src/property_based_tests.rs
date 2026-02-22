@@ -180,6 +180,7 @@ proptest! {
             &oracle_config,
             &None,
             &0,
+            &None,
         );
 
         // Verify market was created with correct properties
@@ -230,6 +231,7 @@ proptest! {
             &oracle_config,
             &None,
             &0,
+            &None,
         );
 
         let market = client.get_market(&market_id).unwrap();
@@ -283,6 +285,7 @@ proptest! {
             &oracle_config,
             &None,
             &0,
+            &None,
         );
 
         // Select user and outcome for voting
@@ -452,6 +455,7 @@ proptest! {
             &oracle_config,
             &None,
             &0,
+            &None,
         );
 
         let initial_market = client.get_market(&market_id).unwrap();
@@ -508,6 +512,7 @@ proptest! {
             &oracle_config,
             &None,
             &86400u64,
+            &None,
         );
 
         // Store admin address to avoid borrowing issues

@@ -357,6 +357,7 @@ impl PredictifyHybrid {
         oracle_config: OracleConfig,
         fallback_oracle_config: Option<OracleConfig>,
         resolution_timeout: u64,
+        min_pool_size: Option<i128>,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -419,6 +420,7 @@ impl PredictifyHybrid {
             extension_history: Vec::new(&env),
             category: None,
             tags: Vec::new(&env),
+            min_pool_size,
         };
 
         // Store the market
@@ -466,6 +468,7 @@ impl PredictifyHybrid {
         oracle_config: OracleConfig,
         fallback_oracle_config: Option<OracleConfig>,
         resolution_timeout: u64,
+        min_pool_size: Option<i128>,
     ) -> Symbol {
         // Authenticate that the caller is the admin
         admin.require_auth();
@@ -514,6 +517,7 @@ impl PredictifyHybrid {
             admin: admin.clone(),
             created_at: env.ledger().timestamp(),
             status: MarketState::Active,
+            min_pool_size,
         };
 
         // Store the event
@@ -3651,6 +3655,89 @@ impl PredictifyHybrid {
 
         // Emit market closed event
         EventEmitter::emit_market_closed(&env, &market_id, &admin);
+
+        Ok(total_refunded)
+    }
+
+    /// Cancel and refund an event that has ended but did not meet its minimum pool size.
+    ///
+    /// Callable by admin at any time after market ends, or by anyone once the
+    /// resolution timeout has passed. Returns total amount refunded.
+    pub fn cancel_underfunded_event(
+        env: Env,
+        caller: Address,
+        market_id: Symbol,
+    ) -> Result<i128, Error> {
+        caller.require_auth();
+
+        let mut market: Market = env
+            .storage()
+            .persistent()
+            .get(&market_id)
+            .ok_or(Error::MarketNotFound)?;
+
+        if market.state == MarketState::Cancelled {
+            return Ok(0);
+        }
+        if market.state == MarketState::Resolved {
+            return Err(Error::MarketResolved);
+        }
+
+        let current_time = env.ledger().timestamp();
+        if current_time < market.end_time {
+            return Err(Error::MarketClosed);
+        }
+
+        // Verify min_pool_size is set and not met
+        let min_pool = market.min_pool_size.unwrap_or(0);
+        if min_pool <= 0 || market.total_staked >= min_pool {
+            return Err(Error::InvalidState);
+        }
+
+        // Admin can cancel immediately; others must wait for resolution timeout
+        let stored_admin: Option<Address> =
+            env.storage().persistent().get(&Symbol::new(&env, "Admin"));
+        let is_admin = stored_admin.as_ref().map_or(false, |a| a == &caller);
+        let timeout_passed = current_time.saturating_sub(market.end_time)
+            >= config::DEFAULT_RESOLUTION_TIMEOUT_SECONDS;
+        if !is_admin && !timeout_passed {
+            return Err(Error::Unauthorized);
+        }
+
+        // Emit pool size not met event
+        EventEmitter::emit_min_pool_size_not_met(
+            &env,
+            &market_id,
+            market.total_staked,
+            min_pool,
+        );
+
+        let old_state = market.state.clone();
+        market.state = MarketState::Cancelled;
+        env.storage().persistent().set(&market_id, &market);
+
+        // Refund all bets
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        if ReentrancyGuard::before_external_call(&env).is_err() {
+            return Err(Error::InvalidState);
+        }
+        let refund_result = bets::BetManager::refund_market_bets(&env, &market_id);
+        ReentrancyGuard::after_external_call(&env);
+        refund_result?;
+
+        let total_refunded = market.total_staked;
+
+        EventEmitter::emit_state_change_event(
+            &env,
+            &market_id,
+            &old_state,
+            &MarketState::Cancelled,
+            &String::from_str(&env, "Cancelled: minimum pool size not met"),
+        );
+
+        EventEmitter::emit_market_closed(&env, &market_id, &caller);
 
         Ok(total_refunded)
     }
