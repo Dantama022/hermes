@@ -73,9 +73,9 @@ mod property_based_tests;
 #[cfg(test)]
 mod upgrade_manager_tests;
 
+mod bet_tests;
 #[cfg(test)]
 mod query_tests;
-mod bet_tests;
 
 #[cfg(test)]
 mod balance_tests;
@@ -1729,14 +1729,12 @@ impl PredictifyHybrid {
         }
 
         // Get oracle result using the resolution module
-        let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env,
-            &market_id,
-        )?;
+        let oracle_resolution =
+            resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)?;
 
         Ok(oracle_resolution.oracle_result)
     }
-    
+
     /// Verifies and fetches event outcome from external oracle sources automatically.
     ///
     /// This function implements the complete oracle integration mechanism that:
@@ -1988,11 +1986,7 @@ impl PredictifyHybrid {
     ) -> Result<(), Error> {
         admin.require_auth();
         oracles::OracleIntegrationManager::admin_override_result(
-            &env,
-            &admin,
-            &market_id,
-            &outcome,
-            &reason,
+            &env, &admin, &market_id, &outcome, &reason,
         )
     }
 

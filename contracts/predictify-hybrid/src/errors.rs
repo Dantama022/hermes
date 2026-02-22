@@ -859,9 +859,7 @@ impl ErrorHandler {
             Error::MarketClosed => String::from_str(&Env::default(), "abort"),
             Error::MarketResolved => String::from_str(&Env::default(), "abort"),
             Error::AdminNotSet => String::from_str(&Env::default(), "manual_intervention"),
-            Error::DisputeFeeFailed => {
-                String::from_str(&Env::default(), "manual_intervention")
-            }
+            Error::DisputeFeeFailed => String::from_str(&Env::default(), "manual_intervention"),
             Error::InvalidState => String::from_str(&Env::default(), "no_recovery"),
             Error::InvalidOracleConfig => String::from_str(&Env::default(), "no_recovery"),
             _ => String::from_str(&Env::default(), "abort"),

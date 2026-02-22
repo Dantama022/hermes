@@ -204,15 +204,9 @@ impl QueryManager {
         let market = Self::get_market_from_storage(env, &market_id)?;
 
         // Check if user has participated
-        let outcome = market
-            .votes
-            .get(user.clone())
-            .ok_or(Error::InvalidInput)?;
+        let outcome = market.votes.get(user.clone()).ok_or(Error::InvalidInput)?;
 
-        let stake_amount = market
-            .stakes
-            .get(user.clone())
-            .ok_or(Error::InvalidInput)?;
+        let stake_amount = market.stakes.get(user.clone()).ok_or(Error::InvalidInput)?;
 
         let has_claimed = market.claimed.get(user.clone()).unwrap_or(false);
 
@@ -429,7 +423,7 @@ impl QueryManager {
             resolved_markets,
             total_value_locked,
             total_fees_collected: 0i128, // TODO: Retrieve from fees module
-            unique_users: 0u32, // TODO: Calculate from user index
+            unique_users: 0u32,          // TODO: Calculate from user index
             contract_version: String::from_str(env, "1.0.0"),
             last_update: env.ledger().timestamp(),
         };
@@ -484,11 +478,7 @@ impl QueryManager {
     /// Calculate total stake for a specific outcome.
     ///
     /// Sums all user stakes that voted for the given outcome.
-    fn calculate_outcome_pool(
-        env: &Env,
-        market: &Market,
-        outcome: &String,
-    ) -> Result<i128, Error> {
+    fn calculate_outcome_pool(env: &Env, market: &Market, outcome: &String) -> Result<i128, Error> {
         let mut pool = 0i128;
 
         // Iterate through all votes to find matching outcome
@@ -507,10 +497,7 @@ impl QueryManager {
     ///
     /// Uses stake distribution to infer market's probability estimates
     /// for "yes" and "no" outcomes. Returns percentages (0-100).
-    fn calculate_implied_probabilities(
-        env: &Env,
-        market: &Market,
-    ) -> Result<(u32, u32), Error> {
+    fn calculate_implied_probabilities(env: &Env, market: &Market) -> Result<(u32, u32), Error> {
         if market.outcomes.len() < 2 {
             return Ok((50, 50)); // Default if insufficient outcomes
         }

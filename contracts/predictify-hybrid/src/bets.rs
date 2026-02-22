@@ -25,7 +25,7 @@ use crate::errors::Error;
 use crate::events::EventEmitter;
 use crate::markets::{MarketStateManager, MarketUtils, MarketValidator};
 use crate::reentrancy_guard::ReentrancyGuard;
-use crate::types::{Bet, BetLimits, BetStatus, BetStats, Market, MarketState};
+use crate::types::{Bet, BetLimits, BetStats, BetStatus, Market, MarketState};
 use crate::validation;
 
 // ===== CONSTANTS =====

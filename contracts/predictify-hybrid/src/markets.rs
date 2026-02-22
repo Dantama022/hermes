@@ -456,8 +456,8 @@ impl MarketValidator {
         }
 
         // Load dynamic configuration
-        let cfg = crate::config::ConfigManager::get_config(_env)
-            .map_err(|_| Error::ConfigNotFound)?;
+        let cfg =
+            crate::config::ConfigManager::get_config(_env).map_err(|_| Error::ConfigNotFound)?;
 
         // Use the new MarketParameterValidator for comprehensive validation
         use crate::validation::MarketParameterValidator;
