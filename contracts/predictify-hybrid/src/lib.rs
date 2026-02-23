@@ -73,9 +73,9 @@ mod property_based_tests;
 #[cfg(test)]
 mod upgrade_manager_tests;
 
+mod bet_tests;
 #[cfg(test)]
 mod query_tests;
-mod bet_tests;
 
 #[cfg(test)]
 mod balance_tests;
@@ -1739,10 +1739,8 @@ impl PredictifyHybrid {
         }
 
         // Get oracle result using the resolution module (oracle_contract from market config is used internally)
-        let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env,
-            &market_id,
-        )?;
+        let oracle_resolution =
+            resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)?;
 
         Ok(oracle_resolution.oracle_result)
     }
@@ -1998,11 +1996,7 @@ impl PredictifyHybrid {
     ) -> Result<(), Error> {
         admin.require_auth();
         oracles::OracleIntegrationManager::admin_override_result(
-            &env,
-            &admin,
-            &market_id,
-            &outcome,
-            &reason,
+            &env, &admin, &market_id, &outcome, &reason,
         )
     }
 
@@ -2761,6 +2755,15 @@ impl PredictifyHybrid {
     /// from market payouts. Fees are accumulated across all markets and can be
     /// withdrawn by the admin.
     ///
+    /// # Withdrawal Schedule (Timelock / Cap)
+    ///
+    /// To reduce abuse risk, withdrawals are governed by a schedule:
+    /// - A **timelock** requires a minimum time between successful withdrawals (default: 7 days)
+    /// - An optional **cap** can limit withdrawals to a maximum percentage of the current fee vault
+    ///
+    /// If the schedule conditions are not met, this function returns `Ok(0)` and emits
+    /// an on-chain `FeeWithdrawalAttemptEvent` so monitoring systems can observe blocked attempts.
+    ///
     /// # Parameters
     ///
     /// * `env` - The Soroban environment for blockchain operations
@@ -2770,14 +2773,18 @@ impl PredictifyHybrid {
     /// # Returns
     ///
     /// Returns `Result<i128, Error>` where:
-    /// - `Ok(amount_withdrawn)` - Amount successfully withdrawn
-    /// - `Err(Error)` - Error if withdrawal fails
+    /// - `Ok(amount_withdrawn)` - Amount successfully withdrawn (may be `0` if no withdrawal executed)
+    /// - `Err(Error)` - Error if the call is unauthorized or invalid
     ///
-    /// # Panics
+    /// `Ok(0)` is returned (and a `FeeWithdrawalAttemptEvent` is emitted) when:
+    /// - No fees are available in the fee vault
+    /// - The withdrawal timelock has not yet expired
     ///
-    /// This function will panic with specific errors if:
+    /// # Errors
+    ///
     /// - `Error::Unauthorized` - Caller is not the contract admin
-    /// - `Error::NoFeesToCollect` - No fees available to withdraw
+    /// - `Error::InvalidState` - Reentrancy guard indicates invalid state
+    /// - `Error::InvalidInput` - Invalid withdrawal amount or schedule math overflow
     ///
     /// # Example
     ///
@@ -2811,41 +2818,49 @@ impl PredictifyHybrid {
         if admin != stored_admin {
             return Err(Error::Unauthorized);
         }
+        fees::FeeWithdrawalManager::withdraw_fees(&env, &admin, amount)
+    }
 
-        // Get collected fees from storage (using the same key as FeeTracker)
-        let fees_key = Symbol::new(&env, "tot_fees");
-        let collected_fees: i128 = env.storage().persistent().get(&fees_key).unwrap_or(0);
+    /// Withdraw collected platform fees (admin only) with timelock/schedule enforcement.
+    ///
+    /// This is the preferred alias for `withdraw_collected_fees`.
+    pub fn withdraw_fees(env: Env, admin: Address, amount: i128) -> Result<i128, Error> {
+        Self::withdraw_collected_fees(env, admin, amount)
+    }
 
-        if collected_fees == 0 {
-            return Err(Error::NoFeesToCollect);
+    /// Get the current admin fee withdrawal schedule configuration.
+    pub fn get_fee_withdrawal_schedule(env: Env) -> fees::FeeWithdrawalSchedule {
+        fees::FeeWithdrawalManager::get_schedule(&env)
+    }
+
+    /// Update the admin fee withdrawal schedule (admin only).
+    ///
+    /// Schedule updates can only tighten restrictions:
+    /// - `timelock_seconds` may only increase (minimum: 7 days)
+    /// - `max_withdrawal_bps` may only decrease (range: 1..=10_000)
+    pub fn set_fee_withdrawal_schedule(
+        env: Env,
+        admin: Address,
+        timelock_seconds: u64,
+        max_withdrawal_bps: u32,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::Unauthorized));
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
         }
 
-        // Determine withdrawal amount
-        let withdrawal_amount = if amount == 0 || amount > collected_fees {
-            collected_fees
-        } else {
-            amount
+        let schedule = fees::FeeWithdrawalSchedule {
+            timelock_seconds,
+            max_withdrawal_bps,
         };
-
-        // Update collected fees (checked to prevent underflow)
-        let remaining_fees = collected_fees
-            .checked_sub(withdrawal_amount)
-            .ok_or(Error::InvalidInput)?;
-        env.storage().persistent().set(&fees_key, &remaining_fees);
-
-        // Emit fee withdrawal event
-        EventEmitter::emit_fee_collected(
-            &env,
-            &Symbol::new(&env, "withdrawal"),
-            &admin,
-            withdrawal_amount,
-            &String::from_str(&env, "fee_withdrawal"),
-        );
-
-        // In a real implementation, transfer tokens to admin here
-        // For now, we'll just track the withdrawal
-
-        Ok(withdrawal_amount)
+        fees::FeeWithdrawalManager::set_schedule(&env, &admin, &schedule)
     }
 
     /// Extends the deadline of an active market by a specified number of days (admin only).

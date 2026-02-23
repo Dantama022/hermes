@@ -17,7 +17,9 @@
 
 #![cfg(test)]
 
-use crate::events::{BetPlacedEvent, PlatformFeeSetEvent};
+use crate::events::{
+    BetPlacedEvent, FeeWithdrawalAttemptEvent, FeeWithdrawnEvent, PlatformFeeSetEvent,
+};
 
 use super::*;
 use crate::markets::MarketUtils;
@@ -29,12 +31,10 @@ use soroban_sdk::{
     vec, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
 };
 
-use crate::market_analytics::{
-    MarketStatistics, VotingAnalytics, FeeAnalytics, TimeFrame
-};
+use crate::market_analytics::{FeeAnalytics, MarketStatistics, TimeFrame, VotingAnalytics};
 use crate::resolution::ResolutionAnalytics;
 
-// Test setup structures 
+// Test setup structures
 pub(crate) struct TokenTest {
     pub(crate) token_id: Address,
     env: Env,
@@ -682,8 +682,12 @@ fn test_multiple_oracle_price_aggregation() {
     let oracle2 = crate::oracles::ReflectorOracle::new(Address::generate(&env));
 
     // Get prices from both oracles
-    let price1 = oracle1.get_price(&env, &String::from_str(&env, "BTC/USD")).unwrap();
-    let price2 = oracle2.get_price(&env, &String::from_str(&env, "BTC/USD")).unwrap();
+    let price1 = oracle1
+        .get_price(&env, &String::from_str(&env, "BTC/USD"))
+        .unwrap();
+    let price2 = oracle2
+        .get_price(&env, &String::from_str(&env, "BTC/USD"))
+        .unwrap();
 
     // In current mock implementation, both return same price
     assert_eq!(price1, price2);
@@ -706,8 +710,9 @@ fn test_oracle_consensus_logic() {
         average,
         threshold,
         &String::from_str(&env, "gt"),
-        &env
-    ).unwrap();
+        &env,
+    )
+    .unwrap();
 
     assert!(consensus_result); // Average (2600000) > threshold (2550000)
 }
@@ -741,11 +746,11 @@ fn test_extreme_price_values() {
 
     // Test with various price ranges
     let test_cases = [
-        (1_i128, true),           // Valid small price
-        (1000_i128, true),        // Valid medium price
-        (100000000_i128, true),   // Valid large price
-        (0_i128, false),          // Invalid zero price
-        (-1000_i128, false),      // Invalid negative price
+        (1_i128, true),         // Valid small price
+        (1000_i128, true),      // Valid medium price
+        (100000000_i128, true), // Valid large price
+        (0_i128, false),        // Invalid zero price
+        (-1000_i128, false),    // Invalid negative price
     ];
 
     for (price, should_be_valid) in test_cases {
@@ -753,7 +758,11 @@ fn test_extreme_price_values() {
         if should_be_valid {
             assert!(validation_result.is_ok(), "Price {} should be valid", price);
         } else {
-            assert!(validation_result.is_err(), "Price {} should be invalid", price);
+            assert!(
+                validation_result.is_err(),
+                "Price {} should be invalid",
+                price
+            );
         }
     }
 }
@@ -792,18 +801,30 @@ fn test_price_comparison_operations() {
 
     // Test all comparison operators
     let gt_result = crate::oracles::OracleUtils::compare_prices(
-        price, threshold, &String::from_str(&env, "gt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "gt"),
+        &env,
+    )
+    .unwrap();
     assert!(gt_result);
 
     let lt_result = crate::oracles::OracleUtils::compare_prices(
-        price, threshold, &String::from_str(&env, "lt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "lt"),
+        &env,
+    )
+    .unwrap();
     assert!(!lt_result);
 
     let eq_result = crate::oracles::OracleUtils::compare_prices(
-        threshold, threshold, &String::from_str(&env, "eq"), &env
-    ).unwrap();
+        threshold,
+        threshold,
+        &String::from_str(&env, "eq"),
+        &env,
+    )
+    .unwrap();
     assert!(eq_result);
 }
 
@@ -815,8 +836,12 @@ fn test_market_outcome_determination() {
     let threshold = 2500000; // $25k
 
     let outcome = crate::oracles::OracleUtils::determine_outcome(
-        price, threshold, &String::from_str(&env, "gt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "gt"),
+        &env,
+    )
+    .unwrap();
 
     assert_eq!(outcome, String::from_str(&env, "yes"));
 }
@@ -830,7 +855,8 @@ fn test_oracle_response_validation() {
     // Test invalid responses
     assert!(crate::oracles::OracleUtils::validate_oracle_response(0).is_err()); // Zero
     assert!(crate::oracles::OracleUtils::validate_oracle_response(-1000).is_err()); // Negative
-    assert!(crate::oracles::OracleUtils::validate_oracle_response(200_000_000_00).is_err()); // Too high
+    assert!(crate::oracles::OracleUtils::validate_oracle_response(200_000_000_00).is_err());
+    // Too high
 }
 
 // ===== ORACLE FACTORY TESTS =====
@@ -838,12 +864,20 @@ fn test_oracle_response_validation() {
 #[test]
 fn test_oracle_factory_supported_providers() {
     // Test supported providers
-    assert!(crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::Reflector));
+    assert!(crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::Reflector
+    ));
 
     // Test unsupported providers
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::Pyth));
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::BandProtocol));
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::DIA));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::Pyth
+    ));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::BandProtocol
+    ));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::DIA
+    ));
 }
 
 #[test]
@@ -852,7 +886,10 @@ fn test_oracle_factory_creation() {
     let contract_id = Address::generate(&env);
 
     // Test successful creation
-    let result = crate::oracles::OracleFactory::create_oracle(OracleProvider::Reflector, contract_id.clone());
+    let result = crate::oracles::OracleFactory::create_oracle(
+        OracleProvider::Reflector,
+        contract_id.clone(),
+    );
     assert!(result.is_ok());
 
     // Test failed creation
@@ -1191,7 +1228,6 @@ fn test_initialize_storage_verification() {
     });
 }
 
-
 // ===== TESTS FOR AUTOMATIC PAYOUT DISTRIBUTION (#202) =====
 
 #[test]
@@ -1389,6 +1425,18 @@ fn test_withdraw_collected_fees() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
+    // Ensure a non-zero ledger timestamp for timelock tracking
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
     // First, collect some fees (simulate by setting collected fees in storage)
     test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
@@ -1397,6 +1445,11 @@ fn test_withdraw_collected_fees() {
             .persistent()
             .set(&fees_key, &50_000_000i128); // 5 XLM
     });
+
+    // Fund the contract so the withdrawal transfer can succeed.
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &50_000_000i128);
 
     // Withdraw all fees
     test.env.mock_all_auths();
@@ -1413,11 +1466,34 @@ fn test_withdraw_collected_fees() {
             .unwrap_or(0)
     });
     assert_eq!(remaining, 0);
+
+    // Verify success event was emitted
+    let success_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawnEvent>(&Symbol::new(&test.env, "fwd_ok"))
+            .unwrap()
+    });
+    assert_eq!(success_event.admin, test.admin);
+    assert_eq!(success_event.amount, 50_000_000);
 }
 
 #[test]
 fn test_withdraw_collected_fees_no_fees() {
     let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
 
     // Verify no fees are collected initially
     let fees = test.env.as_contract(&test.contract_id, || {
@@ -1430,9 +1506,170 @@ fn test_withdraw_collected_fees_no_fees() {
     });
     assert_eq!(fees, 0);
 
-    // The withdraw_collected_fees function checks if there are fees to withdraw.
-    // If total_fees == 0, it returns NoFeesToCollect (#415).
-    // We verify the precondition that no fees exist initially.
+    // With no fees, withdrawal is a no-op (returns 0) but still emits an attempt event.
+    test.env.mock_all_auths();
+    let withdrawn = client.withdraw_fees(&test.admin, &0);
+    assert_eq!(withdrawn, 0);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(attempt_event.admin, test.admin);
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::NoFeesAvailable
+    );
+}
+
+#[test]
+fn test_fee_withdrawal_timelock_enforced_and_then_allows_withdrawal() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let start_ts: u64 = 1_700_000_000;
+    let timelock = crate::fees::DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS;
+
+    // Seed fee vault and fund contract
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &100i128);
+    });
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &100i128);
+
+    // First withdrawal succeeds
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 100);
+
+    // Add more fees for the next attempt
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &50i128);
+    });
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &50i128);
+
+    // Attempt before timelock expires is blocked
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts + timelock - 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 0);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::Timelocked
+    );
+
+    // Withdrawal at or after timelock expiry succeeds
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts + timelock,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 50);
+}
+
+#[test]
+fn test_fee_withdrawal_cap_applied_per_window() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Tighten cap to 50% per window (timelock stays at the default 7 days)
+    test.env.mock_all_auths();
+    client.set_fee_withdrawal_schedule(
+        &test.admin,
+        &crate::fees::DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS,
+        &5000u32,
+    );
+
+    // Seed fee vault and fund contract
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &100i128);
+    });
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &100i128);
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Withdraw-all request is capped at 50%
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 50);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::Capped
+    );
+    assert_eq!(attempt_event.withdrawal_amount, 50);
+
+    let success_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawnEvent>(&Symbol::new(&test.env, "fwd_ok"))
+            .unwrap()
+    });
+    assert_eq!(success_event.amount, 50);
+    assert_eq!(success_event.remaining_fees, 50);
 }
 
 // ===== TESTS FOR EVENT CANCELLATION (#216, #217) =====
@@ -2256,4 +2493,3 @@ fn test_claim_by_loser() {
     });
     assert!(market_after.claimed.get(test.user.clone()).unwrap_or(false));
 }
-
