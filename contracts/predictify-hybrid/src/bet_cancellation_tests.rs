@@ -93,26 +93,21 @@ impl BetCancellationTestSetup {
 
         let oracle_config = OracleConfig {
             provider: OracleProvider::Pyth,
+            oracle_address: Address::generate(env),
             feed_id: String::from_str(env, "test_feed"),
-            contract_address: Address::generate(env),
             threshold: 100_000_000,
             comparison: String::from_str(env, "gt"),
         };
-
-        let current_time = env.ledger().timestamp();
-        let end_time = current_time + 86400; // 24 hours from now
 
         client.create_market(
             admin,
             &String::from_str(env, "Test Market"),
             &outcomes,
-            &end_time,
+            &1, // 1 day duration
             &oracle_config,
             &None,
             &3600,
-        );
-
-        Symbol::new(env, "test_market")
+        )
     }
 
     fn place_bet(&self, user: &Address, outcome: &str, amount: i128) {
@@ -339,7 +334,7 @@ fn test_cancel_refunded_bet_fails() {
     setup.place_bet(&setup.user, "yes", bet_amount);
 
     // Admin cancels event (refunds all bets)
-    client.cancel_event(&setup.admin, &setup.market_id);
+    client.cancel_event(&setup.admin, &setup.market_id, &None);
 
     // Attempt to cancel refunded bet - should fail
     client.cancel_bet(&setup.user, &setup.market_id);

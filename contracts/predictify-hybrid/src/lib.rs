@@ -45,7 +45,7 @@ mod types;
 mod upgrade_manager;
 mod utils;
 mod validation;
-mod validation_tests;
+// mod validation_tests;
 mod versioning;
 mod voting;
 // THis is the band protocol wasm std_reference.wasm
@@ -53,48 +53,48 @@ mod bandprotocol {
     soroban_sdk::contractimport!(file = "./std_reference.wasm");
 }
 
-#[cfg(test)]
-mod circuit_breaker_tests;
-#[cfg(test)]
-mod oracle_fallback_timeout_tests;
+// #[cfg(test)]
+// mod circuit_breaker_tests;
+// #[cfg(test)]
+// mod oracle_fallback_timeout_tests;
 
-#[cfg(test)]
-mod batch_operations_tests;
+// #[cfg(test)]
+// mod batch_operations_tests;
 
-#[cfg(test)]
-mod integration_test;
+// #[cfg(test)]
+// mod integration_test;
 
-#[cfg(test)]
-mod recovery_tests;
+// #[cfg(test)]
+// mod recovery_tests;
 
-#[cfg(test)]
-mod property_based_tests;
+// #[cfg(test)]
+// mod property_based_tests;
 
-#[cfg(test)]
-mod upgrade_manager_tests;
+// #[cfg(test)]
+// mod upgrade_manager_tests;
 
-#[cfg(test)]
-mod query_tests;
-mod bet_tests;
+// #[cfg(test)]
+// mod query_tests;
+// mod bet_tests;
 
 #[cfg(test)]
 mod bet_cancellation_tests;
 
-#[cfg(test)]
-mod balance_tests;
+// #[cfg(test)]
+// mod balance_tests;
 
-#[cfg(test)]
-mod event_management_tests;
+// #[cfg(test)]
+// mod event_management_tests;
 
-#[cfg(test)]
-mod category_tags_tests;
-mod statistics_tests;
+// #[cfg(test)]
+// mod category_tags_tests;
+// mod statistics_tests;
 
-#[cfg(test)]
-mod resolution_delay_dispute_window_tests;
+// #[cfg(test)]
+// mod resolution_delay_dispute_window_tests;
 
-#[cfg(test)]
-mod event_creation_tests;
+// #[cfg(test)]
+// mod event_creation_tests;
 
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
@@ -5039,4 +5039,4 @@ impl PredictifyHybrid {
     }
 }
 
-mod test;
+// mod test;

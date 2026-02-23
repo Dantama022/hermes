@@ -12,121 +12,33 @@ use soroban_sdk::{contracterror, contracttype, Address, Env, Map, String, Symbol
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    // ===== USER OPERATION ERRORS =====
-    /// User is not authorized to perform this action
     Unauthorized = 100,
-    /// Market not found
     MarketNotFound = 101,
-    /// Market is closed (has ended)
     MarketClosed = 102,
-    /// Market is already resolved
     MarketResolved = 103,
-    /// Market is not resolved yet
     MarketNotResolved = 104,
-    /// User has nothing to claim
     NothingToClaim = 105,
-    /// User has already claimed
     AlreadyClaimed = 106,
-    /// Insufficient stake amount
     InsufficientStake = 107,
-    /// Invalid outcome choice
     InvalidOutcome = 108,
-    /// User has already voted in this market
     AlreadyVoted = 109,
-    /// User has already placed a bet on this market
     AlreadyBet = 110,
-    /// Bets have already been placed on this market (cannot update)
     BetsAlreadyPlaced = 111,
-    /// Insufficient balance
     InsufficientBalance = 112,
-    // FundsLocked removed to save space
-
-    // ===== ORACLE ERRORS =====
-    /// Oracle is unavailable
     OracleUnavailable = 200,
-    /// Invalid oracle configuration
     InvalidOracleConfig = 201,
-    /// Oracle data is stale or timed out
     OracleStale = 202,
-    /// Oracle consensus not reached (multi-oracle)
-    OracleNoConsensus = 203,
-    /// Oracle result already verified for this market
-    OracleVerified = 204,
-    /// Market not ready for oracle verification
-    MarketNotReady = 205,
-    /// Fallback oracle is unavailable or unhealthy
-    FallbackOracleUnavailable = 202,
-    /// Resolution timeout has been reached
-    ResolutionTimeoutReached = 203,
-    /// Refund process has been initiated
-    RefundStarted = 204,
-
-    // ===== VALIDATION ERRORS =====
-    /// Invalid question format
     InvalidQuestion = 300,
-    /// Invalid outcomes provided
     InvalidOutcomes = 301,
-    /// Invalid duration specified
     InvalidDuration = 302,
-    /// Invalid threshold value
     InvalidThreshold = 303,
-    /// Invalid comparison operator
     InvalidComparison = 304,
-
-    // ===== ADDITIONAL ERRORS =====
-    /// Invalid state
     InvalidState = 400,
-    /// Invalid input
     InvalidInput = 401,
-    /// Invalid fee configuration
     InvalidFeeConfig = 402,
-    /// Configuration not found
     ConfigNotFound = 403,
-    /// Already disputed
     AlreadyDisputed = 404,
-    /// Dispute voting period expired
-    DisputeVoteExpired = 405,
-    /// Dispute voting not allowed
-    DisputeVoteDenied = 406,
-    /// Already voted in dispute
-    DisputeAlreadyVoted = 407,
-    /// Dispute resolution conditions not met
-    DisputeCondNotMet = 408,
-    /// Dispute fee distribution failed
-    DisputeFeeFailed = 409,
-    /// Dispute escalation not allowed
-    DisputeNoEscalate = 410,
-    /// Threshold below minimum
-    ThresholdBelowMin = 411,
-    /// Threshold exceeds maximum
-    ThresholdTooHigh = 412,
-    /// Fee already collected
-    FeeAlreadyCollected = 413,
-    /// No fees to collect
-    NoFeesToCollect = 414,
-    /// Invalid extension days
-    InvalidExtensionDays = 415,
-    /// Extension not allowed or exceeded
-    ExtensionDenied = 416,
-    /// Extension fee insufficient
-    ExtensionFeeLow = 417,
-    /// Admin address is not set (initialization missing)
     AdminNotSet = 418,
-    /// Dispute timeout not set
-    TimeoutNotSet = 419,
-    /// Dispute timeout not expired
-    TimeoutNotExpired = 420,
-    /// Invalid timeout hours
-    InvalidTimeoutHours = 422,
-
-    // ===== CIRCUIT BREAKER ERRORS =====
-    /// Circuit breaker not initialized
-    CBNotInitialized = 500,
-    /// Circuit breaker is already open (paused)
-    CBAlreadyOpen = 501,
-    /// Circuit breaker is not open (cannot recover)
-    CBNotOpen = 502,
-    /// Circuit breaker is open (operations blocked)
     CBOpen = 503,
 }
 
