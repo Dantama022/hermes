@@ -2238,3 +2238,22 @@ fn test_claim_by_loser() {
             .unwrap()
     });
 
+
+
+    test.env.ledger().with_mut(|li| {
+        li.timestamp = market.end_time + 1;
+    });
+
+    // 3. Resolve market with "yes" outcome
+    test.env.mock_all_auths();
+    client.resolve_market_manual(
+        &test.admin,
+        &market_id,
+        &vec![&test.env, String::from_str(&test.env, "yes")],
+    );
+
+    // 4. Loser tries to claim (should fail with NothingToClaim)
+    test.env.mock_all_auths();
+    // This should panic
+    client.claim_winnings(&test.user, &market_id);
+}

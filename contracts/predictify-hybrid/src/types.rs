@@ -3021,6 +3021,11 @@ impl Bet {
     pub fn mark_as_refunded(&mut self) {
         self.status = BetStatus::Refunded;
     }
+
+    /// Mark the bet as cancelled
+    pub fn mark_as_cancelled(&mut self) {
+        self.status = BetStatus::Cancelled;
+    }
 }
 
 /// Statistics for bets placed on a specific market.

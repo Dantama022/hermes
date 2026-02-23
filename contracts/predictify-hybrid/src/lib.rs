@@ -78,6 +78,9 @@ mod query_tests;
 mod bet_tests;
 
 #[cfg(test)]
+mod bet_cancellation_tests;
+
+#[cfg(test)]
 mod balance_tests;
 
 #[cfg(test)]
@@ -849,6 +852,51 @@ impl PredictifyHybrid {
         }
         match bets::BetManager::place_bets(&env, user, bets) {
             Ok(placed_bets) => placed_bets,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    /// Cancel a bet before the market deadline and receive a full refund.
+    ///
+    /// This function allows users to cancel their active bets before the market
+    /// deadline, receiving a full refund of their locked funds. Only the bettor
+    /// can cancel their own bet, and cancellation is only allowed before the
+    /// market's end time.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `user` - Address of the user cancelling the bet
+    /// * `market_id` - Symbol identifying the market
+    ///
+    /// # Errors
+    ///
+    /// * `Error::NothingToClaim` - User has no bet on this market
+    /// * `Error::MarketNotFound` - Market does not exist
+    /// * `Error::MarketClosed` - Market deadline has passed
+    /// * `Error::InvalidState` - Bet is not in Active status
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "btc_50k");
+    ///
+    /// PredictifyHybrid::cancel_bet(env.clone(), user, market_id);
+    /// ```
+    pub fn cancel_bet(
+        env: Env,
+        user: Address,
+        market_id: Symbol,
+    ) {
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            panic_with_error!(env, Error::InvalidState);
+        }
+        match bets::BetManager::cancel_bet(&env, user, market_id) {
+            Ok(_) => {},
             Err(e) => panic_with_error!(env, e),
         }
     }
@@ -1699,43 +1747,13 @@ impl PredictifyHybrid {
     /// - **Reflector**: For asset price data and market conditions
     /// - **Pyth**: For high-frequency financial data feeds
     /// - **Custom Oracles**: For specialized data sources
+    /// Fetches oracle result for a market.
     ///
     /// # Market State Requirements
     ///
     /// - Market must exist and be past its end time
     /// - Market must not already have an oracle result
     /// - Oracle contract must be accessible and responsive
-    pub fn fetch_oracle_result(
-        env: Env,
-        market_id: Symbol,
-        oracle_contract: Address,
-    ) -> Result<String, Error> {
-        // Get the market from storage
-        let market = env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .ok_or(Error::MarketNotFound)?;
-
-        // Validate market state
-        if market.oracle_result.is_some() {
-            return Err(Error::MarketResolved);
-        }
-
-        // Check if market has ended
-        let current_time = env.ledger().timestamp();
-        if current_time < market.end_time {
-            return Err(Error::MarketClosed);
-        }
-
-        // Get oracle result using the resolution module
-        let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env,
-            &market_id,
-            &oracle_contract,
-        )?;
-
-        Ok(oracle_resolution.oracle_result)
     pub fn fetch_oracle_result(env: Env, market_id: Symbol) -> Result<OracleResolution, Error> {
         resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)
     }
@@ -5009,6 +5027,7 @@ impl PredictifyHybrid {
             &env, metrics, thresholds,
         )
     }
+
     /// Get platform-wide statistics
     pub fn get_platform_statistics(env: Env) -> PlatformStatistics {
         statistics::StatisticsManager::get_platform_stats(&env)
