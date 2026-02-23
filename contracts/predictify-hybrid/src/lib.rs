@@ -93,6 +93,9 @@ mod resolution_delay_dispute_window_tests;
 #[cfg(test)]
 mod event_creation_tests;
 
+#[cfg(test)]
+mod metadata_validation_tests;
+
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
 pub use errors::Error;
@@ -374,7 +377,17 @@ impl PredictifyHybrid {
             panic_with_error!(env, Error::Unauthorized);
         }
 
-        // Validate inputs
+        // Validate question length
+        if let Err(e) = validation::InputValidator::validate_question_length(&question) {
+            panic_with_error!(env, e.to_contract_error());
+        }
+
+        // Validate outcomes
+        if let Err(e) = validation::InputValidator::validate_outcomes(&outcomes) {
+            panic_with_error!(env, e.to_contract_error());
+        }
+
+        // Legacy validation for backwards compatibility
         if outcomes.len() < 2 {
             panic_with_error!(env, Error::InvalidOutcomes);
         }
@@ -1732,12 +1745,9 @@ impl PredictifyHybrid {
         let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
             &env,
             &market_id,
-            &oracle_contract,
         )?;
 
         Ok(oracle_resolution.oracle_result)
-    pub fn fetch_oracle_result(env: Env, market_id: Symbol) -> Result<OracleResolution, Error> {
-        resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)
     }
 
     /// Verifies and fetches event outcome from external oracle sources automatically.

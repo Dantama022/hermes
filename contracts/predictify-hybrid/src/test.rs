@@ -2238,3 +2238,18 @@ fn test_claim_by_loser() {
             .unwrap()
     });
 
+    // 3. Resolve market
+    test.env.ledger().with_mut(|li| {
+        li.timestamp = market.end_time + 1;
+    });
+
+    test.env.mock_all_auths();
+    let _ = client.try_resolve_market(&market_id);
+
+    // 4. Attempt to claim (should fail - user voted for losing outcome)
+    test.env.mock_all_auths();
+    let result = client.try_claim_winnings(&test.user, &market_id);
+    
+    // Should return NothingToClaim error
+    assert!(result.is_err());
+}
