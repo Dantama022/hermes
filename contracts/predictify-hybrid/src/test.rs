@@ -2745,6 +2745,40 @@ fn test_contract_functional_after_version_upgrade() {
     let market_id = client.create_market(
         &admin,
         &String::from_str(&env, "Will ETH reach $5000?"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&env),
+            feed_id: String::from_str(&env, "ETH"),
+            threshold: 500000,
+            comparison: String::from_str(&env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+    );
+
+    // Vote AFTER version upgrade — should still work
+    env.mock_all_auths();
+    client.vote(
+        &user,
+        &market_id,
+        &String::from_str(&env, "yes"),
+        &1_0000000,
+    );
+
+    // Verify market and vote data
+    let market = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert!(market.votes.contains_key(user.clone()));
+    assert_eq!(market.total_staked, 1_0000000);
+}
+
 // ===== MINIMUM POOL SIZE TESTS =====
 
 #[test]
@@ -2998,27 +3032,6 @@ fn test_resolution_succeeds_with_no_min_pool_size() {
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
-            oracle_address: Address::generate(&env),
-            feed_id: String::from_str(&env, "ETH"),
-            threshold: 500000,
-            comparison: String::from_str(&env, "gt"),
-        },
-        &None,
-        &0,
-    );
-
-    // Vote AFTER version upgrade — should still work
-    env.mock_all_auths();
-    client.vote(
-        &user,
-        &market_id,
-        &String::from_str(&env, "yes"),
-        &1_0000000,
-    );
-
-    // Verify market and vote data
-    let market = env.as_contract(&contract_id, || {
-        env.storage()
             oracle_address: Address::generate(&test.env),
             feed_id: String::from_str(&test.env, "BTC"),
             threshold: 10000000,
@@ -3046,8 +3059,37 @@ fn test_resolution_succeeds_with_no_min_pool_size() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
-    assert!(market.votes.contains_key(user.clone()));
-    assert_eq!(market.total_staked, 1_0000000);
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 3110400,
+    });
+
+    // Set oracle result and transition market to Ended state
+    test.env.as_contract(&test.contract_id, || {
+        let mut m = test
+            .env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "yes"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
+    });
+
+    // Resolution should succeed (no min pool constraint)
+    let result = test.env.as_contract(&test.contract_id, || {
+        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    });
+
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -3511,37 +3553,6 @@ fn test_migration_with_required_flag() {
         // Compatibility score should be reduced
         assert!(result.compatibility_score < 100);
     });
-
-    test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
-        protocol_version: 22,
-        sequence_number: test.env.ledger().sequence(),
-        network_id: Default::default(),
-        base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 3110400,
-    });
-
-    // Set oracle result and transition market to Ended state
-    test.env.as_contract(&test.contract_id, || {
-        let mut m = test
-            .env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap();
-        m.oracle_result = Some(String::from_str(&test.env, "yes"));
-        m.state = MarketState::Ended;
-        test.env.storage().persistent().set(&market_id, &m);
-    });
-
-    // Resolution should succeed (no min pool constraint)
-    let result = test.env.as_contract(&test.contract_id, || {
-        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
-    });
-
-    assert!(result.is_ok());
 }
 
 #[test]
