@@ -48,6 +48,7 @@ mod validation;
 mod validation_tests;
 mod versioning;
 mod voting;
+pub mod gas;
 // THis is the band protocol wasm std_reference.wasm
 mod bandprotocol {
     soroban_sdk::contractimport!(file = "./std_reference.wasm");
@@ -510,6 +511,7 @@ impl PredictifyHybrid {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
         }
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         // Authenticate that the caller is the admin
         admin.require_auth();
 
@@ -595,6 +597,11 @@ impl PredictifyHybrid {
         // Emit visibility set event
         EventEmitter::emit_event_visibility_set(&env, &event_id, &visibility, &admin);
 
+        crate::gas::GasTracker::end_tracking(
+            &env,
+            soroban_sdk::symbol_short!("cre_event"),
+            gas_marker,
+        );
         event_id
     }
 
@@ -991,6 +998,7 @@ impl PredictifyHybrid {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
         }
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             panic_with_error!(env, Error::InvalidState);
         }
@@ -999,6 +1007,11 @@ impl PredictifyHybrid {
             Ok(bet) => {
                 // Record statistics
                 statistics::StatisticsManager::record_bet_placed(&env, &user, amount);
+                crate::gas::GasTracker::end_tracking(
+            &env,
+            soroban_sdk::symbol_short!("place_bet"),
+            gas_marker,
+        );
                 bet
             }
             Err(e) => panic_with_error!(env, e),
@@ -2306,11 +2319,13 @@ impl PredictifyHybrid {
     /// - Users can claim winnings
     /// - Market statistics are finalized
     pub fn resolve_market(env: Env, market_id: Symbol) -> Result<(), Error> {
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         // Use the resolution module to resolve the market
         let _resolution = resolution::MarketResolutionManager::resolve_market(&env, &market_id)?;
 
         statistics::StatisticsManager::record_market_resolved(&env);
 
+        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("resolve"), gas_marker, 2000);
         Ok(())
     }
 
@@ -2621,6 +2636,7 @@ impl PredictifyHybrid {
     /// This function emits `WinningsClaimedEvent` for each user who receives a payout.
     pub fn distribute_payouts(env: Env, market_id: Symbol) -> Result<i128, Error> {
         admin::ContractPauseManager::require_not_paused(&env)?;
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             return Err(Error::InvalidState);
         }
@@ -2819,6 +2835,8 @@ impl PredictifyHybrid {
 
         // Save final market state
         env.storage().persistent().set(&market_id, &market);
+
+        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("payout"), gas_marker, 2500);
 
         Ok(total_distributed)
     }

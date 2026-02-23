@@ -48,7 +48,10 @@ impl TestSetup {
 
         let oracle_config = OracleConfig::new(
             OracleProvider::Reflector,
-            soroban_sdk::Address::from_str(&self.env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+            soroban_sdk::Address::from_str(
+                &self.env,
+                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ),
             String::from_str(&self.env, "BTC/USD"),
             50_000_00,
             String::from_str(&self.env, "gt"),
@@ -613,7 +616,6 @@ fn test_resolution_allowed_after_end_time() {
         // Market should have ended
         assert!(!market.is_active(&setup.env));
         assert!(market.has_ended(&setup.env));
-        
         // Resolution should be allowed
         market.state = MarketState::Ended;
         let mut outcomes = soroban_sdk::Vec::new(&setup.env);
