@@ -366,7 +366,7 @@ fn test_payout_never_exceeds_total_pool() {
 
     let stake = 10_000_000i128;
     market.total_staked = stake;
-    market.winning_outcome = Some(String::from_str(&env, "yes"));
+    market.winning_outcomes = Some(soroban_sdk::vec![&env, String::from_str(&env, "yes")]);
 
     let payout = QueryManager::calculate_payout(&env, &market, stake);
     assert!(payout.is_ok());
@@ -548,7 +548,7 @@ fn test_payout_with_high_fees() {
 
     let stake = 100_000_000i128; // 10 XLM
     market.total_staked = stake;
-    market.winning_outcome = Some(String::from_str(&env, "yes"));
+    market.winning_outcomes = Some(soroban_sdk::vec![&env, String::from_str(&env, "yes")]);
 
     let payout = QueryManager::calculate_payout(&env, &market, stake).unwrap();
 

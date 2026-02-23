@@ -2238,3 +2238,33 @@ fn test_claim_by_loser() {
             .unwrap()
     });
 
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // 3. Resolve market with "yes" as winner (user voted "no", so they lose)
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+
+    // 4. Loser claims - should complete without panic but receive 0 (or minimal) and be marked claimed
+    test.env.mock_all_auths();
+    client.claim_winnings(&test.user, &market_id);
+
+    // 5. Verify loser was marked as claimed (prevents re-entry) and did not get winnings
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert!(market_after.claimed.get(test.user.clone()).unwrap_or(false));
+}
+

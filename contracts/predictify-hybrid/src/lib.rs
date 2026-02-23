@@ -1728,16 +1728,13 @@ impl PredictifyHybrid {
             return Err(Error::MarketClosed);
         }
 
-        // Get oracle result using the resolution module
+        // Get oracle result using the resolution module (oracle_contract from market config is used internally)
         let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
             &env,
             &market_id,
-            &oracle_contract,
         )?;
 
         Ok(oracle_resolution.oracle_result)
-    pub fn fetch_oracle_result(env: Env, market_id: Symbol) -> Result<OracleResolution, Error> {
-        resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)
     }
 
     /// Verifies and fetches event outcome from external oracle sources automatically.

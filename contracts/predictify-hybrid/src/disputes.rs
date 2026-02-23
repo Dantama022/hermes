@@ -1741,7 +1741,7 @@ impl DisputeManager {
     ) -> Result<DisputeTimeoutOutcome, Error> {
         // Check if timeout has expired
         if !Self::check_dispute_timeout(env, dispute_id.clone())? {
-            return Err(Error::TimeoutNotExpired);
+            return Err(Error::InvalidState);
         }
 
         // Get timeout configuration
@@ -1854,7 +1854,7 @@ impl DisputeManager {
 
         // Check if timeout can be extended
         if !matches!(timeout.status, DisputeTimeoutStatus::Active) {
-            return Err(Error::TimeoutNotExpired);
+            return Err(Error::InvalidState);
         }
 
         // Update timeout
@@ -2110,7 +2110,7 @@ impl DisputeValidator {
         timeout: &DisputeTimeout,
     ) -> Result<(), Error> {
         if !matches!(timeout.status, DisputeTimeoutStatus::Active) {
-            return Err(Error::TimeoutNotExpired);
+            return Err(Error::InvalidState);
         }
 
         Ok(())
