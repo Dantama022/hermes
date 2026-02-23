@@ -1656,6 +1656,20 @@ pub struct CircuitBreakerEvent {
     pub admin: Option<Address>,
 }
 
+/// Event emitted when a market's total pool size does not meet the required minimum.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MinPoolSizeNotMetEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Current total pool size
+    pub current_pool: i128,
+    /// Required minimum pool size
+    pub required_min: i128,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
 // ===== EVENT EMISSION UTILITIES =====
 
 /// Event emission utilities
@@ -2092,6 +2106,22 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("mkt_res"), &event);
+    }
+
+    /// Emit event when minimum pool size is not met at resolution time
+    pub fn emit_min_pool_size_not_met(
+        env: &Env,
+        market_id: &Symbol,
+        current_pool: i128,
+        required_min: i128,
+    ) {
+        let event = MinPoolSizeNotMetEvent {
+            market_id: market_id.clone(),
+            current_pool,
+            required_min,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("pool_lo"), &event);
     }
 
     /// Emit dispute created event
