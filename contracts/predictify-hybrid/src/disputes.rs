@@ -1741,7 +1741,7 @@ impl DisputeManager {
     ) -> Result<DisputeTimeoutOutcome, Error> {
         // Check if timeout has expired
         if !Self::check_dispute_timeout(env, dispute_id.clone())? {
-            return Err(Error::TimeoutNotExpired);
+            return Err(Error::InvalidState);
         }
 
         // Get timeout configuration
@@ -1854,7 +1854,7 @@ impl DisputeManager {
 
         // Check if timeout can be extended
         if !matches!(timeout.status, DisputeTimeoutStatus::Active) {
-            return Err(Error::TimeoutNotExpired);
+            return Err(Error::InvalidState);
         }
 
         // Update timeout
@@ -2110,7 +2110,7 @@ impl DisputeValidator {
         timeout: &DisputeTimeout,
     ) -> Result<(), Error> {
         if !matches!(timeout.status, DisputeTimeoutStatus::Active) {
-            return Err(Error::TimeoutNotExpired);
+            return Err(Error::InvalidState);
         }
 
         Ok(())
@@ -2816,10 +2816,13 @@ mod tests {
             end_time,
             crate::types::OracleConfig::new(
                 crate::types::OracleProvider::Pyth,
+                Address::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
                 String::from_str(env, "BTC/USD"),
                 2500000,
                 String::from_str(env, "gt"),
             ),
+            None,
+            86400,
             crate::types::MarketState::Active,
         )
     }

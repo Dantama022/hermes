@@ -55,11 +55,9 @@ pub enum Error {
     /// Market not ready for oracle verification
     MarketNotReady = 205,
     /// Fallback oracle is unavailable or unhealthy
-    FallbackOracleUnavailable = 202,
+    FallbackOracleUnavailable = 206,
     /// Resolution timeout has been reached
-    ResolutionTimeoutReached = 203,
-    /// Refund process has been initiated
-    RefundStarted = 204,
+    ResolutionTimeoutReached = 207,
 
     // ===== VALIDATION ERRORS =====
     /// Invalid question format
@@ -108,14 +106,10 @@ pub enum Error {
     InvalidExtensionDays = 415,
     /// Extension not allowed or exceeded
     ExtensionDenied = 416,
-    /// Extension fee insufficient
-    ExtensionFeeLow = 417,
     /// Admin address is not set (initialization missing)
     AdminNotSet = 418,
     /// Dispute timeout not set
     TimeoutNotSet = 419,
-    /// Dispute timeout not expired
-    TimeoutNotExpired = 420,
     /// Invalid timeout hours
     InvalidTimeoutHours = 422,
 
@@ -1119,15 +1113,15 @@ impl Error {
             Error::NoFeesToCollect => "No fees to collect",
             Error::InvalidExtensionDays => "Invalid extension days",
             Error::ExtensionDenied => "Extension not allowed or exceeded",
-            Error::ExtensionFeeLow => "Extension fee insufficient",
             Error::AdminNotSet => "Admin address is not set (initialization missing)",
             Error::TimeoutNotSet => "Dispute timeout not set",
-            Error::TimeoutNotExpired => "Dispute timeout not expired",
             Error::InvalidTimeoutHours => "Invalid timeout hours",
             Error::OracleStale => "Oracle data is stale or timed out",
             Error::OracleNoConsensus => "Oracle consensus not reached",
             Error::OracleVerified => "Oracle result already verified",
             Error::MarketNotReady => "Market not ready for oracle verification",
+            Error::FallbackOracleUnavailable => "Fallback oracle is unavailable or unhealthy",
+            Error::ResolutionTimeoutReached => "Resolution timeout has been reached",
             Error::CBNotInitialized => "Circuit breaker not initialized",
             Error::CBAlreadyOpen => "Circuit breaker is already open (paused)",
             Error::CBNotOpen => "Circuit breaker is not open (cannot recover)",
@@ -1237,15 +1231,15 @@ impl Error {
             Error::NoFeesToCollect => "NO_FEES_TO_COLLECT",
             Error::InvalidExtensionDays => "INVALID_EXTENSION_DAYS",
             Error::ExtensionDenied => "EXTENSION_DENIED",
-            Error::ExtensionFeeLow => "EXTENSION_FEE_INSUFFICIENT",
             Error::AdminNotSet => "ADMIN_NOT_SET",
             Error::TimeoutNotSet => "DISPUTE_TIMEOUT_NOT_SET",
-            Error::TimeoutNotExpired => "DISPUTE_TIMEOUT_NOT_EXPIRED",
             Error::InvalidTimeoutHours => "INVALID_TIMEOUT_HOURS",
             Error::OracleStale => "ORACLE_STALE",
             Error::OracleNoConsensus => "ORACLE_NO_CONSENSUS",
             Error::OracleVerified => "ORACLE_VERIFIED",
             Error::MarketNotReady => "MARKET_NOT_READY",
+            Error::FallbackOracleUnavailable => "FALLBACK_ORACLE_UNAVAILABLE",
+            Error::ResolutionTimeoutReached => "RESOLUTION_TIMEOUT_REACHED",
             Error::CBNotInitialized => "CIRCUIT_BREAKER_NOT_INITIALIZED",
             Error::CBAlreadyOpen => "CIRCUIT_BREAKER_ALREADY_OPEN",
             Error::CBNotOpen => "CIRCUIT_BREAKER_NOT_OPEN",
