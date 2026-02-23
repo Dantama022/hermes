@@ -73,9 +73,9 @@ mod property_based_tests;
 #[cfg(test)]
 mod upgrade_manager_tests;
 
+mod bet_tests;
 #[cfg(test)]
 mod query_tests;
-mod bet_tests;
 
 #[cfg(test)]
 mod balance_tests;
@@ -1363,7 +1363,7 @@ impl PredictifyHybrid {
         // This ensures atomicity - if any market is invalid, we revert without changing state
         for i in 0..market_ids.len() {
             let market_id = market_ids.get(i).unwrap();
-            
+
             let market: Market = env
                 .storage()
                 .persistent()
@@ -1394,12 +1394,8 @@ impl PredictifyHybrid {
 
         for i in 0..market_ids.len() {
             let market_id = market_ids.get(i).unwrap();
-            
-            let mut market: Market = env
-                .storage()
-                .persistent()
-                .get(&market_id)
-                .unwrap();
+
+            let mut market: Market = env.storage().persistent().get(&market_id).unwrap();
 
             let winning_outcomes = market.winning_outcomes.clone().unwrap();
             let user_outcome = market.votes.get(user.clone()).unwrap();
@@ -1904,10 +1900,8 @@ impl PredictifyHybrid {
         }
 
         // Get oracle result using the resolution module (oracle_contract from market config is used internally)
-        let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
-            &env,
-            &market_id,
-        )?;
+        let oracle_resolution =
+            resolution::OracleResolutionManager::fetch_oracle_result(&env, &market_id)?;
 
         Ok(oracle_resolution.oracle_result)
     }
@@ -2163,11 +2157,7 @@ impl PredictifyHybrid {
     ) -> Result<(), Error> {
         admin.require_auth();
         oracles::OracleIntegrationManager::admin_override_result(
-            &env,
-            &admin,
-            &market_id,
-            &outcome,
-            &reason,
+            &env, &admin, &market_id, &outcome, &reason,
         )
     }
 
