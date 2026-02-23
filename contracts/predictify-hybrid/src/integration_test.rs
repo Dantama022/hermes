@@ -195,7 +195,7 @@ fn test_complete_market_lifecycle() {
 
     // Step 5: Verify market has ended
     let market = test_suite.get_market(&market_id);
-    assert!(market.has_ended(test_suite.env.ledger().timestamp()));
+    assert!(market.has_ended(&test_suite.env));
 
     // Step 6: Resolve market
     let resolution_result = test_suite.resolve_market(&market_id);

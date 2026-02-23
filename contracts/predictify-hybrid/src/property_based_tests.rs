@@ -464,7 +464,7 @@ proptest! {
         prop_assert_eq!(initial_market.state, MarketState::Active);
 
         // Property: Market should be active before end time
-        prop_assert!(initial_market.is_active(suite.env.ledger().timestamp()));
+        prop_assert!(initial_market.is_active(&suite.env));
 
         // Advance time past market end
         let end_time = initial_market.end_time;
@@ -480,9 +480,8 @@ proptest! {
         });
 
         // Property: Market should not be active after end time
-        let current_time = suite.env.ledger().timestamp();
-        prop_assert!(!initial_market.is_active(current_time));
-        prop_assert!(initial_market.has_ended(current_time));
+        prop_assert!(!initial_market.is_active(&suite.env));
+        prop_assert!(initial_market.has_ended(&suite.env));
     }
 }
 

@@ -73,10 +73,10 @@ use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 /// // Check market state and determine available operations
 /// match market.state {
 ///     MarketState::Active => {
-///         if market.is_active(current_time) {
+///         if market.is_active(&env) {
 ///             println!("Market is active - users can vote");
 ///             // Allow voting operations
-///         } else {
+///         } else if market.has_ended(&env) {
 ///             println!("Market should transition to Ended state");
 ///         }
 ///     },
@@ -596,10 +596,10 @@ impl OracleConfig {
 /// market.validate(&env)?;
 ///
 /// // Check market status
-/// let current_time = env.ledger().timestamp();
-/// if market.is_active(current_time) {
+/// let env = Env::default();
+/// if market.is_active(&env) {
 ///     println!("Market is active and accepting votes");
-/// } else if market.has_ended(current_time) {
+/// } else if market.has_ended(&env) {
 ///     println!("Market has ended, ready for resolution");
 /// }
 ///
@@ -902,14 +902,14 @@ impl Market {
         }
     }
 
-    /// Check if the market is active (not ended)
-    pub fn is_active(&self, current_time: u64) -> bool {
-        current_time < self.end_time
+    /// Check if the market is active (not ended) using the current ledger timestamp
+    pub fn is_active(&self, env: &Env) -> bool {
+        env.ledger().timestamp() < self.end_time
     }
 
-    /// Check if the market has ended
-    pub fn has_ended(&self, current_time: u64) -> bool {
-        current_time >= self.end_time
+    /// Check if the market has ended using the current ledger timestamp
+    pub fn has_ended(&self, env: &Env) -> bool {
+        env.ledger().timestamp() >= self.end_time
     }
 
     /// Check if the market is resolved
@@ -1243,9 +1243,9 @@ impl OracleResult {
         self.is_verified && self.confidence_score >= 50 && self.price > 0
     }
 
-    /// Check if the oracle data is fresh (within max_age_seconds)
-    pub fn is_fresh(&self, current_time: u64, max_age_seconds: u64) -> bool {
-        current_time.saturating_sub(self.timestamp) <= max_age_seconds
+    /// Check if the oracle data is fresh (within max_age_seconds) using current ledger timestamp
+    pub fn is_fresh(&self, env: &Env, max_age_seconds: u64) -> bool {
+        env.ledger().timestamp().saturating_sub(self.timestamp) <= max_age_seconds
     }
 }
 
@@ -1447,8 +1447,8 @@ pub enum OracleVerificationStatus {
 /// }
 ///
 /// // Check data freshness
-/// let current_time = env.ledger().timestamp();
-/// if btc_price.is_fresh(current_time, 300) { // 5 minutes
+/// let env = Env::default();
+/// if btc_price.is_fresh(&env, 300) { // 5 minutes
 ///     println!("Price data is fresh (within 5 minutes)");
 /// } else {
 ///     println!("Price data is stale - consider refreshing");
@@ -1553,13 +1553,13 @@ pub enum OracleVerificationStatus {
 /// # let env = Env::default();
 /// # let price_data = ReflectorPriceData::default(); // Placeholder
 ///
-/// let current_time = env.ledger().timestamp();
+/// let env = Env::default();
 /// let max_age = 600; // 10 minutes
 ///
-/// if price_data.is_fresh(current_time, max_age) {
+/// if price_data.is_fresh(&env, max_age) {
 ///     println!("Price data is current");
 /// } else {
-///     let age = current_time - price_data.timestamp;
+///     let age = env.ledger().timestamp() - price_data.timestamp;
 ///     println!("Price data is {} seconds old", age);
 ///     
 ///     if age > 3600 { // 1 hour
