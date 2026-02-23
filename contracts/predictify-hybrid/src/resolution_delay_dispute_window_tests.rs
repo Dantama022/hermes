@@ -48,6 +48,7 @@ impl TestSetup {
         
         let oracle_config = OracleConfig::new(
             OracleProvider::Reflector,
+            soroban_sdk::Address::from_str(&self.env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
             String::from_str(&self.env, "BTC/USD"),
             50_000_00,
             String::from_str(&self.env, "gt"),
@@ -60,6 +61,8 @@ impl TestSetup {
             outcomes,
             end_time,
             oracle_config,
+            None,
+            86400,
             MarketState::Active,
         );
         
