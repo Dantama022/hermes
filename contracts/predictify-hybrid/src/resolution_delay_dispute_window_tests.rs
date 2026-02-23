@@ -386,8 +386,8 @@ fn test_exact_timestamp_match_at_window_boundary() {
         assert_eq!(current_time, end_time);
         
         // Market should have ended
-        assert!(!market.is_active(current_time));
-        assert!(market.has_ended(current_time));
+        assert!(!market.is_active(&setup.env));
+        assert!(market.has_ended(&setup.env));
     });
 }
 
@@ -504,8 +504,8 @@ fn test_resolution_blocked_before_end_time() {
         assert!(current_time < end_time);
         
         // Market should still be active
-        assert!(market.is_active(current_time));
-        assert!(!market.has_ended(current_time));
+        assert!(market.is_active(&setup.env));
+        assert!(!market.has_ended(&setup.env));
     });
 }
 
@@ -527,8 +527,8 @@ fn test_resolution_allowed_after_end_time() {
         assert!(current_time >= end_time);
         
         // Market should have ended
-        assert!(!market.is_active(current_time));
-        assert!(market.has_ended(current_time));
+        assert!(!market.is_active(&setup.env));
+        assert!(market.has_ended(&setup.env));
         
         // Resolution should be allowed
         market.state = MarketState::Ended;
