@@ -237,6 +237,7 @@ fn test_create_event_limit_enforced() {
             &oracle_config,
             &None,
             &0,
+            &None,
         );
     }
 }
@@ -272,6 +273,7 @@ fn test_decrement_on_cancel_frees_slot() {
             &oracle_config,
             &None,
             &0,
+            &None,
         ));
     }
 
@@ -290,5 +292,6 @@ fn test_decrement_on_cancel_frees_slot() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 }
