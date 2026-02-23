@@ -467,6 +467,8 @@ impl ContractMonitor {
             category: None,
             tags: Vec::new(env),
             min_pool_size: None,
+            bet_deadline: 0,
+            dispute_window_seconds: 86400,
         })
     }
 
