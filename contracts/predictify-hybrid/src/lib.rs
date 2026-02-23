@@ -374,6 +374,13 @@ impl PredictifyHybrid {
             panic_with_error!(env, Error::Unauthorized);
         }
 
+        // Check active events limit for the creator
+        let market_config = crate::config::ConfigManager::get_default_market_config();
+        let current_active_events = crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
+        if current_active_events >= market_config.max_active_events_per_creator {
+            panic_with_error!(env, Error::InvalidInput);
+        }
+
         // Validate inputs
         if outcomes.len() < 2 {
             panic_with_error!(env, Error::InvalidOutcomes);
@@ -423,6 +430,9 @@ impl PredictifyHybrid {
 
         // Store the market
         env.storage().persistent().set(&market_id, &market);
+
+        // Increment active event count for this creator
+        crate::storage::CreatorLimitsManager::increment_active_events(&env, &admin);
 
         // Emit market created event
         EventEmitter::emit_market_created(&env, &market_id, &question, &outcomes, &admin, end_time);
@@ -483,6 +493,15 @@ impl PredictifyHybrid {
             panic_with_error!(env, Error::Unauthorized);
         }
 
+        // Get market configuration for limits
+        let market_config = crate::config::ConfigManager::get_default_market_config();
+
+        // Check active events limit for the creator
+        let current_active_events = crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
+        if current_active_events >= market_config.max_active_events_per_creator {
+            panic_with_error!(env, Error::InvalidInput);
+        }
+
         // Validate inputs using EventValidator
         if let Err(e) = crate::validation::EventValidator::validate_event_creation(
             &env,
@@ -518,6 +537,9 @@ impl PredictifyHybrid {
 
         // Store the event
         crate::storage::EventManager::store_event(&env, &event);
+
+        // Increment active event count for this creator
+        crate::storage::CreatorLimitsManager::increment_active_events(&env, &admin);
 
         // Emit event created event
         EventEmitter::emit_event_created(
@@ -1473,6 +1495,9 @@ impl PredictifyHybrid {
         market.state = MarketState::Resolved;
         env.storage().persistent().set(&market_id, &market);
 
+        // Decrement active event count for the creator since the market is no longer active
+        crate::storage::CreatorLimitsManager::decrement_active_events(&env, &market.admin);
+
         // Resolve bets to mark them as won/lost
         let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes_vec);
 
@@ -1615,6 +1640,9 @@ impl PredictifyHybrid {
         market.winning_outcomes = Some(winning_outcomes.clone());
         market.state = MarketState::Resolved;
         env.storage().persistent().set(&market_id, &market);
+
+        // Decrement active event count for the creator since the market is no longer active
+        crate::storage::CreatorLimitsManager::decrement_active_events(&env, &market.admin);
 
         // Resolve bets to mark them as won/lost
         let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes);
@@ -3626,6 +3654,9 @@ impl PredictifyHybrid {
         market.state = MarketState::Cancelled;
         env.storage().persistent().set(&market_id, &market);
 
+        // Decrement active event count for the creator since the market is no longer active
+        crate::storage::CreatorLimitsManager::decrement_active_events(&env, &market.admin);
+
         // Refund all bets under reentrancy lock (batch of token transfers)
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             return Err(Error::InvalidState);
@@ -3700,6 +3731,9 @@ impl PredictifyHybrid {
         let old_state = market.state.clone();
         market.state = MarketState::Cancelled;
         env.storage().persistent().set(&market_id, &market);
+
+        // Decrement active event count for the creator since the market is no longer active
+        crate::storage::CreatorLimitsManager::decrement_active_events(&env, &market.admin);
 
         if reentrancy_guard::ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             return Err(Error::InvalidState);
