@@ -205,3 +205,90 @@ fn test_create_event_empty_outcomes() {
         &None,
     );
 }
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #401)")] // Error::InvalidInput = 401
+fn test_create_event_limit_enforced() {
+    let setup = TestSetup::new();
+    let client = PredictifyHybridClient::new(&setup.env, &setup.contract_id);
+
+    let description = String::from_str(&setup.env, "Test event");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Yes"),
+        String::from_str(&setup.env, "No"),
+    ];
+    let end_time = setup.env.ledger().timestamp() + 3600;
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&setup.env),
+        feed_id: String::from_str(&setup.env, "BTC/USD"),
+        threshold: 50000,
+        comparison: String::from_str(&setup.env, "gt"),
+    };
+
+    // The default limit is 20. Creating 21 events should panic on the 21st.
+    for _ in 0..21 {
+        client.create_market(
+            &setup.admin,
+            &description,
+            &outcomes,
+            &1, // duration_days
+            &oracle_config,
+            &None,
+            &0,
+        );
+    }
+}
+
+#[test]
+fn test_decrement_on_cancel_frees_slot() {
+    let setup = TestSetup::new();
+    let client = PredictifyHybridClient::new(&setup.env, &setup.contract_id);
+
+    let description = String::from_str(&setup.env, "Test event");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Yes"),
+        String::from_str(&setup.env, "No"),
+    ];
+    let end_time = setup.env.ledger().timestamp() + 3600;
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&setup.env),
+        feed_id: String::from_str(&setup.env, "BTC/USD"),
+        threshold: 50000,
+        comparison: String::from_str(&setup.env, "gt"),
+    };
+
+    // Create 20 events, reaching the limit.
+    let mut last_event_id: Option<Symbol> = None;
+    for _ in 0..20 {
+        last_event_id = Some(client.create_market(
+            &setup.admin,
+            &description,
+            &outcomes,
+            &1, // duration_days
+            &oracle_config,
+            &None,
+            &0,
+        ));
+    }
+
+    // Cancel the last event created
+    setup.env.mock_all_auths();
+    if let Some(event_id) = last_event_id {
+        client.cancel_event(&setup.admin, &event_id, &Some(String::from_str(&setup.env, "Cancellation")));
+    }
+
+    // Creating another event should now succeed, as one slot was freed.
+    client.create_market(
+        &setup.admin,
+        &description,
+        &outcomes,
+        &1, // duration_days
+        &oracle_config,
+        &None,
+        &0,
+    );
+}

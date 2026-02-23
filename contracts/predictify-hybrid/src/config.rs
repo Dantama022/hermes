@@ -643,6 +643,14 @@ pub struct MarketConfig {
     ///
     /// Typical range: 50-200 characters
     pub max_outcome_length: u32,
+
+    /// Maximum number of active events a single creator (admin) can have.
+    ///
+    /// Limits how many unresolved/uncancelled events a single address can create
+    /// to prevent spam and manage platform capacity.
+    ///
+    /// Typical range: 5-50 events
+    pub max_active_events_per_creator: u32,
 }
 
 /// Market duration extension configuration and fee structure.
@@ -1693,6 +1701,7 @@ impl ConfigManager {
             min_outcomes: MIN_MARKET_OUTCOMES,
             max_question_length: MAX_QUESTION_LENGTH,
             max_outcome_length: MAX_OUTCOME_LENGTH,
+            max_active_events_per_creator: 20,
         }
     }
 
@@ -2771,6 +2780,7 @@ impl ConfigTesting {
                 min_outcomes: 2,
                 max_question_length: 200,
                 max_outcome_length: 50,
+                max_active_events_per_creator: 20,
             },
             extension: ExtensionConfig {
                 max_extension_days: 7,

@@ -1358,6 +1358,9 @@ impl MarketResolutionManager {
         );
         MarketStateManager::update_market(env, market_id, &market);
 
+        // Decrement active event count since the event is resolved
+        crate::storage::CreatorLimitsManager::decrement_active_events(env, &market.admin);
+
         // Emit market resolved event
         let oracle_result_str = market
             .oracle_result
@@ -1430,6 +1433,9 @@ impl MarketResolutionManager {
         winning_outcomes.push_back(outcome.clone());
         MarketStateManager::set_winning_outcomes(&mut market, winning_outcomes, Some(market_id));
         MarketStateManager::update_market(env, market_id, &market);
+
+        // Decrement active event count since the event is manually finalized
+        crate::storage::CreatorLimitsManager::decrement_active_events(env, &market.admin);
 
         Ok(resolution)
     }
