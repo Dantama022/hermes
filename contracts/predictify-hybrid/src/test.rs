@@ -2264,12 +2264,10 @@ fn test_claim_winnings_batch_successful() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // Create three markets
     let market_id_1 = test.create_test_market();
     let market_id_2 = test.create_test_market();
     let market_id_3 = test.create_test_market();
 
-    // User votes for "yes" in all three markets
     test.env.mock_all_auths();
     client.vote(
         &test.user,
@@ -2294,7 +2292,6 @@ fn test_claim_winnings_batch_successful() {
         &100_0000000,
     );
 
-    // Another user votes for "no" in all markets to create pools
     let loser = Address::generate(&test.env);
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
     stellar_client.mint(&loser, &300_0000000);
@@ -2323,7 +2320,6 @@ fn test_claim_winnings_batch_successful() {
         &100_0000000,
     );
 
-    // Advance time to end all markets
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2343,7 +2339,6 @@ fn test_claim_winnings_batch_successful() {
         max_entry_ttl: 10000,
     });
 
-    // Resolve all three markets with "yes" as winner
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id_1, &String::from_str(&test.env, "yes"));
 
@@ -2353,8 +2348,6 @@ fn test_claim_winnings_batch_successful() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id_3, &String::from_str(&test.env, "yes"));
 
-    // After resolve_market_manual, user is already marked as claimed by distribute_payouts
-    // Verify all three markets are marked as claimed
     let market_1 = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2384,13 +2377,12 @@ fn test_claim_winnings_batch_successful() {
 }
 
 #[test]
-#[should_panic] // Panics with some form of error
+#[should_panic]
 fn test_batch_claim_prevent_double_claim() {
     let test = PredictifyTest::setup();
     let market_id_1 = test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // User votes for "yes"
     test.env.mock_all_auths();
     client.vote(
         &test.user,
@@ -2399,7 +2391,6 @@ fn test_batch_claim_prevent_double_claim() {
         &100_0000000,
     );
 
-    // Another user votes for "no"
     let loser = Address::generate(&test.env);
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
     stellar_client.mint(&loser, &100_0000000);
@@ -2412,7 +2403,6 @@ fn test_batch_claim_prevent_double_claim() {
         &100_0000000,
     );
 
-    // Advance time
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2432,29 +2422,26 @@ fn test_batch_claim_prevent_double_claim() {
         max_entry_ttl: 10000,
     });
 
-    // Resolve market (distributes payouts, marks user as claimed)
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id_1, &String::from_str(&test.env, "yes"));
 
-    // Try to claim batch after already claimed (should panic)
     let market_ids = vec![
         &test.env,
         market_id_1.clone(),
     ];
 
     test.env.mock_all_auths();
-    client.claim_winnings_batch(&test.user, &market_ids); // Should panic
+    client.claim_winnings_batch(&test.user, &market_ids);
 }
 
 #[test]
-#[should_panic] // Panics when market not found
+#[should_panic]
 fn test_batch_claim_market_not_found() {
     let test = PredictifyTest::setup();
     let market_id_1 = test.create_test_market();
     let nonexistent_market = Symbol::new(&test.env, "nonexistent_market");
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // User votes for "yes" in real market
     test.env.mock_all_auths();
     client.vote(
         &test.user,
@@ -2463,25 +2450,23 @@ fn test_batch_claim_market_not_found() {
         &100_0000000,
     );
 
-    // Try to claim from market that doesn't exist in batch
     let market_ids = vec![
         &test.env,
         market_id_1.clone(),
-        nonexistent_market, // This doesn't exist
+        nonexistent_market,
     ];
 
     test.env.mock_all_auths();
-    client.claim_winnings_batch(&test.user, &market_ids); // Should panic
+    client.claim_winnings_batch(&test.user, &market_ids);
 }
 
 #[test]
-#[should_panic] // Panics when market not resolved
+#[should_panic]
 fn test_batch_claim_market_not_resolved() {
     let test = PredictifyTest::setup();
     let market_id_1 = test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // User votes in market (still active)
     test.env.mock_all_auths();
     client.vote(
         &test.user,
@@ -2490,24 +2475,22 @@ fn test_batch_claim_market_not_resolved() {
         &100_0000000,
     );
 
-    // Try to claim from market that is not resolved
     let market_ids = vec![
         &test.env,
         market_id_1.clone(),
     ];
 
     test.env.mock_all_auths();
-    client.claim_winnings_batch(&test.user, &market_ids); // Should panic
+    client.claim_winnings_batch(&test.user, &market_ids);
 }
 
 #[test]
-#[should_panic] // Panics when user didn't vote
+#[should_panic]
 fn test_batch_claim_user_did_not_vote() {
     let test = PredictifyTest::setup();
     let market_id_1 = test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // Different user votes
     let other_user = Address::generate(&test.env);
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
     stellar_client.mint(&other_user, &100_0000000);
@@ -2520,7 +2503,6 @@ fn test_batch_claim_user_did_not_vote() {
         &100_0000000,
     );
 
-    // Advance time and resolve
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2543,39 +2525,33 @@ fn test_batch_claim_user_did_not_vote() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id_1, &String::from_str(&test.env, "yes"));
 
-    // Original test.user tries to claim but never voted
     let market_ids = vec![
         &test.env,
         market_id_1.clone(),
     ];
 
     test.env.mock_all_auths();
-    client.claim_winnings_batch(&test.user, &market_ids); // Should panic
+    client.claim_winnings_batch(&test.user, &market_ids);
 }
 
 #[test]
-#[should_panic] // Panics when empty market vector
+#[should_panic]
 fn test_batch_claim_empty_markets() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // Try to claim with empty market list
     let market_ids: Vec<Symbol> = Vec::new(&test.env);
 
     test.env.mock_all_auths();
-    client.claim_winnings_batch(&test.user, &market_ids); // Should panic
+    client.claim_winnings_batch(&test.user, &market_ids);
 }
 
 #[test]
 fn test_batch_claim_partial_winners_losers() {
-    // Note: This test demonstrates the batch claim behavior,
-    // but since resolve_market_manual auto-distributes payouts,
-    // we verify the batch function is callable and can handle multiple markets
     let test = PredictifyTest::setup();
     let market_id_1 = test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // User votes for "yes"
     test.env.mock_all_auths();
     client.vote(
         &test.user,
@@ -2584,7 +2560,6 @@ fn test_batch_claim_partial_winners_losers() {
         &100_0000000,
     );
 
-    // Other user votes for "no"
     let other_user = Address::generate(&test.env);
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
     stellar_client.mint(&other_user, &100_0000000);
@@ -2597,7 +2572,6 @@ fn test_batch_claim_partial_winners_losers() {
         &100_0000000,
     );
 
-    // Advance time and resolve
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2620,7 +2594,6 @@ fn test_batch_claim_partial_winners_losers() {
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id_1, &String::from_str(&test.env, "yes"));
 
-    // User is already marked as claimed by resolve_market_manual
     let m1 = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2633,12 +2606,10 @@ fn test_batch_claim_partial_winners_losers() {
 
 #[test]
 fn test_batch_claim_atomicity_revert_on_second_market_failure() {
-    // This test verifies that the batch claim validates all markets before making changes
     let test = PredictifyTest::setup();
     let market_id_1 = test.create_test_market();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    // User votes in market_1
     test.env.mock_all_auths();
     client.vote(
         &test.user,
@@ -2647,7 +2618,6 @@ fn test_batch_claim_atomicity_revert_on_second_market_failure() {
         &100_0000000,
     );
 
-    // Other user votes
     let other_user = Address::generate(&test.env);
     let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
     stellar_client.mint(&other_user, &100_0000000);
@@ -2660,7 +2630,6 @@ fn test_batch_claim_atomicity_revert_on_second_market_failure() {
         &100_0000000,
     );
 
-    // Advance time
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -2680,11 +2649,9 @@ fn test_batch_claim_atomicity_revert_on_second_market_failure() {
         max_entry_ttl: 10000,
     });
 
-    // Resolve market_1 with "yes" (user wins)
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id_1, &String::from_str(&test.env, "yes"));
 
-    // After resolve_market_manual, user is already marked as claimed
     let m1_after = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()

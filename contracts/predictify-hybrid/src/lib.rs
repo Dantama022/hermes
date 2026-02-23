@@ -1310,106 +1310,35 @@ impl PredictifyHybrid {
 
     /// Claims winnings for multiple resolved markets in a single atomic transaction.
     ///
-    /// This function enables users to claim winnings from multiple resolved prediction markets
-    /// in a single transaction, significantly reducing gas costs and improving user experience.
-    /// The operation is atomic: all markets must be processed successfully or the entire
+    /// Allows users to claim winnings from multiple resolved markets efficiently in one call.
+    /// The operation is atomic: all markets must process successfully or the entire
     /// transaction reverts (no partial claims).
     ///
     /// # Parameters
     ///
-    /// * `env` - The Soroban environment for blockchain operations
+    /// * `env` - The Soroban environment
     /// * `user` - Address of the user claiming winnings
-    /// * `market_ids` - Vector of market identifiers to claim winnings from
+    /// * `market_ids` - Vector of market identifiers to claim from
     ///
-    /// # Behavior
+    /// # Security
     ///
-    /// For each market in the batch:
-    /// 1. **Validation**: Verifies market exists and is resolved
-    /// 2. **Eligibility Check**: Confirms user hasn't previously claimed from this market
-    /// 3. **Winner Verification**: Checks if user voted for a winning outcome
-    /// 4. **Payout Calculation**: Computes winnings using standard formula
-    /// 5. **State Update**: Marks user as claimed for that market (prevents double-claiming)
-    /// 6. **Event Emission**: Emits `WinningsClaimedBatch` event with all claims
-    /// 7. **Balance Credit**: Transfers total winnings to user balance
+    /// - User must authorize the transaction via `require_auth()`
+    /// - Each market validates: exists, is resolved, user hasn't claimed, user participated
+    /// - Prevents double-claiming through the `claimed` map
+    /// - Uses reentrancy guard for protection
     ///
-    /// # Atomicity Guarantee
+    /// # Payout Calculation
     ///
-    /// The operation follows an all-or-nothing model:
-    /// - If all markets validate and process successfully, user receives total winnings
-    /// - If ANY market fails validation or processing, the entire transaction reverts
-    /// - User cannot receive partial winnings across multiple markets
-    /// - This prevents edge cases where some claims succeed while others fail
+    /// For each market: `payout = (stake * (100 - fee%) / 100) * total_pool / winning_total`
     ///
-    /// # Security Guarantees
+    /// # Returns Error On
     ///
-    /// - **Authentication**: User must authorize the transaction via `require_auth()`
-    /// - **Double-Claim Prevention**: Each market's `claimed` map prevents re-claiming
-    /// - **Reentrancy Protection**: Uses `ReentrancyGuard` to prevent recursive calls
-    /// - **Authorization**: Enforces same rules as single `claim_winnings`
-    ///
-    /// # Payout Formula (Applied Per Market)
-    ///
-    /// ```text
-    /// user_payout = (user_stake * (100 - fee_percentage) / 100) * total_pool / winning_total
-    /// ```
-    ///
-    /// Where:
-    /// - `user_stake` - Amount user staked on the winning outcome in this market
-    /// - `fee_percentage` - Platform fee (currently 2%)
-    /// - `total_pool` - Sum of all stakes in the market
-    /// - `winning_total` - Sum of stakes on the winning outcome
-    ///
-    /// Payouts are applied independently per market, then summed for total claim.
-    ///
-    /// # Gas Efficiency
-    ///
-    /// Compared to multiple individual `claim_winnings` calls:
-    /// - **Single batch**: 1 authorization + 1 state update + N market validations
-    /// - **Multiple calls**: N authorizations + N state updates + N market validations
-    /// - **Estimated savings**: ~40-60% gas reduction for 5+ markets
-    ///
-    /// # Example Usage
-    ///
-    /// ```rust
-    /// # use soroban_sdk::{Env, Address, Symbol, Vec};
-    /// # use predictify_hybrid::PredictifyHybrid;
-    /// # let env = Env::default();
-    /// # let user = Address::generate(&env);
-    ///
-    /// let market_ids = vec![
-    ///     &env,
-    ///     Symbol::new(&env, "btc_50k_dec2024"),
-    ///     Symbol::new(&env, "eth_2k_dec2024"),
-    ///     Symbol::new(&env, "xrp_1_dec2024"),
-    /// ];
-    ///
-    /// // Claim winnings from all three markets in one transaction
-    /// PredictifyHybrid::claim_winnings_batch(env, user, market_ids);
-    /// ```
-    ///
-    /// # Error Handling
-    ///
-    /// Returns error on first failure (atomic revert):
-    /// - `MarketNotFound` - If any market doesn't exist
-    /// - `MarketNotResolved` - If any market is not resolved
-    /// - `AlreadyClaimed` - If user already claimed from any market
-    /// - `NothingToClaim` - If user didn't vote on any market
+    /// - `MarketNotFound` - Any market doesn't exist
+    /// - `MarketNotResolved` - Any market not resolved
+    /// - `AlreadyClaimed` - User already claimed from any market
+    /// - `NothingToClaim` - User didn't vote on any market
+    /// - `InvalidInput` - Empty market vector
     /// - `InvalidState` - Reentrancy detected
-    /// - `ConfigNotFound` - Platform configuration unavailable
-    ///
-    /// # Performance Notes
-    ///
-    /// - Processing time scales linearly with number of markets
-    /// - Each market lookup and validation is independent
-    /// - All state changes committed in single storage transaction
-    /// - Events aggregated into single batch emission
-    ///
-    /// # Integration with Winnings Tracking
-    ///
-    /// - Updates `market.claimed` map for each market
-    /// - Records total claimed amount in statistics
-    /// - Emits comprehensive audit trail via events
-    /// - Maintains complete history for analytics
     pub fn claim_winnings_batch(env: Env, user: Address, market_ids: Vec<Symbol>) {
         user.require_auth();
 
