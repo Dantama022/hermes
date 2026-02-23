@@ -3083,6 +3083,16 @@ pub struct BetStats {
 
 // ===== EVENT TYPES =====
 
+/// Visibility setting for events (public vs private)
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EventVisibility {
+    /// Public event - anyone can bet
+    Public,
+    /// Private event - only allowlisted addresses can bet
+    Private,
+}
+
 /// Represents a prediction market event with specified parameters.
 ///
 /// This structure stores all metadata and configuration for a prediction event,
@@ -3112,6 +3122,10 @@ pub struct Event {
     pub created_at: u64,
     /// Current status of the event
     pub status: MarketState,
+    /// Visibility setting (public or private)
+    pub visibility: EventVisibility,
+    /// Allowlist of addresses permitted to bet (only enforced for private events)
+    pub allowlist: Vec<Address>,
 }
 
 impl ReflectorAsset {

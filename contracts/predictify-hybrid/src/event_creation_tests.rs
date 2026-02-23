@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::errors::Error;
-use crate::types::{MarketState, OracleConfig, OracleProvider};
+use crate::types::{EventVisibility, MarketState, OracleConfig, OracleProvider};
 use crate::{PredictifyHybrid, PredictifyHybridClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{vec, Address, Env, String, Symbol, Vec};
@@ -66,6 +66,7 @@ fn test_create_event_success() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
 
     // Verify event details using the new get_event method
@@ -138,6 +139,7 @@ fn test_create_event_unauthorized() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
 }
 
@@ -170,6 +172,7 @@ fn test_create_event_invalid_end_time() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
 }
 
@@ -198,5 +201,6 @@ fn test_create_event_empty_outcomes() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
 }

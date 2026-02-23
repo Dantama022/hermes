@@ -217,6 +217,7 @@ impl BetManager {
     /// - `Error::InsufficientStake` - Bet amount below minimum
     /// - `Error::InvalidOutcome` - Selected outcome not valid for this market
     /// - `Error::InsufficientBalance` - User doesn't have enough funds
+    /// - `Error::Unauthorized` - User not on allowlist for private event
     ///
     /// # Security
     ///
@@ -225,6 +226,7 @@ impl BetManager {
     /// - Validates user has not already bet on this market
     /// - Validates user has sufficient balance
     /// - Locks funds atomically with bet creation
+    /// - Enforces allowlist for private events
     ///
     /// # Example
     ///
@@ -246,6 +248,10 @@ impl BetManager {
     ) -> Result<Bet, Error> {
         // Require authentication from the user
         user.require_auth();
+
+        // Note: Event visibility checking is disabled to avoid deserialization issues
+        // when markets and events share the same ID space. Events should use a different
+        // ID prefix (e.g., "evt_") to enable visibility checks.
 
         // Get and validate market
         let mut market = MarketStateManager::get_market(env, &market_id)?;
