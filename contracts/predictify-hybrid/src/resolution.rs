@@ -994,7 +994,8 @@ impl OracleResolutionManager {
             Ok(res) => res,
             Err(_) => {
                 // 3. Try fallback oracle if primary fails
-                if let Some(ref fallback_config) = market.fallback_oracle_config {
+                if market.has_fallback {
+                    let fallback_config = &market.fallback_oracle_config;
                     match Self::try_fetch_from_config(env, fallback_config) {
                         Ok(res) => {
                             crate::events::EventEmitter::emit_fallback_used(
@@ -1886,6 +1887,8 @@ mod tests {
                 threshold: 2500000,
                 comparison: String::from_str(&env, "gt"),
             },
+            None,
+            86400,
             MarketState::Active,
         );
 

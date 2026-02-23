@@ -391,6 +391,10 @@ impl PredictifyHybrid {
         let duration_seconds: u64 = (duration_days as u64) * seconds_per_day;
         let end_time: u64 = env.ledger().timestamp() + duration_seconds;
 
+        let (has_fallback, fallback_cfg) = match &fallback_oracle_config {
+            Some(c) => (true, c.clone()),
+            None => (false, OracleConfig::none_sentinel(&env)),
+        };
         // Create a new market
         let market = Market {
             admin: admin.clone(),
@@ -398,7 +402,8 @@ impl PredictifyHybrid {
             outcomes: outcomes.clone(),
             end_time,
             oracle_config,
-            fallback_oracle_config,
+            has_fallback,
+            fallback_oracle_config: fallback_cfg,
             resolution_timeout,
             oracle_result: None,
             votes: Map::new(&env),
@@ -492,6 +497,10 @@ impl PredictifyHybrid {
         // Generate a unique collision-resistant event ID (reusing market ID generator)
         let event_id = MarketIdGenerator::generate_market_id(&env, &admin);
 
+        let (has_fallback, fallback_cfg) = match &fallback_oracle_config {
+            Some(c) => (true, c.clone()),
+            None => (false, OracleConfig::none_sentinel(&env)),
+        };
         // Create a new event
         let event = Event {
             id: event_id.clone(),
@@ -499,7 +508,8 @@ impl PredictifyHybrid {
             outcomes: outcomes.clone(),
             end_time,
             oracle_config,
-            fallback_oracle_config,
+            has_fallback,
+            fallback_oracle_config: fallback_cfg,
             resolution_timeout,
             admin: admin.clone(),
             created_at: env.ledger().timestamp(),
@@ -1728,7 +1738,7 @@ impl PredictifyHybrid {
             return Err(Error::MarketClosed);
         }
 
-        // Get oracle result using the resolution module
+        // Get oracle result using the resolution module (oracle_contract from market config is used internally)
         let oracle_resolution = resolution::OracleResolutionManager::fetch_oracle_result(
             &env,
             &market_id,
