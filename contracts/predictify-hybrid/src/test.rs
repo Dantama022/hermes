@@ -17,15 +17,16 @@
 
 #![cfg(test)]
 
-use crate::events::{BetPlacedEvent, PlatformFeeSetEvent};
+use crate::events::{BetPlacedEvent, FeeCollectedEvent, PlatformFeeSetEvent};
 
 use super::*;
 use crate::markets::MarketUtils;
 use crate::oracles::OracleInterface;
 
 use soroban_sdk::{
+    symbol_short,
     testutils::{Address as _, Events, Ledger, LedgerInfo},
-    token::StellarAssetClient,
+    token::{Client as TokenClient, StellarAssetClient},
     vec, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
 };
 
@@ -1437,6 +1438,214 @@ fn test_withdraw_collected_fees_no_fees() {
     // We verify the precondition that no fees exist initially.
 }
 
+#[test]
+fn test_create_event_collects_configured_fee_and_emits_event() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let token_client = TokenClient::new(&test.env, &test.token_test.token_id);
+    let fee = 7_000_000i128; // 0.7 XLM
+
+    // Configure a custom creation fee.
+    test.env.as_contract(&test.contract_id, || {
+        let mut cfg = crate::config::ConfigManager::get_config(&test.env).unwrap();
+        cfg.fees.creation_fee = fee;
+        crate::config::ConfigManager::store_config(&test.env, &cfg).unwrap();
+    });
+
+    let admin_before = token_client.balance(&test.admin);
+    let contract_before = token_client.balance(&test.contract_id);
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+    let event_id = client.create_event(
+        &test.admin,
+        &String::from_str(&test.env, "Will XLM close above $1 today?"),
+        &outcomes,
+        &(test.env.ledger().timestamp() + 3600),
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "XLM/USD"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+    );
+
+    // Fee transfer and treasury accounting.
+    assert_eq!(token_client.balance(&test.admin), admin_before - fee);
+    assert_eq!(token_client.balance(&test.contract_id), contract_before + fee);
+
+    let creation_fees_total: i128 = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("creat_fee"))
+            .unwrap_or(0)
+    });
+    assert_eq!(creation_fees_total, fee);
+
+    // Fee collection event for event creation should be recorded.
+    let fee_event: FeeCollectedEvent = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("fee_col"))
+            .unwrap()
+    });
+    assert_eq!(fee_event.market_id, event_id);
+    assert_eq!(fee_event.collector, test.admin);
+    assert_eq!(fee_event.amount, fee);
+    assert_eq!(
+        fee_event.fee_type,
+        String::from_str(&test.env, "creation_fee")
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_create_event_rejects_when_fee_insufficient() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let token_client = TokenClient::new(&test.env, &test.token_test.token_id);
+    let fee = 10_000_000i128; // 1 XLM
+
+    // Configure creation fee and leave admin with less than required.
+    test.env.as_contract(&test.contract_id, || {
+        let mut cfg = crate::config::ConfigManager::get_config(&test.env).unwrap();
+        cfg.fees.creation_fee = fee;
+        crate::config::ConfigManager::store_config(&test.env, &cfg).unwrap();
+    });
+    let admin_balance = TokenClient::new(&test.env, &test.token_test.token_id).balance(&test.admin);
+    test.env.mock_all_auths();
+    token_client.transfer(&test.admin, &test.user, &(admin_balance - (fee - 1)));
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+    client.create_event(
+        &test.admin,
+        &String::from_str(&test.env, "Insufficient fee should fail"),
+        &outcomes,
+        &(test.env.ledger().timestamp() + 3600),
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "BTC/USD"),
+            threshold: 50000,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+    );
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #400)")]
+fn test_create_event_rejects_when_fee_asset_not_configured() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Remove configured fee asset (TokenID) so fee transfer cannot execute.
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .remove(&Symbol::new(&test.env, "TokenID"));
+    });
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+    client.create_event(
+        &test.admin,
+        &String::from_str(&test.env, "Missing fee asset should fail"),
+        &outcomes,
+        &(test.env.ledger().timestamp() + 3600),
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "ETH/USD"),
+            threshold: 3000,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+    );
+}
+
+#[test]
+fn test_create_event_uses_configured_fee_asset() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let original_token = test.token_test.token_id.clone();
+
+    let alt_token_admin = Address::generate(&test.env);
+    let alt_token_contract = test
+        .env
+        .register_stellar_asset_contract_v2(alt_token_admin);
+    let alt_token = alt_token_contract.address();
+    let alt_token_client = StellarAssetClient::new(&test.env, &alt_token);
+    test.env.mock_all_auths();
+    alt_token_client.mint(&test.admin, &1000_0000000);
+
+    let fee = 3_000_000i128; // 0.3 XLM
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "TokenID"), &alt_token);
+        let mut cfg = crate::config::ConfigManager::get_config(&test.env).unwrap();
+        cfg.fees.creation_fee = fee;
+        crate::config::ConfigManager::store_config(&test.env, &cfg).unwrap();
+    });
+
+    let original_before = TokenClient::new(&test.env, &original_token).balance(&test.admin);
+    let alt_before = TokenClient::new(&test.env, &alt_token).balance(&test.admin);
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+    client.create_event(
+        &test.admin,
+        &String::from_str(&test.env, "Configured fee asset should be charged"),
+        &outcomes,
+        &(test.env.ledger().timestamp() + 3600),
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "SOL/USD"),
+            threshold: 150,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+    );
+
+    assert_eq!(
+        TokenClient::new(&test.env, &original_token).balance(&test.admin),
+        original_before
+    );
+    assert_eq!(
+        TokenClient::new(&test.env, &alt_token).balance(&test.admin),
+        alt_before - fee
+    );
+}
+
 // ===== TESTS FOR EVENT CANCELLATION (#216, #217) =====
 
 #[test]
@@ -2257,6 +2466,207 @@ fn test_claim_by_loser() {
             .unwrap()
     });
     assert!(market_after.claimed.get(test.user.clone()).unwrap_or(false));
+}
+
+fn resolve_market_without_distribution(
+    test: &PredictifyTest,
+    market_id: &Symbol,
+    winning_outcome: &str,
+) {
+    test.env.as_contract(&test.contract_id, || {
+        let mut market = test
+            .env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(market_id)
+            .unwrap();
+        let winners = vec![&test.env, String::from_str(&test.env, winning_outcome)];
+        market.winning_outcomes = Some(winners);
+        market.state = MarketState::Resolved;
+        test.env.storage().persistent().set(market_id, &market);
+    });
+}
+
+#[test]
+fn test_batch_claim_winnings_all_succeed_in_one_batch() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let market_a = test.create_test_market();
+    let market_b = test.create_test_market();
+
+    let loser_a = test.create_funded_user();
+    let loser_b = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market_a,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+    client.vote(
+        &loser_a,
+        &market_a,
+        &String::from_str(&test.env, "no"),
+        &100_0000000,
+    );
+    client.vote(
+        &test.user,
+        &market_b,
+        &String::from_str(&test.env, "yes"),
+        &150_0000000,
+    );
+    client.vote(
+        &loser_b,
+        &market_b,
+        &String::from_str(&test.env, "no"),
+        &100_0000000,
+    );
+
+    resolve_market_without_distribution(&test, &market_a, "yes");
+    resolve_market_without_distribution(&test, &market_b, "yes");
+
+    test.env.mock_all_auths();
+    client.batch_claim_winnings(&test.user, &vec![&test.env, market_a.clone(), market_b.clone()]);
+
+    let market_a_after = client.get_market(&market_a).unwrap();
+    let market_b_after = client.get_market(&market_b).unwrap();
+    assert!(market_a_after.claimed.get(test.user.clone()).unwrap_or(false));
+    assert!(market_b_after.claimed.get(test.user.clone()).unwrap_or(false));
+}
+
+#[test]
+fn test_batch_claim_winnings_atomic_revert_when_one_claim_invalid() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let valid_market = test.create_test_market();
+    let unresolved_market = test.create_test_market();
+    let loser = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &valid_market,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+    client.vote(
+        &loser,
+        &valid_market,
+        &String::from_str(&test.env, "no"),
+        &100_0000000,
+    );
+
+    resolve_market_without_distribution(&test, &valid_market, "yes");
+
+    test.env.mock_all_auths();
+    let result = client.try_batch_claim_winnings(
+        &test.user,
+        &vec![&test.env, valid_market.clone(), unresolved_market.clone()],
+    );
+    assert!(result.is_err());
+
+    // Ensure successful claim in the same batch was rolled back.
+    let market_after = client.get_market(&valid_market).unwrap();
+    assert!(!market_after.claimed.get(test.user.clone()).unwrap_or(false));
+}
+
+#[test]
+fn test_batch_claim_winnings_prevents_double_claim() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let market = test.create_test_market();
+    let loser = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+    client.vote(
+        &loser,
+        &market,
+        &String::from_str(&test.env, "no"),
+        &100_0000000,
+    );
+
+    resolve_market_without_distribution(&test, &market, "yes");
+
+    test.env.mock_all_auths();
+    client.batch_claim_winnings(&test.user, &vec![&test.env, market.clone()]);
+
+    test.env.mock_all_auths();
+    let second_claim = client.try_batch_claim_winnings(&test.user, &vec![&test.env, market]);
+    assert!(second_claim.is_err());
+}
+
+#[test]
+fn test_batch_claim_winnings_emits_event() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let market = test.create_test_market();
+    let loser = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(
+        &test.user,
+        &market,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+    client.vote(
+        &loser,
+        &market,
+        &String::from_str(&test.env, "no"),
+        &100_0000000,
+    );
+
+    resolve_market_without_distribution(&test, &market, "yes");
+
+    test.env.mock_all_auths();
+    client.batch_claim_winnings(&test.user, &vec![&test.env, market.clone()]);
+
+    let emitted = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::WinningsClaimedEvent>(&Symbol::new(&test.env, "win_clm"))
+            .unwrap()
+    });
+    assert_eq!(emitted.market_id, market);
+    assert_eq!(emitted.user, test.user);
+    assert!(emitted.amount > 0);
+}
+
+#[test]
+fn test_batch_claim_winnings_rejects_empty_batch() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.mock_all_auths();
+    let result = client.try_batch_claim_winnings(&test.user, &Vec::new(&test.env));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_batch_claim_winnings_rejects_batch_above_max_size() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let mut oversized = Vec::new(&test.env);
+    for _ in 0..51 {
+        oversized.push_back(Symbol::new(&test.env, "nonexistent"));
+    }
+
+    test.env.mock_all_auths();
+    let result = client.try_batch_claim_winnings(&test.user, &oversized);
+    assert!(result.is_err());
 }
 
 // ===== MINIMUM POOL SIZE TESTS =====

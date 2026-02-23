@@ -4,7 +4,7 @@ use crate::errors::Error;
 use crate::types::{MarketState, OracleConfig, OracleProvider};
 use crate::{PredictifyHybrid, PredictifyHybridClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{vec, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, String, Symbol, Vec};
 
 // Test helper structure
 struct TestSetup {
@@ -25,10 +25,23 @@ impl TestSetup {
 
         let admin = Address::generate(&env);
         let contract_id = env.register(PredictifyHybrid, ());
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin);
+        let token_address = token_contract.address();
 
         // Initialize the contract
         let client = PredictifyHybridClient::new(&env, &contract_id);
         client.initialize(&admin, &None);
+
+        // Configure token used for creation fee collection and fund admin balance.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, "TokenID"), &token_address);
+        });
+        let token_client = StellarAssetClient::new(&env, &token_address);
+        env.mock_all_auths();
+        token_client.mint(&admin, &1_000_0000000);
 
         Self {
             env,
@@ -237,6 +250,7 @@ fn test_create_event_limit_enforced() {
             &oracle_config,
             &None,
             &0,
+            &None,
         );
     }
 }
@@ -272,6 +286,7 @@ fn test_decrement_on_cancel_frees_slot() {
             &oracle_config,
             &None,
             &0,
+            &None,
         ));
     }
 
@@ -290,5 +305,6 @@ fn test_decrement_on_cancel_frees_slot() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 }
