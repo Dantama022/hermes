@@ -1386,6 +1386,56 @@ pub struct WinningsClaimedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a user claims winnings from multiple resolved markets in a batch operation
+///
+/// This event provides comprehensive information about batch winnings claims, enabling
+/// transparency and efficient tracking of multi-market claims. It's emitted when a user
+/// successfully claims winnings from multiple prediction markets in a single transaction,
+/// significantly improving gas efficiency and user experience.
+///
+/// # Event Data
+///
+/// Contains complete batch claim information:
+/// - **User Address**: Address of the user claiming winnings
+/// - **Market Claims**: Vector of (market_id, claim_amount) tuples for each market
+/// - **Total Amount**: Sum of all claims in the batch
+/// - **Claim Count**: Number of markets claimed in this batch
+/// - **Timestamp**: When the batch claim was processed
+///
+/// # Use Cases
+///
+/// - **Financial Tracking**: Monitor aggregate payouts across multiple markets
+/// - **Batch Operation Analytics**: Track batch claim patterns and frequency
+/// - **User Activity**: Monitor users claiming from multiple markets
+/// - **Gas Optimization**: Measure effectiveness of batch operations
+/// - **Audit Trail**: Maintain complete record of all batch claims
+/// - **Reporting**: Generate user earning reports across markets
+///
+/// # Example
+///
+/// ```rust
+/// // User claims from 3 resolved markets:
+/// // - btc_50k: 500 tokens
+/// // - eth_2k: 300 tokens
+/// // - xrp_1: 200 tokens
+/// // Total: 1000 tokens
+/// // This event would contain all three claims with 1000 total
+/// ```
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WinningsClaimedBatchEvent {
+    /// User claiming winnings
+    pub user: Address,
+    /// Vector of (market_id, amount) tuples for each claimed market
+    pub market_claims: Vec<(Symbol, i128)>,
+    /// Total amount claimed across all markets
+    pub total_amount: i128,
+    /// Number of markets in this batch claim
+    pub claim_count: u32,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
 /// Contract upgraded event - emitted when contract Wasm is upgraded
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2614,6 +2664,50 @@ impl EventEmitter {
             timestamp: env.ledger().timestamp(),
         };
         Self::store_event(env, &symbol_short!("win_clm"), &event);
+    }
+
+    /// Emit winnings claimed batch event
+    ///
+    /// This function emits an event when a user claims winnings from multiple markets
+    /// in a single batch transaction, providing transparency for batch claim operations
+    /// and their aggregated impact.
+    ///
+    /// # Parameters
+    ///
+    /// - `env` - Soroban environment
+    /// - `user` - User address claiming winnings
+    /// - `market_claims` - Vector of (market_id, claim_amount) tuples
+    /// - `total_amount` - Total amount claimed across all markets
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let claims = vec![
+    ///     &env,
+    ///     (Symbol::new(&env, "btc_50k"), 500_0000000),
+    ///     (Symbol::new(&env, "eth_2k"), 300_0000000),
+    /// ];
+    /// EventEmitter::emit_winnings_claimed_batch(
+    ///     &env,
+    ///     &user_address,
+    ///     &claims,
+    ///     800_0000000 // total
+    /// );
+    /// ```
+    pub fn emit_winnings_claimed_batch(
+        env: &Env,
+        user: &Address,
+        market_claims: &Vec<(Symbol, i128)>,
+        total_amount: i128,
+    ) {
+        let event = WinningsClaimedBatchEvent {
+            user: user.clone(),
+            market_claims: market_claims.clone(),
+            total_amount,
+            claim_count: market_claims.len() as u32,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("win_btc"), &event);
     }
 
     /// Emit market deadline extended event
