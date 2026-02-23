@@ -160,6 +160,7 @@ impl PredictifyTest {
             },
             &None,
             &0,
+            &None,
         )
     }
 }
@@ -191,6 +192,7 @@ fn test_create_market_successful() {
         },
         &None,
         &0,
+        &None,
     );
 
     let market = test.env.as_contract(&test.contract_id, || {
@@ -2296,6 +2298,7 @@ fn test_two_outcome_tie_equal_stakes() {
         },
         &None,
         &0,
+        &None,
     );
 
     // Create 4 users with equal stakes on two different outcomes (creating a tie)
@@ -2403,6 +2406,7 @@ fn test_multi_outcome_tie_three_way() {
         },
         &None,
         &0,
+        &None,
     );
 
     // Create 6 users - 2 for each of 3 outcomes (creating 3-way tie)
@@ -2517,6 +2521,7 @@ fn test_proportional_share_different_stakes() {
         },
         &None,
         &0,
+        &None,
     );
 
     // Create users with different stakes creating a tie
@@ -2619,6 +2624,7 @@ fn test_no_dust_left_after_tie_payout() {
         },
         &None,
         &0,
+        &None,
     );
 
     // Use odd amounts that could create rounding issues
@@ -2728,6 +2734,7 @@ fn test_claim_flow_for_tie_winners() {
         },
         &None,
         &0,
+        &None,
     );
 
     let user1 = test.create_funded_user();
@@ -2826,6 +2833,7 @@ fn test_edge_case_single_winner_not_tie() {
         },
         &None,
         &0,
+        &None,
     );
 
     let winner = test.create_funded_user();
@@ -2916,6 +2924,7 @@ fn test_edge_case_all_same_outcome() {
         },
         &None,
         &0,
+        &None,
     );
 
     // All users vote for same outcome with different stakes
@@ -3015,6 +3024,7 @@ fn test_tie_with_zero_stakers_on_losing_outcome() {
         },
         &None,
         &0,
+        &None,
     );
 
     let user1 = test.create_funded_user();
@@ -3098,6 +3108,7 @@ fn test_tie_with_very_small_stakes() {
         },
         &None,
         &0,
+        &None,
     );
 
     let user1 = test.create_funded_user();
