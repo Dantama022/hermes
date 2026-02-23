@@ -1510,8 +1510,7 @@ impl MarketResolutionValidator {
         }
 
         // Check if market has ended
-        let current_time = env.ledger().timestamp();
-        if current_time < market.end_time {
+        if market.is_active(env) {
             return Err(Error::MarketClosed);
         }
 
@@ -1678,14 +1677,14 @@ impl ResolutionUtils {
 
     /// Check if market can be resolved
     pub fn can_resolve_market(env: &Env, market: &Market) -> bool {
-        market.has_ended(env.ledger().timestamp())
+        market.has_ended(env)
             && market.oracle_result.is_some()
             && market.winning_outcomes.is_none()
     }
 
     /// Get resolution eligibility
     pub fn get_resolution_eligibility(env: &Env, market: &Market) -> (bool, String) {
-        if !market.has_ended(env.ledger().timestamp()) {
+        if !market.has_ended(env) {
             return (false, String::from_str(env, "Market has not ended"));
         }
 

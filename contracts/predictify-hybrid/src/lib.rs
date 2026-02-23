@@ -613,7 +613,7 @@ impl PredictifyHybrid {
             });
 
         // Check if the market is still active
-        if env.ledger().timestamp() >= market.end_time {
+        if market.has_ended(&env) {
             panic_with_error!(env, Error::MarketClosed);
         }
 
