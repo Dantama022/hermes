@@ -456,7 +456,7 @@ impl QueryManager {
     /// - User's stake proportion
     /// - Total winning stakes
     /// - Platform fee deduction
-    fn calculate_payout(env: &Env, market: &Market, user_stake: i128) -> Result<i128, Error> {
+    pub(crate) fn calculate_payout(env: &Env, market: &Market, user_stake: i128) -> Result<i128, Error> {
         if user_stake <= 0 {
             return Ok(0);
         }
@@ -488,7 +488,7 @@ impl QueryManager {
     /// Calculate total stake for a specific outcome.
     ///
     /// Sums all user stakes that voted for the given outcome.
-    fn calculate_outcome_pool(
+    pub(crate) fn calculate_outcome_pool(
         env: &Env,
         market: &Market,
         outcome: &String,
@@ -511,7 +511,7 @@ impl QueryManager {
     ///
     /// Uses stake distribution to infer market's probability estimates
     /// for "yes" and "no" outcomes. Returns percentages (0-100).
-    fn calculate_implied_probabilities(
+    pub(crate) fn calculate_implied_probabilities(
         env: &Env,
         market: &Market,
     ) -> Result<(u32, u32), Error> {
@@ -543,6 +543,7 @@ impl QueryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Env;
 
     #[test]
@@ -566,10 +567,13 @@ mod tests {
             env.ledger().timestamp() + 1000,
             crate::types::OracleConfig::new(
                 crate::types::OracleProvider::Reflector,
+                Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
                 String::from_str(&env, "TEST"),
                 100,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            86400,
             MarketState::Active,
         );
 
@@ -594,10 +598,13 @@ mod tests {
             env.ledger().timestamp() + 1000,
             crate::types::OracleConfig::new(
                 crate::types::OracleProvider::Reflector,
+                Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
                 String::from_str(&env, "TEST"),
                 100,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            86400,
             MarketState::Active,
         );
 
@@ -629,10 +636,13 @@ mod tests {
             env.ledger().timestamp() + 1000,
             crate::types::OracleConfig::new(
                 crate::types::OracleProvider::Reflector,
+                Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
                 String::from_str(&env, "TEST"),
                 100,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            86400,
             MarketState::Active,
         );
 
