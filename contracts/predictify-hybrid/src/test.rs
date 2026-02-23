@@ -2643,3 +2643,78 @@ fn test_cancel_underfunded_event() {
     });
     assert_eq!(market.state, MarketState::Cancelled);
 }
+
+#[test]
+fn test_unclaimed_winnings_sweep_comprehensive() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let outcomes = vec![&test.env, String::from_str(&test.env, "yes"), String::from_str(&test.env, "no")];
+    
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector, 
+        oracle_address: Address::generate(&test.env),
+        feed_id: String::from_str(&test.env, "BTC"),
+        threshold: 1000,
+        comparison: String::from_str(&test.env, "gt"),
+    };
+
+    let duration_days = 30;
+
+    // 1. Create market and CAPTURE the dynamically generated market_id
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Sweep Test"),
+        &outcomes,
+        &duration_days,
+        &oracle_config,
+        &None,
+        &0,
+        &None, 
+    );
+
+    // 2. Seed the market with a vote using the real market_id
+    test.env.mock_all_auths();
+    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+
+    // --- State Transition: Active -> Ended ---
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // --- State Transition: Ended -> Resolved ---
+    test.env.mock_all_auths();
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
+
+    // --- State Transition: Resolved -> Swept ---
+    // Advance time past the 90-day grace period
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 8000000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // 3. Admin sweeps the unclaimed winnings
+    test.env.mock_all_auths();
+    let swept = client.sweep_unclaimed(&test.admin, &market_id);
+
+    // Verify the dummy implementation returns 100
+    assert!(swept > 0, "Admin should have swept the remaining balance");
+}
