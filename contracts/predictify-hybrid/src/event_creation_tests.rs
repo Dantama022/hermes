@@ -104,6 +104,7 @@ fn test_create_market_success() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 
     assert!(client.get_market(&market_id).is_some());

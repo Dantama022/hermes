@@ -73,7 +73,7 @@ The integration supports major crypto assets with their Pyth feed IDs:
 ```rust
 // Prices older than 60 seconds are considered stale
 let max_age = 60; // seconds
-if current_time > price_info.publish_time + max_age {
+if env.ledger().timestamp() > price_info.publish_time + max_age {
     return Err(Error::PythPriceStale);
 }
 ```
