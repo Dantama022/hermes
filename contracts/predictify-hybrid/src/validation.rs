@@ -2308,8 +2308,7 @@ impl MarketValidator {
         }
 
         // Check if market is still active
-        let current_time = env.ledger().timestamp();
-        if current_time >= market.end_time {
+        if !market.is_active(env) {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2333,8 +2332,7 @@ impl MarketValidator {
         }
 
         // Check if market has ended
-        let current_time = env.ledger().timestamp();
-        if current_time < market.end_time {
+        if !market.has_ended(env) {
             return Err(ValidationError::InvalidMarket);
         }
 
@@ -2475,8 +2473,8 @@ impl OracleValidator {
     /// # Returns
     /// `Ok(())` if validation passes, `Err(ValidationError)` otherwise
     pub fn validate_oracle_response(
+        env: &Env,
         oracle_result: &crate::types::OracleResult,
-        current_time: u64,
     ) -> Result<(), ValidationError> {
         // Validate price is within acceptable range
         if !Self::is_valid_price(oracle_result.price) {
@@ -2484,7 +2482,7 @@ impl OracleValidator {
         }
 
         // Validate data freshness
-        if !Self::is_data_fresh(oracle_result.timestamp, current_time) {
+        if !oracle_result.is_fresh(env, Self::MAX_DATA_AGE_SECONDS) {
             return Err(ValidationError::InvalidOracle);
         }
 
@@ -2592,10 +2590,9 @@ impl OracleValidator {
         oracle_result: &crate::types::OracleResult,
         market: &crate::types::Market,
     ) -> Result<(), ValidationError> {
-        let current_time = env.ledger().timestamp();
 
         // Validate oracle response
-        Self::validate_oracle_response(oracle_result, current_time)?;
+        Self::validate_oracle_response(env, oracle_result)?;
 
         // Validate the outcome is valid for the market
         let yes_outcome = String::from_str(env, "yes");
@@ -3322,8 +3319,7 @@ impl ComprehensiveValidator {
         }
 
         // Check market timing
-        let current_time = env.ledger().timestamp();
-        if current_time >= market.end_time {
+        if market.has_ended(env) {
             result.add_warning();
         }
 
