@@ -66,6 +66,7 @@ fn test_create_event_success() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 
     // Verify event details using the new get_event method
@@ -103,6 +104,7 @@ fn test_create_market_success() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 
     assert!(client.get_market(&market_id).is_some());
@@ -138,6 +140,7 @@ fn test_create_event_unauthorized() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 }
 
@@ -170,6 +173,7 @@ fn test_create_event_invalid_end_time() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 }
 
@@ -198,5 +202,6 @@ fn test_create_event_empty_outcomes() {
         &oracle_config,
         &None,
         &0,
+        &None,
     );
 }

@@ -95,6 +95,11 @@ pub const EXTENSION_FEE_PER_DAY: i128 = 100_000_000;
 /// Maximum total extensions per market
 pub const MAX_TOTAL_EXTENSIONS: u32 = 3;
 
+// ===== POOL SIZE CONSTANTS =====
+
+/// Default minimum pool size (0 = no minimum)
+pub const DEFAULT_MIN_POOL_SIZE: i128 = 0;
+
 // ===== RESOLUTION CONSTANTS =====
 
 /// Minimum confidence score

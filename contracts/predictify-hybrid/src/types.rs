@@ -435,6 +435,7 @@ impl OracleProvider {
 /// // "Will BTC reach $100k by year end?"
 /// let btc_100k = OracleConfig::new(
 ///     OracleProvider::Reflector,
+///     Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
 ///     String::from_str(&env, "BTC/USD"),
 ///     100_000_00,
 ///     String::from_str(&env, "gt")
@@ -443,6 +444,7 @@ impl OracleProvider {
 /// // "Will ETH stay above $1,500?"
 /// let eth_support = OracleConfig::new(
 ///     OracleProvider::Reflector,
+///     Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
 ///     String::from_str(&env, "ETH/USD"),
 ///     1_500_00,
 ///     String::from_str(&env, "gt")
@@ -766,6 +768,8 @@ pub struct Market {
     /// List of searchable tags for filtering events
     /// Tags can be used to categorize events by multiple dimensions
     pub tags: Vec<String>,
+    /// Minimum total pool size required for resolution (None = no minimum)
+    pub min_pool_size: Option<i128>,
 }
 
 // ===== BET LIMITS =====
@@ -894,6 +898,7 @@ impl Market {
 
             category: None,
             tags: Vec::new(env),
+            min_pool_size: None,
         }
     }
 
@@ -3112,6 +3117,8 @@ pub struct Event {
     pub created_at: u64,
     /// Current status of the event
     pub status: MarketState,
+    /// Minimum total pool size required for resolution (None = no minimum)
+    pub min_pool_size: Option<i128>,
 }
 
 impl ReflectorAsset {

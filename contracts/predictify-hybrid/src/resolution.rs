@@ -980,7 +980,7 @@ impl OracleResolutionManager {
                 &soroban_sdk::String::from_str(env, "Resolution timeout reached, market cancelled"),
             );
 
-            return Err(Error::ResolutionTimeoutReached);
+            return Err(Error::InvalidState);
         }
 
         // Validate market for oracle resolution
@@ -1007,7 +1007,7 @@ impl OracleResolutionManager {
                             used_config = fallback_config.clone();
                             res
                         }
-                        Err(_) => return Err(Error::FallbackOracleUnavailable),
+                        Err(_) => return Err(Error::OracleUnavailable),
                     }
                 } else {
                     return Err(Error::OracleUnavailable);
@@ -1285,8 +1285,16 @@ impl MarketResolutionManager {
         // Get the market from storage
         let mut market = MarketStateManager::get_market(env, market_id)?;
 
-        // Validate market for resolution
-        MarketResolutionValidator::validate_market_for_resolution(env, &market)?;
+        // Validate market for resolution (includes min pool size check)
+        let validation = MarketResolutionValidator::validate_market_for_resolution(env, &market);
+        if let Err(Error::InvalidState) = validation {
+            let min_pool = market.min_pool_size.unwrap_or(0);
+            crate::events::EventEmitter::emit_min_pool_size_not_met(
+                env, market_id, market.total_staked, min_pool,
+            );
+            return Err(Error::InvalidState);
+        }
+        validation?;
 
         // Retrieve the oracle result
         let oracle_result = market
@@ -1513,6 +1521,13 @@ impl MarketResolutionValidator {
         let current_time = env.ledger().timestamp();
         if current_time < market.end_time {
             return Err(Error::MarketClosed);
+        }
+
+        // Check minimum pool size requirement
+        if let Some(min_pool) = market.min_pool_size {
+            if min_pool > 0 && market.total_staked < min_pool {
+                return Err(Error::InvalidState);
+            }
         }
 
         Ok(())
