@@ -80,6 +80,9 @@ mod bandprotocol {
 #[cfg(test)]
 mod bet_cancellation_tests;
 
+#[cfg(test)]
+mod multi_admin_multisig_tests;
+
 // #[cfg(test)]
 // mod balance_tests;
 
@@ -4250,6 +4253,52 @@ impl PredictifyHybrid {
     /// Check role permissions against a specific permission
     pub fn check_role_permissions(env: Env, role: AdminRole, permission: AdminPermission) -> bool {
         AdminManager::check_role_permissions(&env, role, permission)
+    }
+
+    // ===== MULTISIG/THRESHOLD MANAGEMENT FUNCTIONS =====
+
+    /// Set multisig threshold for admin operations (M-of-N)
+    pub fn set_admin_threshold(env: Env, admin: Address, threshold: u32) -> Result<(), Error> {
+        admin.require_auth();
+        admin::MultisigManager::set_threshold(&env, &admin, threshold)
+    }
+
+    /// Get current multisig configuration
+    pub fn get_multisig_config(env: Env) -> admin::MultisigConfig {
+        admin::MultisigManager::get_config(&env)
+    }
+
+    /// Create a pending admin action requiring multisig approval
+    pub fn create_pending_admin_action(
+        env: Env,
+        initiator: Address,
+        action_type: String,
+        target: Address,
+        data: Map<String, String>,
+    ) -> Result<u64, Error> {
+        initiator.require_auth();
+        admin::MultisigManager::create_pending_action(&env, &initiator, action_type, target, data)
+    }
+
+    /// Approve a pending admin action
+    pub fn approve_admin_action(env: Env, admin: Address, action_id: u64) -> Result<bool, Error> {
+        admin.require_auth();
+        admin::MultisigManager::approve_action(&env, &admin, action_id)
+    }
+
+    /// Execute a pending action if threshold is met
+    pub fn execute_admin_action(env: Env, action_id: u64) -> Result<(), Error> {
+        admin::MultisigManager::execute_action(&env, action_id)
+    }
+
+    /// Get pending action details
+    pub fn get_pending_admin_action(env: Env, action_id: u64) -> Option<admin::PendingAdminAction> {
+        admin::MultisigManager::get_pending_action(&env, action_id)
+    }
+
+    /// Check if multisig is required for admin operations
+    pub fn requires_multisig(env: Env) -> bool {
+        admin::MultisigManager::requires_multisig(&env)
     }
 
     // ===== CONTRACT UPGRADE METHODS =====

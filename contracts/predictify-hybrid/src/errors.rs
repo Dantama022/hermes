@@ -39,6 +39,8 @@ pub enum Error {
     ConfigNotFound = 403,
     AlreadyDisputed = 404,
     AdminNotSet = 418,
+    NotFound = 419,
+    Expired = 420,
     CBOpen = 503,
 }
 
