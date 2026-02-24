@@ -48,6 +48,7 @@ impl TestSetup {
 
         let oracle_config = OracleConfig::new(
             OracleProvider::Reflector,
+            soroban_sdk::Address::from_str(&self.env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
             String::from_str(&self.env, "BTC/USD"),
             50_000_00,
             String::from_str(&self.env, "gt"),
@@ -60,6 +61,8 @@ impl TestSetup {
             outcomes,
             end_time,
             oracle_config,
+            None,
+            86400,
             MarketState::Active,
         );
 
@@ -441,8 +444,8 @@ fn test_exact_timestamp_match_at_window_boundary() {
         assert_eq!(current_time, end_time);
 
         // Market should have ended
-        assert!(!market.is_active(current_time));
-        assert!(market.has_ended(current_time));
+        assert!(!market.is_active(&setup.env));
+        assert!(market.has_ended(&setup.env));
     });
 }
 
@@ -585,8 +588,8 @@ fn test_resolution_blocked_before_end_time() {
         assert!(current_time < end_time);
 
         // Market should still be active
-        assert!(market.is_active(current_time));
-        assert!(!market.has_ended(current_time));
+        assert!(market.is_active(&setup.env));
+        assert!(!market.has_ended(&setup.env));
     });
 }
 
@@ -608,9 +611,9 @@ fn test_resolution_allowed_after_end_time() {
         assert!(current_time >= end_time);
 
         // Market should have ended
-        assert!(!market.is_active(current_time));
-        assert!(market.has_ended(current_time));
-
+        assert!(!market.is_active(&setup.env));
+        assert!(market.has_ended(&setup.env));
+        
         // Resolution should be allowed
         market.state = MarketState::Ended;
         let mut outcomes = soroban_sdk::Vec::new(&setup.env);

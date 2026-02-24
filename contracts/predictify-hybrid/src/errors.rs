@@ -9,58 +9,116 @@ use soroban_sdk::{contracterror, contracttype, Address, Env, Map, String, Symbol
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    Unauthorized = 1,
-    MarketNotFound = 2,
-    MarketClosed = 3,
-    MarketResolved = 4,
-    MarketNotResolved = 5,
-    NothingToClaim = 6,
-    AlreadyClaimed = 7,
-    InsufficientStake = 8,
-    InvalidOutcome = 9,
-    AlreadyVoted = 10,
-    AlreadyBet = 11,
-    BetsAlreadyPlaced = 12,
-    InsufficientBalance = 13,
-    OracleUnavailable = 14,
-    InvalidOracleConfig = 15,
-    OracleStale = 16,
-    OracleNoConsensus = 17,
-    OracleVerified = 18,
-    MarketNotReady = 19,
-    FallbackOracleUnavailable = 20,
-    ResolutionTimeoutReached = 21,
-    InvalidQuestion = 22,
-    InvalidOutcomes = 23,
-    InvalidDuration = 24,
-    InvalidThreshold = 25,
-    InvalidComparison = 26,
-    InvalidState = 27,
-    InvalidInput = 28,
-    InvalidFeeConfig = 29,
-    ConfigNotFound = 30,
-    AlreadyDisputed = 31,
-    DisputeVoteExpired = 32,
-    DisputeVoteDenied = 33,
-    DisputeAlreadyVoted = 34,
-    DisputeCondNotMet = 35,
-    DisputeFeeFailed = 36,
-    DisputeNoEscalate = 37,
-    ThresholdBelowMin = 38,
-    ThresholdTooHigh = 39,
-    FeeAlreadyCollected = 40,
-    NoFeesToCollect = 41,
-    InvalidExtensionDays = 42,
-    ExtensionDenied = 43,
-    ExtensionFeeLow = 44,
-    AdminNotSet = 45,
-    TimeoutNotSet = 46,
-    TimeoutNotExpired = 47,
-    InvalidTimeoutHours = 48,
-    CBNotInitialized = 49,
-    CBAlreadyOpen = 50,
-    CBNotOpen = 51,
-    CBOpen = 52,
+    // ===== USER OPERATION ERRORS =====
+    /// User is not authorized to perform this action
+    Unauthorized = 100,
+    /// Market not found
+    MarketNotFound = 101,
+    /// Market is closed (has ended)
+    MarketClosed = 102,
+    /// Market is already resolved
+    MarketResolved = 103,
+    /// Market is not resolved yet
+    MarketNotResolved = 104,
+    /// User has nothing to claim
+    NothingToClaim = 105,
+    /// User has already claimed
+    AlreadyClaimed = 106,
+    /// Insufficient stake amount
+    InsufficientStake = 107,
+    /// Invalid outcome choice
+    InvalidOutcome = 108,
+    /// User has already voted in this market
+    AlreadyVoted = 109,
+    /// User has already placed a bet on this market
+    AlreadyBet = 110,
+    /// Bets have already been placed on this market (cannot update)
+    BetsAlreadyPlaced = 111,
+    /// Insufficient balance
+    InsufficientBalance = 112,
+    // FundsLocked removed to save space
+
+    // ===== ORACLE ERRORS =====
+    /// Oracle is unavailable
+    OracleUnavailable = 200,
+    /// Invalid oracle configuration
+    InvalidOracleConfig = 201,
+    /// Oracle data is stale or timed out
+    OracleStale = 202,
+    /// Oracle consensus not reached (multi-oracle)
+    OracleNoConsensus = 203,
+    /// Oracle result already verified for this market
+    OracleVerified = 204,
+    /// Market not ready for oracle verification
+    MarketNotReady = 205,
+    /// Fallback oracle is unavailable or unhealthy
+    FallbackOracleUnavailable = 206,
+    /// Resolution timeout has been reached
+    ResolutionTimeoutReached = 207,
+
+    // ===== VALIDATION ERRORS =====
+    /// Invalid question format
+    InvalidQuestion = 300,
+    /// Invalid outcomes provided
+    InvalidOutcomes = 301,
+    /// Invalid duration specified
+    InvalidDuration = 302,
+    /// Invalid threshold value
+    InvalidThreshold = 303,
+    /// Invalid comparison operator
+    InvalidComparison = 304,
+
+    // ===== ADDITIONAL ERRORS =====
+    /// Invalid state
+    InvalidState = 400,
+    /// Invalid input
+    InvalidInput = 401,
+    /// Invalid fee configuration
+    InvalidFeeConfig = 402,
+    /// Configuration not found
+    ConfigNotFound = 403,
+    /// Already disputed
+    AlreadyDisputed = 404,
+    /// Dispute voting period expired
+    DisputeVoteExpired = 405,
+    /// Dispute voting not allowed
+    DisputeVoteDenied = 406,
+    /// Already voted in dispute
+    DisputeAlreadyVoted = 407,
+    /// Dispute resolution conditions not met
+    DisputeCondNotMet = 408,
+    /// Dispute fee distribution failed
+    DisputeFeeFailed = 409,
+    /// Dispute escalation not allowed
+    DisputeNoEscalate = 410,
+    /// Threshold below minimum
+    ThresholdBelowMin = 411,
+    /// Threshold exceeds maximum
+    ThresholdTooHigh = 412,
+    /// Fee already collected
+    FeeAlreadyCollected = 413,
+    /// No fees to collect
+    NoFeesToCollect = 414,
+    /// Invalid extension days
+    InvalidExtensionDays = 415,
+    /// Extension not allowed or exceeded
+    ExtensionDenied = 416,
+    /// Admin address is not set (initialization missing)
+    AdminNotSet = 418,
+    /// Dispute timeout not set
+    TimeoutNotSet = 419,
+    /// Invalid timeout hours
+    InvalidTimeoutHours = 422,
+
+    // ===== CIRCUIT BREAKER ERRORS =====
+    /// Circuit breaker not initialized
+    CBNotInitialized = 500,
+    /// Circuit breaker is already open (paused)
+    CBAlreadyOpen = 501,
+    /// Circuit breaker is not open (cannot recover)
+    CBNotOpen = 502,
+    /// Circuit breaker is open (operations blocked)
+    CBOpen = 503,
 }
 
 // ===== ERROR CATEGORIZATION AND RECOVERY SYSTEM =====
@@ -1050,15 +1108,15 @@ impl Error {
             Error::NoFeesToCollect => "No fees to collect",
             Error::InvalidExtensionDays => "Invalid extension days",
             Error::ExtensionDenied => "Extension not allowed or exceeded",
-            Error::ExtensionFeeLow => "Extension fee insufficient",
             Error::AdminNotSet => "Admin address is not set (initialization missing)",
             Error::TimeoutNotSet => "Dispute timeout not set",
-            Error::TimeoutNotExpired => "Dispute timeout not expired",
             Error::InvalidTimeoutHours => "Invalid timeout hours",
             Error::OracleStale => "Oracle data is stale or timed out",
             Error::OracleNoConsensus => "Oracle consensus not reached",
             Error::OracleVerified => "Oracle result already verified",
             Error::MarketNotReady => "Market not ready for oracle verification",
+            Error::FallbackOracleUnavailable => "Fallback oracle is unavailable or unhealthy",
+            Error::ResolutionTimeoutReached => "Resolution timeout has been reached",
             Error::CBNotInitialized => "Circuit breaker not initialized",
             Error::CBAlreadyOpen => "Circuit breaker is already open (paused)",
             Error::CBNotOpen => "Circuit breaker is not open (cannot recover)",
@@ -1168,15 +1226,15 @@ impl Error {
             Error::NoFeesToCollect => "NO_FEES_TO_COLLECT",
             Error::InvalidExtensionDays => "INVALID_EXTENSION_DAYS",
             Error::ExtensionDenied => "EXTENSION_DENIED",
-            Error::ExtensionFeeLow => "EXTENSION_FEE_INSUFFICIENT",
             Error::AdminNotSet => "ADMIN_NOT_SET",
             Error::TimeoutNotSet => "DISPUTE_TIMEOUT_NOT_SET",
-            Error::TimeoutNotExpired => "DISPUTE_TIMEOUT_NOT_EXPIRED",
             Error::InvalidTimeoutHours => "INVALID_TIMEOUT_HOURS",
             Error::OracleStale => "ORACLE_STALE",
             Error::OracleNoConsensus => "ORACLE_NO_CONSENSUS",
             Error::OracleVerified => "ORACLE_VERIFIED",
             Error::MarketNotReady => "MARKET_NOT_READY",
+            Error::FallbackOracleUnavailable => "FALLBACK_ORACLE_UNAVAILABLE",
+            Error::ResolutionTimeoutReached => "RESOLUTION_TIMEOUT_REACHED",
             Error::CBNotInitialized => "CIRCUIT_BREAKER_NOT_INITIALIZED",
             Error::CBAlreadyOpen => "CIRCUIT_BREAKER_ALREADY_OPEN",
             Error::CBNotOpen => "CIRCUIT_BREAKER_NOT_OPEN",

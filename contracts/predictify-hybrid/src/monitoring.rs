@@ -449,6 +449,9 @@ impl ContractMonitor {
                 threshold: 100,
                 comparison: String::from_str(env, ">="),
             },
+            has_fallback: false,
+            fallback_oracle_config: OracleConfig::none_sentinel(env),
+            resolution_timeout: 86400,
             oracle_result: None,
             votes: Map::new(env),
             stakes: Map::new(env),
@@ -463,6 +466,9 @@ impl ContractMonitor {
             extension_history: Vec::new(env),
             category: None,
             tags: Vec::new(env),
+            min_pool_size: None,
+            bet_deadline: 0,
+            dispute_window_seconds: 86400,
         })
     }
 

@@ -114,6 +114,8 @@ pub struct EventCreatedEvent {
     pub outcomes: Vec<String>,
     /// Event end time
     pub end_time: u64,
+    /// Creation fee amount charged for this event (in stroops)
+    pub creation_fee_amount: i128,
     /// Event admin
     pub admin: Address,
     /// Creation timestamp
@@ -1088,6 +1090,31 @@ pub struct AdminInitializedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when the contract admin is transferred to a new address.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferredEvent {
+    pub previous_admin: Address,
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+/// Event emitted when the contract is paused by admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractPausedEvent {
+    pub admin: Address,
+    pub timestamp: u64,
+}
+
+/// Event emitted when the contract is unpaused by admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUnpausedEvent {
+    pub admin: Address,
+    pub timestamp: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractInitializedEvent {
@@ -1637,6 +1664,20 @@ pub struct CircuitBreakerEvent {
     pub admin: Option<Address>,
 }
 
+/// Event emitted when a market's total pool size does not meet the required minimum.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MinPoolSizeNotMetEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Current total pool size
+    pub current_pool: i128,
+    /// Required minimum pool size
+    pub required_min: i128,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
 // ===== EVENT EMISSION UTILITIES =====
 
 /// Event emission utilities
@@ -1704,6 +1745,7 @@ impl EventEmitter {
             event_id: event_id.clone(),
             description: description.clone(),
             outcomes: outcomes.clone(),
+            creation_fee_amount: crate::fees::MARKET_CREATION_FEE,
             admin: admin.clone(),
             end_time,
             timestamp: env.ledger().timestamp(),
@@ -2075,6 +2117,22 @@ impl EventEmitter {
         Self::store_event(env, &symbol_short!("mkt_res"), &event);
     }
 
+    /// Emit event when minimum pool size is not met at resolution time
+    pub fn emit_min_pool_size_not_met(
+        env: &Env,
+        market_id: &Symbol,
+        current_pool: i128,
+        required_min: i128,
+    ) {
+        let event = MinPoolSizeNotMetEvent {
+            market_id: market_id.clone(),
+            current_pool,
+            required_min,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("pool_lo"), &event);
+    }
+
     /// Emit dispute created event
     pub fn emit_dispute_created(
         env: &Env,
@@ -2276,6 +2334,34 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("adm_init"), &event);
+    }
+
+    /// Emit admin transferred event (primary admin role transferred to new address).
+    pub fn emit_admin_transferred(env: &Env, previous_admin: &Address, new_admin: &Address) {
+        let event = AdminTransferredEvent {
+            previous_admin: previous_admin.clone(),
+            new_admin: new_admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("adm_xfer"), &event);
+    }
+
+    /// Emit contract paused event.
+    pub fn emit_contract_paused(env: &Env, admin: &Address) {
+        let event = ContractPausedEvent {
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ctr_pause"), &event);
+    }
+
+    /// Emit contract unpaused event.
+    pub fn emit_contract_unpaused(env: &Env, admin: &Address) {
+        let event = ContractUnpausedEvent {
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ctr_unp"), &event);
     }
 
     /// Emit contract initialized event (full initialization with platform fee)

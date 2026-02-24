@@ -798,6 +798,16 @@ impl BetValidator {
             return Err(Error::MarketClosed);
         }
 
+        // Bet deadline: no bets after deadline (0 = use end_time)
+        let deadline = if market.bet_deadline > 0 {
+            market.bet_deadline
+        } else {
+            market.end_time
+        };
+        if current_time >= deadline {
+            return Err(Error::MarketClosed);
+        }
+
         // Check if market is not already resolved
         if market.winning_outcomes.is_some() {
             return Err(Error::MarketResolved);
