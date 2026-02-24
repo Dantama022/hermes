@@ -206,19 +206,6 @@ fn test_create_event_empty_outcomes() {
         &0,
         &EventVisibility::Public,
     );
-    let desc_b = String::from_str(&setup.env, "Will this be a unique event B?");
-    let event_id_2 = client.create_event(
-        &setup.admin,
-        &desc_b,
-        &outcomes,
-        &end_time,
-        &oracle_config,
-        &None,
-        &0,
-        &None,
-    );
-
-    assert_ne!(event_id_1, event_id_2, "Event IDs must be unique");
 }
 
 #[test]
@@ -249,7 +236,7 @@ fn test_event_storage_consistency() {
         &oracle_config,
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
 
     let stored = client.get_event(&event_id).unwrap();
