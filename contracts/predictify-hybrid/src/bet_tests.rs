@@ -108,10 +108,14 @@ impl BetTestSetup {
             &30,
             &OracleConfig {
                 provider: OracleProvider::Reflector,
+                oracle_address: Address::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
                 feed_id: String::from_str(env, "BTC/USD"),
                 threshold: 100_000_00000000, // $100,000
                 comparison: String::from_str(env, "gte"),
             },
+            &None,
+            &86400u64,
+            &None,
         )
     }
 
