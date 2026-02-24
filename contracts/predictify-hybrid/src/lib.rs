@@ -540,11 +540,6 @@ impl PredictifyHybrid {
             panic_with_error!(env, e.to_contract_error());
         }
 
-        // Process event creation fee using the shared fee manager.
-        if let Err(e) = crate::fees::FeeManager::process_creation_fee(&env, &admin) {
-            panic_with_error!(env, e);
-        }
-
         // Generate a unique collision-resistant event ID (reusing market ID generator)
         let event_id = MarketIdGenerator::generate_market_id(&env, &admin);
 

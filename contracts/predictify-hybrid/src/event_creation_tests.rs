@@ -3,8 +3,7 @@
 use crate::types::{MarketState, OracleConfig, OracleProvider};
 use crate::{PredictifyHybrid, PredictifyHybridClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, String, Symbol, Vec};
-use soroban_sdk::{symbol_short, vec, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{symbol_short, token::StellarAssetClient, vec, Address, Env, String, Symbol, Vec};
 
 // Test helper structure
 struct TestSetup {
@@ -24,10 +23,6 @@ impl TestSetup {
         });
 
         let admin = Address::generate(&env);
-        let token_admin = Address::generate(&env);
-        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
-        let token_id = token_contract.address();
-
         let contract_id = env.register(PredictifyHybrid, ());
         let token_admin = Address::generate(&env);
         let token_contract = env.register_stellar_asset_contract_v2(token_admin);
