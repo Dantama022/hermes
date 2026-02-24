@@ -2324,13 +2324,13 @@ fn test_two_outcome_tie_equal_stakes() {
     client.vote(&user3, &market_id, &String::from_str(&test.env, "outcome_b"), &100_0000000);
     client.vote(&user4, &market_id, &String::from_str(&test.env, "outcome_b"), &100_0000000);
 
-    // Advance time past market end
+    // Advance time past market end AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2440,13 +2440,13 @@ fn test_multi_outcome_tie_three_way() {
     client.vote(&user5, &market_id, &String::from_str(&test.env, "outcome_c"), &100_0000000);
     client.vote(&user6, &market_id, &String::from_str(&test.env, "outcome_c"), &100_0000000);
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2552,13 +2552,13 @@ fn test_proportional_share_different_stakes() {
     client.vote(&user2, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
     client.vote(&user3, &market_id, &String::from_str(&test.env, "no"), &300_0000000);
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2657,9 +2657,9 @@ fn test_no_dust_left_after_tie_payout() {
     });
     let total_pool = market_before.total_staked;
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     test.env.ledger().set(LedgerInfo {
-        timestamp: market_before.end_time + 1,
+        timestamp: market_before.end_time + market_before.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2749,6 +2749,8 @@ fn test_claim_flow_for_tie_winners() {
         &None,
         &0,
         &None,
+        &None,
+        &None,
     );
 
     let user1 = test.create_funded_user();
@@ -2758,13 +2760,13 @@ fn test_claim_flow_for_tie_winners() {
     client.vote(&user1, &market_id, &String::from_str(&test.env, "x"), &150_0000000);
     client.vote(&user2, &market_id, &String::from_str(&test.env, "y"), &150_0000000);
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2859,13 +2861,13 @@ fn test_edge_case_single_winner_not_tie() {
     client.vote(&winner, &market_id, &String::from_str(&test.env, "win"), &100_0000000);
     client.vote(&loser, &market_id, &String::from_str(&test.env, "lose"), &200_0000000);
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2955,13 +2957,13 @@ fn test_edge_case_all_same_outcome() {
     client.vote(&user2, &market_id, &String::from_str(&test.env, "unanimous"), &200_0000000);
     client.vote(&user3, &market_id, &String::from_str(&test.env, "unanimous"), &300_0000000);
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -3043,6 +3045,8 @@ fn test_tie_with_zero_stakers_on_losing_outcome() {
         &None,
         &0,
         &None,
+        &None,
+        &None,
     );
 
     let user1 = test.create_funded_user();
@@ -3053,13 +3057,13 @@ fn test_tie_with_zero_stakers_on_losing_outcome() {
     client.vote(&user1, &market_id, &String::from_str(&test.env, "a"), &100_0000000);
     client.vote(&user2, &market_id, &String::from_str(&test.env, "b"), &100_0000000);
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -3127,6 +3131,8 @@ fn test_tie_with_very_small_stakes() {
         &None,
         &0,
         &None,
+        &None,
+        &None,
     );
 
     let user1 = test.create_funded_user();
@@ -3137,13 +3143,13 @@ fn test_tie_with_very_small_stakes() {
     client.vote(&user1, &market_id, &String::from_str(&test.env, "opt1"), &100000);
     client.vote(&user2, &market_id, &String::from_str(&test.env, "opt2"), &100000);
 
-    // Advance time
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
