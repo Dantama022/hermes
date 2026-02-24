@@ -2690,6 +2690,8 @@ fn test_unclaimed_winnings_sweep_comprehensive() {
         &None,
         &0,
         &None, 
+        &None,
+        &None,
     );
 
     // 2. Seed the market with a vote using the real market_id
