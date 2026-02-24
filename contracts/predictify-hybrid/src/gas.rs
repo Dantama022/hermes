@@ -47,9 +47,13 @@ impl GasTracker {
     /// It records the usage, publishes an observability event, and checks the admin cap.
     pub fn end_tracking(env: &Env, operation: Symbol, _start_marker: u64) {
         // Placeholder for actual cost. Host-side diagnostics should be used for precise gas monitoring.
+        #[cfg(not(test))]
         let actual_cost = 0;
 
-        // Publish observability event: [ "gas_used", operation_name ] -> cost_used
+        #[cfg(test)]
+        let actual_cost = env.storage().temporary().get::<Symbol, u64>(&symbol_short!("t_gas")).unwrap_or(0);
+
+        // Publish observability event: [ "gas_used", operation.clone() ] -> cost_used
         env.events().publish(
             (symbol_short!("gas_used"), operation.clone()),
             actual_cost,

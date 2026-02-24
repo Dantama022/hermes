@@ -57,6 +57,8 @@ mod bandprotocol {
 #[cfg(test)]
 mod circuit_breaker_tests;
 #[cfg(test)]
+mod gas_test;
+#[cfg(test)]
 mod oracle_fallback_timeout_tests;
 
 #[cfg(test)]
@@ -824,6 +826,7 @@ impl PredictifyHybrid {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
         }
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         user.require_auth();
 
         let mut market: Market = env
@@ -865,6 +868,8 @@ impl PredictifyHybrid {
 
         // Emit vote cast event
         EventEmitter::emit_vote_cast(&env, &market_id, &user, &outcome, stake);
+
+        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("vote"), gas_marker);
     }
 
     /// Places a bet on a prediction market event by locking user funds.
@@ -1088,11 +1093,19 @@ impl PredictifyHybrid {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
         }
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             panic_with_error!(env, Error::InvalidState);
         }
         match bets::BetManager::place_bets(&env, user, bets) {
-            Ok(placed_bets) => placed_bets,
+            Ok(placed_bets) => {
+                crate::gas::GasTracker::end_tracking(
+                    &env,
+                    soroban_sdk::symbol_short!("pl_bets"),
+                    gas_marker,
+                );
+                placed_bets
+            }
             Err(e) => panic_with_error!(env, e),
         }
     }
@@ -1427,6 +1440,7 @@ impl PredictifyHybrid {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
         }
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         user.require_auth();
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             panic_with_error!(env, Error::InvalidState);
@@ -1536,6 +1550,11 @@ impl PredictifyHybrid {
                     Err(e) => panic_with_error!(env, e),
                 }
 
+                crate::gas::GasTracker::end_tracking(
+                    &env,
+                    soroban_sdk::symbol_short!("claim"),
+                    gas_marker,
+                );
                 return;
             }
         }
@@ -1543,6 +1562,8 @@ impl PredictifyHybrid {
         // If no winnings (user didn't win or zero payout), still mark as claimed to prevent re-attempts
         market.claimed.set(user.clone(), true);
         env.storage().persistent().set(&market_id, &market);
+
+        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("claim"), gas_marker);
     }
 
     /// Retrieves complete market information by market identifier.
@@ -1669,6 +1690,7 @@ impl PredictifyHybrid {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
         }
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         admin.require_auth();
 
         // Verify admin
@@ -1754,6 +1776,12 @@ impl PredictifyHybrid {
         if payout_allowed {
             let _ = Self::distribute_payouts(env.clone(), market_id);
         }
+
+        crate::gas::GasTracker::end_tracking(
+            &env,
+            soroban_sdk::symbol_short!("res_man"),
+            gas_marker,
+        );
     }
 
     /// Resolves a market with multiple winning outcomes (for tie cases).
