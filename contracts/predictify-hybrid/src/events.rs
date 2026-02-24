@@ -114,6 +114,8 @@ pub struct EventCreatedEvent {
     pub outcomes: Vec<String>,
     /// Event end time
     pub end_time: u64,
+    /// Creation fee amount charged for this event (in stroops)
+    pub creation_fee_amount: i128,
     /// Event admin
     pub admin: Address,
     /// Creation timestamp
@@ -1743,6 +1745,7 @@ impl EventEmitter {
             event_id: event_id.clone(),
             description: description.clone(),
             outcomes: outcomes.clone(),
+            creation_fee_amount: crate::fees::MARKET_CREATION_FEE,
             admin: admin.clone(),
             end_time,
             timestamp: env.ledger().timestamp(),
