@@ -144,7 +144,7 @@ fn test_create_event_without_token_configuration_fails() {
         &oracle_config,
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
 }
 

@@ -2,20 +2,42 @@
 mod event_visibility_tests {
     use crate::types::{EventVisibility, OracleConfig, OracleProvider};
     use crate::{PredictifyHybrid, PredictifyHybridClient};
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::token::StellarAssetClient;
     use soroban_sdk::{Address, Env, String, Symbol, Vec};
 
     fn setup_test_env() -> (Env, Address, Address, Address, Address) {
         let env = Env::default();
         env.mock_all_auths();
 
+        // Set a non-zero timestamp to avoid overflow in tests
+        env.ledger().with_mut(|li| {
+            li.timestamp = 10000;
+        });
+
         let admin = Address::generate(&env);
         let user1 = Address::generate(&env);
         let user2 = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_id = token_contract.address();
+
         let contract_id = env.register(PredictifyHybrid, ());
 
         let client = PredictifyHybridClient::new(&env, &contract_id);
         client.initialize(&admin, &None);
+
+        // Configure token used for fees and staking
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, "TokenID"), &token_id);
+        });
+
+        // Fund admin with tokens so creation fees can be paid
+        let stellar_client = StellarAssetClient::new(&env, &token_id);
+        env.mock_all_auths();
+        stellar_client.mint(&admin, &1_000_000_0000000); // 1,000 XLM
 
         (env, contract_id, admin, user1, user2)
     }
