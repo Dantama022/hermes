@@ -2763,6 +2763,8 @@ fn test_contract_functional_after_version_upgrade() {
         &None,
         &0,
         &None,
+        &None,
+        &None,
     );
 
     // Vote AFTER version upgrade — should still work
