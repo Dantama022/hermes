@@ -114,6 +114,8 @@ pub struct EventCreatedEvent {
     pub outcomes: Vec<String>,
     /// Event end time
     pub end_time: u64,
+    /// Creation fee amount charged for this event (in stroops)
+    pub creation_fee_amount: i128,
     /// Event admin
     pub admin: Address,
     /// Creation timestamp
@@ -1088,6 +1090,31 @@ pub struct AdminInitializedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when the contract admin is transferred to a new address.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferredEvent {
+    pub previous_admin: Address,
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+/// Event emitted when the contract is paused by admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractPausedEvent {
+    pub admin: Address,
+    pub timestamp: u64,
+}
+
+/// Event emitted when the contract is unpaused by admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUnpausedEvent {
+    pub admin: Address,
+    pub timestamp: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractInitializedEvent {
@@ -1718,6 +1745,7 @@ impl EventEmitter {
             event_id: event_id.clone(),
             description: description.clone(),
             outcomes: outcomes.clone(),
+            creation_fee_amount: crate::fees::MARKET_CREATION_FEE,
             admin: admin.clone(),
             end_time,
             timestamp: env.ledger().timestamp(),
@@ -2306,6 +2334,34 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("adm_init"), &event);
+    }
+
+    /// Emit admin transferred event (primary admin role transferred to new address).
+    pub fn emit_admin_transferred(env: &Env, previous_admin: &Address, new_admin: &Address) {
+        let event = AdminTransferredEvent {
+            previous_admin: previous_admin.clone(),
+            new_admin: new_admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("adm_xfer"), &event);
+    }
+
+    /// Emit contract paused event.
+    pub fn emit_contract_paused(env: &Env, admin: &Address) {
+        let event = ContractPausedEvent {
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ctr_pause"), &event);
+    }
+
+    /// Emit contract unpaused event.
+    pub fn emit_contract_unpaused(env: &Env, admin: &Address) {
+        let event = ContractUnpausedEvent {
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ctr_unp"), &event);
     }
 
     /// Emit contract initialized event (full initialization with platform fee)

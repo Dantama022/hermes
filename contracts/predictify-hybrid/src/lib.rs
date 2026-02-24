@@ -361,7 +361,12 @@ impl PredictifyHybrid {
         fallback_oracle_config: Option<OracleConfig>,
         resolution_timeout: u64,
         min_pool_size: Option<i128>,
+        bet_deadline_mins_before_end: Option<u32>,
+        dispute_window_seconds: Option<u64>,
     ) -> Symbol {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         // Authenticate that the caller is the admin
         admin.require_auth();
 
@@ -371,7 +376,7 @@ impl PredictifyHybrid {
             .persistent()
             .get(&Symbol::new(&env, "Admin"))
             .unwrap_or_else(|| {
-                panic!("Admin not set");
+                panic_with_error!(env, Error::AdminNotSet);
             });
 
         if admin != stored_admin {
@@ -402,6 +407,19 @@ impl PredictifyHybrid {
         let duration_seconds: u64 = (duration_days as u64) * seconds_per_day;
         let end_time: u64 = env.ledger().timestamp() + duration_seconds;
 
+        // Bet deadline: if set, must be before end_time
+        let bet_deadline: u64 = match bet_deadline_mins_before_end {
+            Some(mins) => {
+                let deadline = end_time.saturating_sub((mins as u64) * 60);
+                if deadline >= end_time || deadline == 0 {
+                    panic_with_error!(env, Error::InvalidDuration);
+                }
+                deadline
+            }
+            None => 0,
+        };
+        let dispute_win = dispute_window_seconds.unwrap_or(86400u64); // 24h default
+
         let (has_fallback, fallback_cfg) = match &fallback_oracle_config {
             Some(c) => (true, c.clone()),
             None => (false, OracleConfig::none_sentinel(&env)),
@@ -431,6 +449,8 @@ impl PredictifyHybrid {
             category: None,
             tags: Vec::new(&env),
             min_pool_size,
+            bet_deadline,
+            dispute_window_seconds: dispute_win,
         };
 
         // Store the market
@@ -483,6 +503,9 @@ impl PredictifyHybrid {
         resolution_timeout: u64,
         min_pool_size: Option<i128>,
     ) -> Symbol {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         // Authenticate that the caller is the admin
         admin.require_auth();
 
@@ -492,7 +515,7 @@ impl PredictifyHybrid {
             .persistent()
             .get(&Symbol::new(&env, "Admin"))
             .unwrap_or_else(|| {
-                panic!("Admin not set");
+                panic_with_error!(env, Error::AdminNotSet);
             });
 
         if admin != stored_admin {
@@ -503,7 +526,8 @@ impl PredictifyHybrid {
         let market_config = crate::config::ConfigManager::get_default_market_config();
 
         // Check active events limit for the creator
-        let current_active_events = crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
+        let current_active_events =
+            crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
         if current_active_events >= market_config.max_active_events_per_creator {
             panic_with_error!(env, Error::InvalidInput);
         }
@@ -517,6 +541,11 @@ impl PredictifyHybrid {
             &end_time,
         ) {
             panic_with_error!(env, e.to_contract_error());
+        }
+
+        // Process event creation fee using the shared fee manager.
+        if let Err(e) = crate::fees::FeeManager::process_creation_fee(&env, &admin) {
+            panic_with_error!(env, e);
         }
 
         // Generate a unique collision-resistant event ID (reusing market ID generator)
@@ -548,7 +577,7 @@ impl PredictifyHybrid {
         // Increment active event count for this creator
         crate::storage::CreatorLimitsManager::increment_active_events(&env, &admin);
 
-        // Emit event created event
+        // Emit event created event, including the configured creation fee amount
         EventEmitter::emit_event_created(
             &env,
             &event_id,
@@ -631,6 +660,9 @@ impl PredictifyHybrid {
     /// - Current time must be before market end time
     /// - Market must not be cancelled or resolved
     pub fn vote(env: Env, user: Address, market_id: Symbol, outcome: String, stake: i128) {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         user.require_auth();
 
         let mut market: Market = env
@@ -810,6 +842,9 @@ impl PredictifyHybrid {
         outcome: String,
         amount: i128,
     ) -> crate::types::Bet {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             panic_with_error!(env, Error::InvalidState);
         }
@@ -883,6 +918,9 @@ impl PredictifyHybrid {
         user: Address,
         bets: Vec<(Symbol, String, i128)>,
     ) -> Vec<crate::types::Bet> {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             panic_with_error!(env, Error::InvalidState);
         }
@@ -1219,6 +1257,9 @@ impl PredictifyHybrid {
     /// - User must have voted for the winning outcome
     /// - User must not have previously claimed winnings
     pub fn claim_winnings(env: Env, user: Address, market_id: Symbol) {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         user.require_auth();
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             panic_with_error!(env, Error::InvalidState);
@@ -1458,6 +1499,9 @@ impl PredictifyHybrid {
         market_id: Symbol,
         winning_outcome: String,
     ) {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         admin.require_auth();
 
         // Verify admin
@@ -1537,8 +1581,12 @@ impl PredictifyHybrid {
             &reason,
         );
 
-        // Automatically distribute payouts to winners after resolution
-        let _ = Self::distribute_payouts(env.clone(), market_id);
+        // Distribute payouts only after dispute window closes (or skip and allow finalize_after_window later)
+        let now = env.ledger().timestamp();
+        let payout_allowed = now >= market.end_time.saturating_add(market.dispute_window_seconds);
+        if payout_allowed {
+            let _ = Self::distribute_payouts(env.clone(), market_id);
+        }
     }
 
     /// Resolves a market with multiple winning outcomes (for tie cases).
@@ -1599,6 +1647,9 @@ impl PredictifyHybrid {
         market_id: Symbol,
         winning_outcomes: Vec<String>,
     ) {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
         admin.require_auth();
 
         // Verify admin
@@ -1683,8 +1734,12 @@ impl PredictifyHybrid {
             &reason,
         );
 
-        // Automatically distribute payouts (handles split pool for ties)
-        let _ = Self::distribute_payouts(env.clone(), market_id);
+        // Distribute payouts only after dispute window closes
+        let now = env.ledger().timestamp();
+        let payout_allowed = now >= market.end_time.saturating_add(market.dispute_window_seconds);
+        if payout_allowed {
+            let _ = Self::distribute_payouts(env.clone(), market_id);
+        }
     }
 
     /// Fetches oracle result for a market from external oracle contracts.
@@ -2425,6 +2480,7 @@ impl PredictifyHybrid {
     ///
     /// This function emits `WinningsClaimedEvent` for each user who receives a payout.
     pub fn distribute_payouts(env: Env, market_id: Symbol) -> Result<i128, Error> {
+        admin::ContractPauseManager::require_not_paused(&env)?;
         if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
             return Err(Error::InvalidState);
         }
@@ -2441,6 +2497,12 @@ impl PredictifyHybrid {
             Some(outcomes) => outcomes,
             None => return Err(Error::MarketNotResolved),
         };
+
+        // Dispute window: payouts only after end_time + dispute_window_seconds
+        let now = env.ledger().timestamp();
+        if now < market.end_time.saturating_add(market.dispute_window_seconds) {
+            return Err(Error::InvalidState);
+        }
 
         // Get all bettors
         let bettors = bets::BetStorage::get_all_bets_for_market(&env, &market_id);
@@ -2619,6 +2681,12 @@ impl PredictifyHybrid {
         env.storage().persistent().set(&market_id, &market);
 
         Ok(total_distributed)
+    }
+
+    /// Finalize payouts after the dispute window has closed. Callable by anyone once
+    /// market is resolved and current time >= end_time + dispute_window_seconds.
+    pub fn finalize_after_window(env: Env, market_id: Symbol) -> Result<i128, Error> {
+        Self::distribute_payouts(env, market_id)
     }
 
     // ===== EVENT ARCHIVE AND HISTORICAL QUERY =====
@@ -4342,6 +4410,30 @@ impl PredictifyHybrid {
     /// Get all admin roles in the system
     pub fn get_admin_roles(env: Env) -> Map<Address, AdminRole> {
         AdminManager::get_admin_roles(&env)
+    }
+
+    /// Transfer the primary contract admin to a new address. Caller must be the current primary admin.
+    pub fn transfer_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        admin::ContractPauseManager::transfer_admin(&env, &current_admin, &new_admin)
+    }
+
+    /// Pause contract operations (admin only). Blocks all state-changing operations until unpause.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        admin::ContractPauseManager::pause(&env, &admin)
+    }
+
+    /// Unpause contract operations (admin only).
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        admin::ContractPauseManager::unpause(&env, &admin)
+    }
+
+    /// Returns true if the contract is currently paused.
+    pub fn is_contract_paused(env: Env) -> bool {
+        admin::ContractPauseManager::is_contract_paused(&env)
     }
 
     /// Get comprehensive admin analytics

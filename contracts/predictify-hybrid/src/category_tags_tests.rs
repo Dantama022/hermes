@@ -48,6 +48,8 @@ fn create_test_market(
         &None,
         &86400u64,
         &None,
+        &None,
+        &None,
     )
 }
 
@@ -264,6 +266,8 @@ impl TokenTestSetup {
             },
             &None,
             &86400u64,
+            &None,
+            &None,
             &None,
         );
 
