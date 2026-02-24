@@ -105,6 +105,8 @@ fn test_create_market_success() {
         &None,
         &0,
         &None,
+        &None,
+        &None,
     );
 
     assert!(client.get_market(&market_id).is_some());
@@ -238,6 +240,8 @@ fn test_create_event_limit_enforced() {
             &None,
             &0,
             &None,
+            &None,
+            &None,
         );
     }
 }
@@ -274,6 +278,8 @@ fn test_decrement_on_cancel_frees_slot() {
             &None,
             &0,
             &None,
+            &None,
+            &None,
         ));
     }
 
@@ -293,5 +299,90 @@ fn test_decrement_on_cancel_frees_slot() {
         &None,
         &0,
         &None,
+        &None,
+        &None,
     );
+}
+
+#[test]
+fn test_event_id_unique() {
+    let setup = TestSetup::new();
+    let client = PredictifyHybridClient::new(&setup.env, &setup.contract_id);
+
+    let description = String::from_str(&setup.env, "Will this be a unique event A?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Yes"),
+        String::from_str(&setup.env, "No"),
+    ];
+    let end_time = setup.env.ledger().timestamp() + 3600;
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&setup.env),
+        feed_id: String::from_str(&setup.env, "BTC/USD"),
+        threshold: 50000,
+        comparison: String::from_str(&setup.env, "gt"),
+    };
+
+    let event_id_1 = client.create_event(
+        &setup.admin,
+        &description,
+        &outcomes,
+        &end_time,
+        &oracle_config,
+        &None,
+        &0,
+        &None,
+    );
+    let desc_b = String::from_str(&setup.env, "Will this be a unique event B?");
+    let event_id_2 = client.create_event(
+        &setup.admin,
+        &desc_b,
+        &outcomes,
+        &end_time,
+        &oracle_config,
+        &None,
+        &0,
+        &None,
+    );
+
+    assert_ne!(event_id_1, event_id_2, "Event IDs must be unique");
+}
+
+#[test]
+fn test_event_storage_consistency() {
+    let setup = TestSetup::new();
+    let client = PredictifyHybridClient::new(&setup.env, &setup.contract_id);
+
+    let description = String::from_str(&setup.env, "Stored event?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Yes"),
+        String::from_str(&setup.env, "No"),
+    ];
+    let end_time = setup.env.ledger().timestamp() + 7200;
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&setup.env),
+        feed_id: String::from_str(&setup.env, "BTC/USD"),
+        threshold: 50000,
+        comparison: String::from_str(&setup.env, "gt"),
+    };
+
+    let event_id = client.create_event(
+        &setup.admin,
+        &description,
+        &outcomes,
+        &end_time,
+        &oracle_config,
+        &None,
+        &0,
+        &None,
+    );
+
+    let stored = client.get_event(&event_id).unwrap();
+    assert_eq!(stored.description, description);
+    assert_eq!(stored.end_time, end_time);
+    assert_eq!(stored.outcomes.len(), outcomes.len());
+    assert_eq!(stored.id, event_id);
 }
