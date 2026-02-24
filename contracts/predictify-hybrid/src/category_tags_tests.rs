@@ -47,6 +47,9 @@ fn create_test_market(
         &oracle_config,
         &None,
         &86400u64,
+        &None,
+        &None,
+        &None,
     )
 }
 
@@ -263,6 +266,9 @@ impl TokenTestSetup {
             },
             &None,
             &86400u64,
+            &None,
+            &None,
+            &None,
         );
 
         Self { env, contract_id, admin, user1, user2, token_id, market_id }
