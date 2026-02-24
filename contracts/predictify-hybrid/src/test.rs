@@ -152,6 +152,8 @@ impl PredictifyTest {
             &None,
             &0,
             &None,
+            &None,
+            &None,
         )
     }
 }
@@ -183,6 +185,8 @@ fn test_create_market_successful() {
         },
         &None,
         &0,
+        &None,
+        &None,
         &None,
     );
 
@@ -272,7 +276,7 @@ fn test_vote_on_closed_market() {
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -1277,7 +1281,7 @@ fn test_automatic_payout_distribution() {
             .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -1344,7 +1348,7 @@ fn test_automatic_payout_distribution_no_winners() {
             .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -1569,7 +1573,7 @@ fn test_cancel_event_already_resolved() {
             .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -1682,7 +1686,7 @@ fn test_refund_on_oracle_failure_admin_success() {
             .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -1737,7 +1741,7 @@ fn test_refund_on_oracle_failure_full_amount_per_user() {
             .unwrap()
     });
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2028,8 +2032,10 @@ fn test_manual_dispute_resolution_triggers_payout() {
             .get::<Symbol, Market>(&market_id)
             .unwrap()
     });
+    // Advance past end_time and dispute window so resolve_market_manual can distribute payouts
+    let payout_time = market.end_time + market.dispute_window_seconds + 1;
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: payout_time,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2039,7 +2045,7 @@ fn test_manual_dispute_resolution_triggers_payout() {
         max_entry_ttl: 10000,
     });
 
-    // Manually resolve (distribute_payouts runs inside and marks winner as claimed)
+    // Manually resolve (distribute_payouts runs inside once dispute window has passed)
     test.env.mock_all_auths();
     client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
@@ -2161,7 +2167,7 @@ fn test_claim_winnings_successful() {
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2807,6 +2813,8 @@ fn test_create_market_with_min_pool_size() {
         &None,
         &0,
         &Some(500_0000000), // 500 XLM min pool
+        &None,
+        &None,
     );
 
     let market = test.env.as_contract(&test.contract_id, || {
@@ -2845,6 +2853,8 @@ fn test_create_market_without_min_pool_size() {
         },
         &None,
         &0,
+        &None,
+        &None,
         &None,
     );
 
@@ -2885,6 +2895,8 @@ fn test_resolution_blocked_when_pool_below_minimum() {
         &None,
         &0,
         &Some(500_0000000), // 500 XLM minimum
+        &None,
+        &None,
     );
 
     // Place a small vote below min pool
@@ -2962,6 +2974,8 @@ fn test_resolution_succeeds_when_pool_meets_minimum() {
         &None,
         &0,
         &Some(10_0000000), // 10 XLM minimum
+        &None,
+        &None,
     );
 
     // Place votes totaling above min pool
@@ -3039,6 +3053,8 @@ fn test_resolution_succeeds_with_no_min_pool_size() {
         },
         &None,
         &0,
+        &None,
+        &None,
         &None,
     );
 
@@ -3581,6 +3597,8 @@ fn test_cancel_underfunded_event() {
         &None,
         &0,
         &Some(500_0000000), // 500 XLM minimum
+        &None,
+        &None,
     );
 
     // Place a small vote below min pool

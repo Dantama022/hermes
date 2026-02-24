@@ -770,6 +770,10 @@ pub struct Market {
     pub tags: Vec<String>,
     /// Minimum total pool size required for resolution (None = no minimum)
     pub min_pool_size: Option<i128>,
+    /// Bet deadline (Unix timestamp). No bets accepted after this time. 0 = use end_time (no early cutoff).
+    pub bet_deadline: u64,
+    /// Dispute window in seconds after end_time. Payouts allowed only after end_time + this period (or dispute resolved).
+    pub dispute_window_seconds: u64,
 }
 
 // ===== BET LIMITS =====
@@ -899,6 +903,8 @@ impl Market {
             category: None,
             tags: Vec::new(env),
             min_pool_size: None,
+            bet_deadline: 0,
+            dispute_window_seconds: 86400, // 24h default
         }
     }
 
