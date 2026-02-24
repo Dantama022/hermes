@@ -1,10 +1,10 @@
 #![cfg(test)]
 
-use crate::errors::Error;
 use crate::types::{MarketState, OracleConfig, OracleProvider};
 use crate::{PredictifyHybrid, PredictifyHybridClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{token::StellarAssetClient, vec, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{symbol_short, vec, Address, Env, String, Symbol, Vec};
 
 // Test helper structure
 struct TestSetup {
@@ -24,6 +24,10 @@ impl TestSetup {
         });
 
         let admin = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_id = token_contract.address();
+
         let contract_id = env.register(PredictifyHybrid, ());
         let token_admin = Address::generate(&env);
         let token_contract = env.register_stellar_asset_contract_v2(token_admin);
@@ -87,6 +91,61 @@ fn test_create_event_success() {
     assert_eq!(event.description, description);
     assert_eq!(event.end_time, end_time);
     assert_eq!(event.outcomes.len(), outcomes.len());
+
+    // Verify that a creation fee was recorded
+    setup.env.as_contract(&setup.contract_id, || {
+        let key = symbol_short!("creat_fee");
+        let total: i128 = setup
+            .env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(0);
+        assert_eq!(total, crate::fees::MARKET_CREATION_FEE);
+    });
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #400)")] // Error::InvalidState = 400
+fn test_create_event_without_token_configuration_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 10000;
+    });
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+    client.initialize(&admin, &None);
+
+    // Intentionally do NOT configure TokenID so creation fee processing fails
+    let description = String::from_str(&env, "Fee test event");
+    let outcomes = vec![
+        &env,
+        String::from_str(&env, "Yes"),
+        String::from_str(&env, "No"),
+    ];
+    let end_time = env.ledger().timestamp() + 3600;
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&env),
+        feed_id: String::from_str(&env, "BTC/USD"),
+        threshold: 50000,
+        comparison: String::from_str(&env, "gt"),
+    };
+
+    client.create_event(
+        &admin,
+        &description,
+        &outcomes,
+        &end_time,
+        &oracle_config,
+        &None,
+        &0,
+        &None,
+    );
 }
 
 #[test]

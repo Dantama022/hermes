@@ -373,7 +373,7 @@ impl PredictifyHybrid {
             .persistent()
             .get(&Symbol::new(&env, "Admin"))
             .unwrap_or_else(|| {
-                panic!("Admin not set");
+                panic_with_error!(env, Error::AdminNotSet);
             });
 
         if admin != stored_admin {
@@ -512,7 +512,7 @@ impl PredictifyHybrid {
             .persistent()
             .get(&Symbol::new(&env, "Admin"))
             .unwrap_or_else(|| {
-                panic!("Admin not set");
+                panic_with_error!(env, Error::AdminNotSet);
             });
 
         if admin != stored_admin {
@@ -523,7 +523,8 @@ impl PredictifyHybrid {
         let market_config = crate::config::ConfigManager::get_default_market_config();
 
         // Check active events limit for the creator
-        let current_active_events = crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
+        let current_active_events =
+            crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
         if current_active_events >= market_config.max_active_events_per_creator {
             panic_with_error!(env, Error::InvalidInput);
         }
@@ -537,6 +538,11 @@ impl PredictifyHybrid {
             &end_time,
         ) {
             panic_with_error!(env, e.to_contract_error());
+        }
+
+        // Process event creation fee using the shared fee manager.
+        if let Err(e) = crate::fees::FeeManager::process_creation_fee(&env, &admin) {
+            panic_with_error!(env, e);
         }
 
         // Generate a unique collision-resistant event ID (reusing market ID generator)
@@ -574,7 +580,7 @@ impl PredictifyHybrid {
         // Increment active event count for this creator
         crate::storage::CreatorLimitsManager::increment_active_events(&env, &admin);
 
-        // Emit event created event
+        // Emit event created event, including the configured creation fee amount
         EventEmitter::emit_event_created(
             &env,
             &event_id,
