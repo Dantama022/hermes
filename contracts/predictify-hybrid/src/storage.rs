@@ -688,7 +688,7 @@ impl CreatorLimitsManager {
     fn get_active_events_key(env: &Env, creator: &Address) -> Symbol {
         let mut key_bytes = soroban_sdk::Bytes::new(env);
         key_bytes.append(&soroban_sdk::Bytes::from_slice(env, b"ActiveEvents_"));
-        // Simply use a composite struct to represent the key to avoid complex byte manipulation. 
+        // Simply use a composite struct to represent the key to avoid complex byte manipulation.
         // A common pattern in Soroban is a tuple `(Symbol, Address)`.
         Symbol::new(env, "ActiveEvt") // we will construct a tuple key instead in the actual methods
     }
@@ -710,7 +710,7 @@ impl CreatorLimitsManager {
     pub fn decrement_active_events(env: &Env, creator: &Address) {
         let key = (Symbol::new(env, "ActiveEvents"), creator.clone());
         let current_count: u32 = env.storage().persistent().get(&key).unwrap_or(0);
-        
+
         // Prevent underflow if count is already 0
         if current_count > 0 {
             env.storage().persistent().set(&key, &(current_count - 1));

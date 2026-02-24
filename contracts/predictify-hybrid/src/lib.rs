@@ -26,6 +26,7 @@ mod event_archive;
 mod events;
 mod extensions;
 mod fees;
+pub mod gas;
 mod governance;
 mod graceful_degradation;
 mod market_analytics;
@@ -48,7 +49,6 @@ mod validation;
 mod validation_tests;
 mod versioning;
 mod voting;
-pub mod gas;
 // THis is the band protocol wasm std_reference.wasm
 mod bandprotocol {
     soroban_sdk::contractimport!(file = "./std_reference.wasm");
@@ -371,6 +371,7 @@ impl PredictifyHybrid {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
         }
+        let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         // Authenticate that the caller is the admin
         admin.require_auth();
 
@@ -389,7 +390,8 @@ impl PredictifyHybrid {
 
         // Check active events limit for the creator
         let market_config = crate::config::ConfigManager::get_default_market_config();
-        let current_active_events = crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
+        let current_active_events =
+            crate::storage::CreatorLimitsManager::get_active_events(&env, &admin);
         if current_active_events >= market_config.max_active_events_per_creator {
             panic_with_error!(env, Error::InvalidInput);
         }
@@ -468,6 +470,12 @@ impl PredictifyHybrid {
 
         // Record statistics
         statistics::StatisticsManager::record_market_created(&env);
+
+        crate::gas::GasTracker::end_tracking(
+            &env,
+            soroban_sdk::symbol_short!("cre_mark"),
+            gas_marker,
+        );
 
         market_id
     }
@@ -1008,10 +1016,10 @@ impl PredictifyHybrid {
                 // Record statistics
                 statistics::StatisticsManager::record_bet_placed(&env, &user, amount);
                 crate::gas::GasTracker::end_tracking(
-            &env,
-            soroban_sdk::symbol_short!("place_bet"),
-            gas_marker,
-        );
+                    &env,
+                    soroban_sdk::symbol_short!("place_bet"),
+                    gas_marker,
+                );
                 bet
             }
             Err(e) => panic_with_error!(env, e),
@@ -2325,7 +2333,11 @@ impl PredictifyHybrid {
 
         statistics::StatisticsManager::record_market_resolved(&env);
 
-        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("resolve"), gas_marker, 2000);
+        crate::gas::GasTracker::end_tracking(
+            &env,
+            soroban_sdk::symbol_short!("resolve"),
+            gas_marker,
+        );
         Ok(())
     }
 
@@ -2836,7 +2848,11 @@ impl PredictifyHybrid {
         // Save final market state
         env.storage().persistent().set(&market_id, &market);
 
-        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("payout"), gas_marker, 2500);
+        crate::gas::GasTracker::end_tracking(
+            &env,
+            soroban_sdk::symbol_short!("payout"),
+            gas_marker,
+        );
 
         Ok(total_distributed)
     }
@@ -3986,12 +4002,7 @@ impl PredictifyHybrid {
         }
 
         // Emit pool size not met event
-        EventEmitter::emit_min_pool_size_not_met(
-            &env,
-            &market_id,
-            market.total_staked,
-            min_pool,
-        );
+        EventEmitter::emit_min_pool_size_not_met(&env, &market_id, market.total_staked, min_pool);
 
         let old_state = market.state.clone();
         market.state = MarketState::Cancelled;
