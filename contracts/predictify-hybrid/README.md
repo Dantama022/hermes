@@ -177,6 +177,29 @@ The Reflector oracle supports various assets including:
 
 ## Contract Functions
 
+### Unclaimed Winnings Timeout & Sweep
+
+The contract supports configurable claim windows for winnings and administrative sweeping of unclaimed payouts.
+
+- **Global claim period**: `set_global_claim_period(admin, claim_period_seconds)`
+- **Per-market override**: `set_market_claim_period(admin, market_id, claim_period_seconds)`
+- **Treasury destination**: `set_treasury(admin, treasury)`
+- **Sweep unclaimed payouts**: `sweep_unclaimed_winnings(caller, market_id, burn)`
+
+Behavior and security:
+
+- Claims are allowed only before the effective claim deadline (`end_time + effective_claim_period`).
+- `claim_winnings` rejects claims after expiry (`ResolutionTimeoutReached`).
+- `sweep_unclaimed_winnings` rejects early sweeps (`InvalidState`).
+- Sweep includes only unclaimed winning payouts and marks swept winners as claimed to prevent double-withdrawal.
+- Caller must be contract admin or configured treasury.
+- Sweep emits dedicated events for auditability:
+  - `ClaimPeriodUpdatedEvent`
+  - `MarketClaimPeriodUpdatedEvent`
+  - `TreasuryUpdatedEvent`
+  - `UnclaimedWinningsSweptEvent`
+- Swept funds can be redirected to treasury (`burn = false`) or burned (`burn = true`).
+
 ### 1. Initialize Contract
 
 ```rust
