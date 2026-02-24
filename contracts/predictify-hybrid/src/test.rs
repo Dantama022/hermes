@@ -2371,7 +2371,7 @@ fn test_claim_winnings_batch_successful() {
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2455,21 +2455,6 @@ fn test_batch_claim_prevent_double_claim() {
         &market_id_1,
         &String::from_str(&test.env, "no"),
         &100_0000000,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
-        &outcomes,
-        &30,
-        &OracleConfig {
-            provider: OracleProvider::Reflector,
-            oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
-            comparison: String::from_str(&test.env, "gt"),
-        },
-        &None,
-        &0,
-        &Some(500_0000000), // 500 XLM min pool
-        &None,
-        &None,
     );
 
     let market = test.env.as_contract(&test.contract_id, || {
@@ -2481,7 +2466,7 @@ fn test_batch_claim_prevent_double_claim() {
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2520,6 +2505,25 @@ fn test_batch_claim_market_not_found() {
         &100_0000000,
     );
 
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id_1)
+            .unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
     let market_ids = vec![&test.env, market_id_1.clone(), nonexistent_market];
 
     test.env.mock_all_auths();
@@ -2540,6 +2544,25 @@ fn test_batch_claim_market_not_resolved() {
         &String::from_str(&test.env, "yes"),
         &100_0000000,
     );
+
+    // Advance time but not past the dispute window
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id_1)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
 
     let market_ids = vec![&test.env, market_id_1.clone()];
 
@@ -2575,7 +2598,7 @@ fn test_batch_claim_user_did_not_vote() {
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2645,7 +2668,7 @@ fn test_batch_claim_partial_winners_losers() {
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
@@ -2707,7 +2730,7 @@ fn test_batch_claim_atomicity_revert_on_second_market_failure() {
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
