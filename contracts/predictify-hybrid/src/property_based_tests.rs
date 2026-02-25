@@ -181,6 +181,8 @@ proptest! {
             &None,
             &0,
             &None,
+            &None,
+            &None,
         );
 
         // Verify market was created with correct properties
@@ -231,6 +233,8 @@ proptest! {
             &oracle_config,
             &None,
             &0,
+            &None,
+            &None,
             &None,
         );
 
@@ -285,6 +289,8 @@ proptest! {
             &oracle_config,
             &None,
             &0,
+            &None,
+            &None,
             &None,
         );
 
@@ -456,6 +462,8 @@ proptest! {
             &None,
             &0,
             &None,
+            &None,
+            &None,
         );
 
         let initial_market = client.get_market(&market_id).unwrap();
@@ -511,6 +519,8 @@ proptest! {
             &oracle_config,
             &None,
             &86400u64,
+            &None,
+            &None,
             &None,
         );
 

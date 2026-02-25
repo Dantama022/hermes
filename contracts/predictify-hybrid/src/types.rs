@@ -770,6 +770,10 @@ pub struct Market {
     pub tags: Vec<String>,
     /// Minimum total pool size required for resolution (None = no minimum)
     pub min_pool_size: Option<i128>,
+    /// Bet deadline (Unix timestamp). No bets accepted after this time. 0 = use end_time (no early cutoff).
+    pub bet_deadline: u64,
+    /// Dispute window in seconds after end_time. Payouts allowed only after end_time + this period (or dispute resolved).
+    pub dispute_window_seconds: u64,
 }
 
 // ===== BET LIMITS =====
@@ -899,6 +903,8 @@ impl Market {
             category: None,
             tags: Vec::new(env),
             min_pool_size: None,
+            bet_deadline: 0,
+            dispute_window_seconds: 86400, // 24h default
         }
     }
 
@@ -3088,6 +3094,16 @@ pub struct BetStats {
 
 // ===== EVENT TYPES =====
 
+/// Visibility setting for events (public vs private)
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EventVisibility {
+    /// Public event - anyone can bet
+    Public,
+    /// Private event - only allowlisted addresses can bet
+    Private,
+}
+
 /// Represents a prediction market event with specified parameters.
 ///
 /// This structure stores all metadata and configuration for a prediction event,
@@ -3117,8 +3133,10 @@ pub struct Event {
     pub created_at: u64,
     /// Current status of the event
     pub status: MarketState,
-    /// Minimum total pool size required for resolution (None = no minimum)
-    pub min_pool_size: Option<i128>,
+    /// Visibility setting (public or private)
+    pub visibility: EventVisibility,
+    /// Allowlist of addresses permitted to bet (only enforced for private events)
+    pub allowlist: Vec<Address>,
 }
 
 impl ReflectorAsset {
