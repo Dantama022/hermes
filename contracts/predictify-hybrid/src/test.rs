@@ -2971,6 +2971,38 @@ fn test_create_market_without_min_pool_size() {
         String::from_str(&test.env, "yes"),
         String::from_str(&test.env, "no"),
     ];
+
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Will BTC hit $100k?"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "BTC"),
+            threshold: 10000000,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+        &None,
+        &None,
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+
+    assert_eq!(market.min_pool_size, None);
+}
+
 // ===== CONTRACT UPGRADE AND MIGRATION TESTS (#304) =====
 
 // --- 1. Admin-only upgrade tests ---
@@ -3500,47 +3532,6 @@ fn test_create_market_with_min_pool_size() {
     });
 
     assert_eq!(market.min_pool_size, Some(500_0000000));
-}
-
-#[test]
-fn test_create_market_without_min_pool_size() {
-    let test = PredictifyTest::setup();
-    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
-    let outcomes = vec![
-        &test.env,
-        String::from_str(&test.env, "yes"),
-        String::from_str(&test.env, "no"),
-    ];
-
-    test.env.mock_all_auths();
-    let market_id = client.create_market(
-        &test.admin,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
-        &outcomes,
-        &30,
-        &OracleConfig {
-            provider: OracleProvider::Reflector,
-            oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
-            comparison: String::from_str(&test.env, "gt"),
-        },
-        &None,
-        &0,
-        &None,
-        &None,
-        &None,
-    );
-
-    let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
-    });
-
-    assert_eq!(market.min_pool_size, None);
 }
 
 #[test]
@@ -4324,10 +4315,14 @@ fn test_unclaimed_winnings_sweep_comprehensive() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    let outcomes = vec![&test.env, String::from_str(&test.env, "yes"), String::from_str(&test.env, "no")];
-    
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
     let oracle_config = OracleConfig {
-        provider: OracleProvider::Reflector, 
+        provider: OracleProvider::Reflector,
         oracle_address: Address::generate(&test.env),
         feed_id: String::from_str(&test.env, "BTC"),
         threshold: 1000,
@@ -4346,18 +4341,27 @@ fn test_unclaimed_winnings_sweep_comprehensive() {
         &oracle_config,
         &None,
         &0,
-        &None, 
+        &None,
         &None,
         &None,
     );
 
     // 2. Seed the market with a vote using the real market_id
     test.env.mock_all_auths();
-    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
 
     // --- State Transition: Active -> Ended ---
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
