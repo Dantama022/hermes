@@ -495,7 +495,10 @@ impl OracleConfig {
     pub fn none_sentinel(env: &Env) -> Self {
         Self {
             provider: OracleProvider::Reflector,
-            oracle_address: Address::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+            oracle_address: Address::from_str(
+                env,
+                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ),
             feed_id: String::from_str(env, ""),
             threshold: 0,
             comparison: String::from_str(env, ""),
@@ -3049,6 +3052,11 @@ impl Bet {
     /// Mark the bet as refunded
     pub fn mark_as_refunded(&mut self) {
         self.status = BetStatus::Refunded;
+    }
+
+    /// Mark the bet as cancelled
+    pub fn mark_as_cancelled(&mut self) {
+        self.status = BetStatus::Cancelled;
     }
 }
 

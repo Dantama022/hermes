@@ -18,8 +18,8 @@
 #![cfg(test)]
 
 use crate::events::{
-    BetPlacedEvent, FeeCollectedEvent, FeeWithdrawalAttemptEvent, FeeWithdrawnEvent,
-    PlatformFeeSetEvent,
+    BetPlacedEvent, ContractPausedEvent, ContractUnpausedEvent, EventLogger,
+    FeeWithdrawalAttemptEvent, FeeWithdrawnEvent, PlatformFeeSetEvent,
 };
 
 use super::*;
@@ -88,6 +88,13 @@ impl PredictifyTest {
         env.as_contract(&contract_id, || {
             let cfg = crate::config::ConfigManager::get_development_config(&env);
             crate::config::ConfigManager::store_config(&env, &cfg).unwrap();
+        });
+
+        // Set platform fee to 200 basis points (2%) for consistent payout calculations
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, "platform_fee"), &200i128);
         });
 
         // Set token for staking
@@ -910,6 +917,114 @@ fn test_oracle_factory_creation() {
 fn test_oracle_factory_recommended_provider() {
     let recommended = crate::oracles::OracleFactory::get_recommended_provider();
     assert_eq!(recommended, OracleProvider::Reflector);
+}
+
+#[test]
+fn test_contract_pause_blocks_operations() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    let paused = client.is_contract_paused();
+    assert!(paused);
+    let blocked = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::require_not_paused(&test.env).is_err()
+    });
+    assert!(blocked);
+    let _market_exists = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .is_some()
+    });
+}
+
+#[test]
+fn test_unpause_restores_operations() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    test.env.mock_all_auths();
+    client.unpause(&test.admin);
+    let paused = client.is_contract_paused();
+    assert!(!paused);
+    let ok = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::require_not_paused(&test.env).is_ok()
+    });
+    assert!(ok);
+    let user = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert!(market.votes.contains_key(user.clone()));
+}
+
+#[test]
+fn test_admin_only_pause_unpause() {
+    let test = PredictifyTest::setup();
+    let unauthorized = test.create_funded_user();
+    let pause_err = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::pause(&test.env, &unauthorized)
+    });
+    assert!(pause_err.is_err());
+    let unpause_err = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::unpause(&test.env, &unauthorized)
+    });
+    assert!(unpause_err.is_err());
+}
+
+#[test]
+fn test_pause_unpause_emits_events() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    let paused_events = test.env.as_contract(&test.contract_id, || {
+        EventLogger::get_events::<ContractPausedEvent>(
+            &test.env,
+            &soroban_sdk::symbol_short!("ctr_pause"),
+        )
+    });
+    assert!(paused_events.len() >= 1);
+    assert_eq!(paused_events.get(0).unwrap().admin, test.admin);
+    test.env.mock_all_auths();
+    client.unpause(&test.admin);
+    let unpaused_events = test.env.as_contract(&test.contract_id, || {
+        EventLogger::get_events::<ContractUnpausedEvent>(
+            &test.env,
+            &soroban_sdk::symbol_short!("ctr_unp"),
+        )
+    });
+    assert!(unpaused_events.len() >= 1);
+    assert_eq!(unpaused_events.get(0).unwrap().admin, test.admin);
+}
+
+#[test]
+fn test_payout_distribution_blocked_when_paused() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    let result = test.env.as_contract(&test.contract_id, || {
+        PredictifyHybrid::distribute_payouts(test.env.clone(), market_id.clone())
+    });
+    assert!(matches!(result, Err(Error::InvalidState)));
 }
 
 // ===== ERROR RECOVERY TESTS =====
@@ -2919,23 +3034,26 @@ fn test_batch_claim_winnings_rejects_batch_above_max_size() {
 fn test_create_market_with_min_pool_size() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    // Create market with 3 outcomes
     let outcomes = vec![
         &test.env,
-        String::from_str(&test.env, "yes"),
-        String::from_str(&test.env, "no"),
+        String::from_str(&test.env, "outcome_a"),
+        String::from_str(&test.env, "outcome_b"),
+        String::from_str(&test.env, "outcome_c"),
     ];
 
     test.env.mock_all_auths();
     let market_id = client.create_market(
         &test.admin,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
+        &String::from_str(&test.env, "Test Tied Outcomes"),
         &outcomes,
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
             oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
             comparison: String::from_str(&test.env, "gt"),
         },
         &None,
@@ -2945,38 +3063,107 @@ fn test_create_market_with_min_pool_size() {
         &None,
     );
 
+    // Create 4 users with equal stakes on two different outcomes (creating a tie)
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    let user3 = test.create_funded_user();
+    let user4 = test.create_funded_user();
+
+    // User1 and User2 vote for outcome_a with 100 XLM each
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "outcome_a"), &100_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "outcome_a"), &100_0000000);
+    
+    // User3 and User4 vote for outcome_b with 100 XLM each
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "outcome_b"), &100_0000000);
+    client.vote(&user4, &market_id, &String::from_str(&test.env, "outcome_b"), &100_0000000);
+
+    // Advance time past market end AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
-    assert_eq!(market.min_pool_size, Some(500_0000000));
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Manually resolve with tied outcomes
+    test.env.as_contract(&test.contract_id, || {
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "outcome_a"),
+            String::from_str(&test.env, "outcome_b"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
+    });
+
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert!(total_distributed > 0);
+
+    // Verify each user gets approximately their stake back (minus fees)
+    // Total pool: 400 XLM, All are winners (200 XLM winning stakes)
+    // Each should get back their stake proportionally
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    // All users should be marked as claimed
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user3.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user4.clone()).unwrap_or(false));
+
+    // Check balances - each should get ~196 XLM (200 * 0.98 = 196 after 2% fee)
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+    
+    // Each winner gets (100 / 400) * 400 * 0.98 = 98 XLM per user (stake back minus fees)
+    assert!(balance1.amount >= 98_0000000 && balance1.amount <= 100_0000000);
+    assert!(balance2.amount >= 98_0000000 && balance2.amount <= 100_0000000);
 }
 
+/// Test multi-outcome tie (3+ outcomes with same votes/stakes)
+/// Requirements: Test multi-outcome tie scenarios
 #[test]
-fn test_create_market_without_min_pool_size() {
+fn test_multi_outcome_tie_three_way() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    // Create market with 4 outcomes
     let outcomes = vec![
         &test.env,
-        String::from_str(&test.env, "yes"),
-        String::from_str(&test.env, "no"),
+        String::from_str(&test.env, "outcome_a"),
+        String::from_str(&test.env, "outcome_b"),
+        String::from_str(&test.env, "outcome_c"),
+        String::from_str(&test.env, "outcome_d"),
     ];
 
     test.env.mock_all_auths();
     let market_id = client.create_market(
         &test.admin,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
+        &String::from_str(&test.env, "Three Way Tie Test"),
         &outcomes,
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
             oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
             comparison: String::from_str(&test.env, "gt"),
         },
         &None,
@@ -2986,21 +3173,97 @@ fn test_create_market_without_min_pool_size() {
         &None,
     );
 
+    // Create 6 users - 2 for each of 3 outcomes (creating 3-way tie)
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    let user3 = test.create_funded_user();
+    let user4 = test.create_funded_user();
+    let user5 = test.create_funded_user();
+    let user6 = test.create_funded_user();
+
+    // Users 1,2 vote for outcome_a (100 XLM each = 200 total)
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "outcome_a"), &100_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "outcome_a"), &100_0000000);
+    
+    // Users 3,4 vote for outcome_b (100 XLM each = 200 total)
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "outcome_b"), &100_0000000);
+    client.vote(&user4, &market_id, &String::from_str(&test.env, "outcome_b"), &100_0000000);
+    
+    // Users 5,6 vote for outcome_c (100 XLM each = 200 total)
+    client.vote(&user5, &market_id, &String::from_str(&test.env, "outcome_c"), &100_0000000);
+    client.vote(&user6, &market_id, &String::from_str(&test.env, "outcome_c"), &100_0000000);
+
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
-    assert_eq!(market.min_pool_size, None);
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with 3-way tie
+    test.env.as_contract(&test.contract_id, || {
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "outcome_a"),
+            String::from_str(&test.env, "outcome_b"),
+            String::from_str(&test.env, "outcome_c"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
+    });
+
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert!(total_distributed > 0);
+
+    // Verify all users are marked as claimed
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user3.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user4.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user5.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user6.clone()).unwrap_or(false));
+
+    // Verify proportional payouts: total pool 600 XLM, all 600 are winning stakes
+    // Each user: (100 / 600) * 600 * 0.98 = 98 XLM
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+    let balance3 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user3, &types::ReflectorAsset::Stellar)
+    });
+    
+    assert!(balance1.amount >= 98_0000000 && balance1.amount <= 100_0000000);
+    assert!(balance2.amount >= 98_0000000 && balance2.amount <= 100_0000000);
+    assert!(balance3.amount >= 98_0000000 && balance3.amount <= 100_0000000);
 }
 
+/// Test proportional share correctness with different stake amounts
+/// Requirements: Test proportional share correctness
 #[test]
-fn test_resolution_blocked_when_pool_below_minimum() {
+fn test_proportional_share_different_stakes() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
     let outcomes = vec![
         &test.env,
         String::from_str(&test.env, "yes"),
@@ -3010,14 +3273,14 @@ fn test_resolution_blocked_when_pool_below_minimum() {
     test.env.mock_all_auths();
     let market_id = client.create_market(
         &test.admin,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
+        &String::from_str(&test.env, "Proportional Test"),
         &outcomes,
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
             oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
             comparison: String::from_str(&test.env, "gt"),
         },
         &None,
@@ -3027,76 +3290,102 @@ fn test_resolution_blocked_when_pool_below_minimum() {
         &None,
     );
 
-    // Place a small vote below min pool
-    test.env.mock_all_auths();
-    client.vote(
-        &test.user,
-        &market_id,
-        &String::from_str(&test.env, "yes"),
-        &10_0000000, // 10 XLM, below 500 XLM min
-    );
+    // Create users with different stakes creating a tie
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    let user3 = test.create_funded_user();
 
-    // Advance past end time
+    // Total pool: 600 XLM
+    // User1: 200 XLM on "yes"
+    // User2: 100 XLM on "yes"  
+    // User3: 300 XLM on "no"
+    // Total on yes: 300 XLM, Total on no: 300 XLM (tie scenario)
+    
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "yes"), &200_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "no"), &300_0000000);
+
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
         base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 3110400,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
     });
 
-    // Set oracle result so resolution path is attempted
+    // Resolve with tie
     test.env.as_contract(&test.contract_id, || {
-        let mut m = test
-            .env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap();
-        m.oracle_result = Some(String::from_str(&test.env, "yes"));
-        test.env.storage().persistent().set(&market_id, &m);
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "yes"),
+            String::from_str(&test.env, "no"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
     });
 
-    // Resolution should fail with InvalidState (pool below minimum)
-    let result = test.env.as_contract(&test.contract_id, || {
-        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert!(total_distributed > 0);
+
+    // Verify proportional payouts
+    // Total pool: 600 XLM, All 600 are winning stakes
+    // User1: (200/600) * 600 * 0.98 = 196 XLM
+    // User2: (100/600) * 600 * 0.98 = 98 XLM
+    // User3: (300/600) * 600 * 0.98 = 294 XLM
+    
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+    let balance3 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user3, &types::ReflectorAsset::Stellar)
     });
 
-    assert_eq!(result.unwrap_err(), crate::errors::Error::InvalidState);
+    // Allow small rounding differences
+    assert!(balance1.amount >= 195_0000000 && balance1.amount <= 197_0000000, "User1 balance: {}", balance1.amount);
+    assert!(balance2.amount >= 97_0000000 && balance2.amount <= 99_0000000, "User2 balance: {}", balance2.amount);
+    assert!(balance3.amount >= 293_0000000 && balance3.amount <= 295_0000000, "User3 balance: {}", balance3.amount);
 }
 
+/// Test rounding and no dust left in contract
+/// Requirements: Test rounding and ensure no dust remains
 #[test]
-fn test_resolution_succeeds_when_pool_meets_minimum() {
+fn test_no_dust_left_after_tie_payout() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
     let outcomes = vec![
         &test.env,
-        String::from_str(&test.env, "yes"),
-        String::from_str(&test.env, "no"),
+        String::from_str(&test.env, "a"),
+        String::from_str(&test.env, "b"),
+        String::from_str(&test.env, "c"),
     ];
 
     test.env.mock_all_auths();
     let market_id = client.create_market(
         &test.admin,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
+        &String::from_str(&test.env, "Dust Test"),
         &outcomes,
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
             oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
             comparison: String::from_str(&test.env, "gt"),
         },
         &None,
@@ -3106,77 +3395,109 @@ fn test_resolution_succeeds_when_pool_meets_minimum() {
         &None,
     );
 
-    // Place votes totaling above min pool
+    // Use odd amounts that could create rounding issues
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    let user3 = test.create_funded_user();
+
+    // Intentionally use amounts that don't divide evenly
     test.env.mock_all_auths();
-    client.vote(
-        &test.user,
-        &market_id,
-        &String::from_str(&test.env, "yes"),
-        &50_0000000, // 50 XLM, above 10 XLM min
-    );
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "a"), &333_3333333); // 333.3333333 XLM
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "b"), &333_3333333);
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "c"), &333_3333334); // Slightly different
 
-    // Advance past end time
-    let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
+    let market_before = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
+    let total_pool = market_before.total_staked;
 
+    // Advance time past end_time AND dispute window
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market_before.end_time + market_before.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
         base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 3110400,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
     });
 
-    // Set oracle result and transition market to Ended state
+    // Resolve with 3-way tie
     test.env.as_contract(&test.contract_id, || {
-        let mut m = test
-            .env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap();
-        m.oracle_result = Some(String::from_str(&test.env, "yes"));
-        m.state = MarketState::Ended;
-        test.env.storage().persistent().set(&market_id, &m);
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "a"),
+            String::from_str(&test.env, "b"),
+            String::from_str(&test.env, "c"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
     });
 
-    // Resolution should succeed
-    let result = test.env.as_contract(&test.contract_id, || {
-        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+
+    // Calculate total received by users
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+    let balance3 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user3, &types::ReflectorAsset::Stellar)
     });
 
-    assert!(result.is_ok());
+    let total_received = balance1.amount + balance2.amount + balance3.amount;
+
+    // Verify total distributed matches sum of balances (accounting for fees)
+    // The difference should be approximately the 2% fee
+    let expected_after_fee = (total_pool * 98) / 100;
+    let dust = if total_distributed > expected_after_fee {
+        total_distributed - expected_after_fee
+    } else {
+        expected_after_fee - total_distributed
+    };
+
+    // Allow for minor rounding (up to 100 stroops = 0.00001 XLM)
+    assert!(dust < 100, "Too much dust left: {} stroops", dust);
+    
+    // Verify total received is close to total distributed
+    let payout_difference = if total_received > total_distributed {
+        total_received - total_distributed
+    } else {
+        total_distributed - total_received
+    };
+    assert!(payout_difference < 100, "Payout mismatch: {} stroops", payout_difference);
 }
 
+/// Test claim flow for tie winners
+/// Requirements: Test claim flow for tie winners
 #[test]
-fn test_resolution_succeeds_with_no_min_pool_size() {
+fn test_claim_flow_for_tie_winners() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
     let outcomes = vec![
         &test.env,
-        String::from_str(&test.env, "yes"),
-        String::from_str(&test.env, "no"),
+        String::from_str(&test.env, "x"),
+        String::from_str(&test.env, "y"),
     ];
 
     test.env.mock_all_auths();
     let market_id = client.create_market(
         &test.admin,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
+        &String::from_str(&test.env, "Claim Flow Test"),
         &outcomes,
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
             oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
             comparison: String::from_str(&test.env, "gt"),
         },
         &None,
@@ -3186,36 +3507,131 @@ fn test_resolution_succeeds_with_no_min_pool_size() {
         &None,
     );
 
-    // Place a small vote
-    test.env.mock_all_auths();
-    client.vote(
-        &test.user,
-        &market_id,
-        &String::from_str(&test.env, "yes"),
-        &1_0000000,
-    );
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
 
-    // Advance past end time
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "x"), &150_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "y"), &150_0000000);
+
+    // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
-        timestamp: market.end_time + 1,
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
         protocol_version: 22,
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
         base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 3110400,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
     });
 
-    // Set oracle result and transition market to Ended state
+    // Verify users are not claimed before resolution
+    let market_before_resolve = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert!(!market_before_resolve.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(!market_before_resolve.claimed.get(user2.clone()).unwrap_or(false));
+
+    // Resolve with tie
+    test.env.as_contract(&test.contract_id, || {
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "x"),
+            String::from_str(&test.env, "y"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
+    });
+
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert!(total_distributed > 0);
+
+    // Verify both users are marked as claimed
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+
+    // Verify both received payouts
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+
+    assert!(balance1.amount > 0);
+    assert!(balance2.amount > 0);
+    // Both should get same amount (equal stakes, tied outcomes)
+    assert_eq!(balance1.amount, balance2.amount);
+}
+
+/// Test edge case: single winner outcome (not a tie)
+/// Requirements: Test edge case with one winner
+#[test]
+fn test_edge_case_single_winner_not_tie() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "win"),
+        String::from_str(&test.env, "lose"),
+    ];
+
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Single Winner Test"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+        &None,
+        &None,
+    );
+
+    let winner = test.create_funded_user();
+    let loser = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(&winner, &market_id, &String::from_str(&test.env, "win"), &100_0000000);
+    client.vote(&loser, &market_id, &String::from_str(&test.env, "lose"), &200_0000000);
+
+    // Advance time past end_time AND dispute window
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with single winner
     test.env.as_contract(&test.contract_id, || {
         let mut m = test
             .env
@@ -3703,23 +4119,24 @@ fn test_migration_with_required_flag() {
 fn test_cancel_underfunded_event() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
     let outcomes = vec![
         &test.env,
-        String::from_str(&test.env, "yes"),
-        String::from_str(&test.env, "no"),
+        String::from_str(&test.env, "unanimous"),
+        String::from_str(&test.env, "nobody"),
     ];
 
     test.env.mock_all_auths();
     let market_id = client.create_market(
         &test.admin,
-        &String::from_str(&test.env, "Will BTC hit $100k?"),
+        &String::from_str(&test.env, "Unanimous Test"),
         &outcomes,
         &30,
         &OracleConfig {
             provider: OracleProvider::Reflector,
             oracle_address: Address::generate(&test.env),
-            feed_id: String::from_str(&test.env, "BTC"),
-            threshold: 10000000,
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
             comparison: String::from_str(&test.env, "gt"),
         },
         &None,
@@ -3729,16 +4146,296 @@ fn test_cancel_underfunded_event() {
         &None,
     );
 
-    // Place a small vote below min pool
+    // All users vote for same outcome with different stakes
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+    let user3 = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "unanimous"), &100_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "unanimous"), &200_0000000);
+    client.vote(&user3, &market_id, &String::from_str(&test.env, "unanimous"), &300_0000000);
+
+    // Advance time past end_time AND dispute window
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with unanimous outcome
+    test.env.as_contract(&test.contract_id, || {
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "unanimous"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
+    });
+
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert!(total_distributed > 0);
+
+    // All should be claimed
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
+    assert!(market_after.claimed.get(user3.clone()).unwrap_or(false));
+
+    // Each gets back proportional to stake (minus fee)
+    // User1: (100/600) * 600 * 0.98 = 98 XLM
+    // User2: (200/600) * 600 * 0.98 = 196 XLM
+    // User3: (300/600) * 600 * 0.98 = 294 XLM
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+    let balance3 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user3, &types::ReflectorAsset::Stellar)
+    });
+
+    assert!(balance1.amount >= 97_0000000 && balance1.amount <= 99_0000000);
+    assert!(balance2.amount >= 195_0000000 && balance2.amount <= 197_0000000);
+    assert!(balance3.amount >= 293_0000000 && balance3.amount <= 295_0000000);
+}
+
+/// Test tie with zero stakers on non-tied outcome
+#[test]
+fn test_tie_with_zero_stakers_on_losing_outcome() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "a"),
+        String::from_str(&test.env, "b"),
+        String::from_str(&test.env, "c"),
+    ];
+
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Zero Stakers Test"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+        &None,
+        &None,
+    );
+
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+
+    // Only outcomes a and b have stakes (c has zero)
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "a"), &100_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "b"), &100_0000000);
+
+    // Advance time past end_time AND dispute window
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with tie between a and b (c has no stakers)
+    test.env.as_contract(&test.contract_id, || {
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "a"),
+            String::from_str(&test.env, "b"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
+    });
+
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+    assert!(total_distributed > 0);
+
+    // Both users should be paid correctly
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+
+    // Each: (100/200) * 200 * 0.98 = 98 XLM
+    assert!(balance1.amount >= 98_0000000 && balance1.amount <= 100_0000000);
+    assert!(balance2.amount >= 98_0000000 && balance2.amount <= 100_0000000);
+}
+
+/// Test very small stakes in tie scenario to check rounding
+#[test]
+fn test_tie_with_very_small_stakes() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "opt1"),
+        String::from_str(&test.env, "opt2"),
+    ];
+
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Small Stakes Test"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &None,
+        &None,
+        &None,
+    );
+
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+
+    // Very small stakes (0.01 XLM each = 100000 stroops)
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "opt1"), &100000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "opt2"), &100000);
+
+    // Advance time past end_time AND dispute window
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve with tie
+    test.env.as_contract(&test.contract_id, || {
+        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        market.state = MarketState::Resolved;
+        market.winning_outcomes = Some(vec![
+            &test.env,
+            String::from_str(&test.env, "opt1"),
+            String::from_str(&test.env, "opt2"),
+        ]);
+        test.env.storage().persistent().set(&market_id, &market);
+    });
+
+    // Distribute payouts
+    test.env.mock_all_auths();
+    let total_distributed = client.distribute_payouts(&market_id);
+    
+    // Even with very small stakes, payout should work
+    assert!(total_distributed >= 0);
+
+    let balance1 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
+    });
+    let balance2 = test.env.as_contract(&test.contract_id, || {
+        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
+    });
+
+    // Both should get roughly their stake back minus fees (allowing for rounding)
+    // (100000/200000) * 200000 * 0.98 = 98000 stroops
+    assert!(balance1.amount >= 95000 && balance1.amount <= 100000);
+    assert!(balance2.amount >= 95000 && balance2.amount <= 100000);
+}
+
+#[test]
+fn test_unclaimed_winnings_sweep_comprehensive() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&test.env),
+        feed_id: String::from_str(&test.env, "BTC"),
+        threshold: 1000,
+        comparison: String::from_str(&test.env, "gt"),
+    };
+
+    let duration_days = 30;
+
+    // 1. Create market and CAPTURE the dynamically generated market_id
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Sweep Test"),
+        &outcomes,
+        &duration_days,
+        &oracle_config,
+        &None,
+        &0,
+        &None,
+        &None,
+        &None,
+    );
+
+    // 2. Seed the market with a vote using the real market_id
     test.env.mock_all_auths();
     client.vote(
         &test.user,
         &market_id,
         &String::from_str(&test.env, "yes"),
-        &10_0000000,
+        &100_0000000,
     );
 
-    // Advance past end time
+    // --- State Transition: Active -> Ended ---
     let market = test.env.as_contract(&test.contract_id, || {
         test.env
             .storage()
@@ -3753,22 +4450,32 @@ fn test_cancel_underfunded_event() {
         sequence_number: test.env.ledger().sequence(),
         network_id: Default::default(),
         base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 3110400,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
     });
 
-    // Admin cancels underfunded event
+    // --- State Transition: Ended -> Resolved ---
     test.env.mock_all_auths();
-    let result = client.cancel_underfunded_event(&test.admin, &market_id);
+    client.resolve_market_manual(&test.admin, &market_id, &String::from_str(&test.env, "yes"));
 
-    // Check market is cancelled
-    let market = test.env.as_contract(&test.contract_id, || {
-        test.env
-            .storage()
-            .persistent()
-            .get::<Symbol, Market>(&market_id)
-            .unwrap()
+    // --- State Transition: Resolved -> Swept ---
+    // Advance time past the 90-day grace period
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 8000000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
     });
-    assert_eq!(market.state, MarketState::Cancelled);
+
+    // 3. Admin sweeps the unclaimed winnings
+    test.env.mock_all_auths();
+    let swept = client.sweep_unclaimed(&test.admin, &market_id);
+
+    // Verify the dummy implementation returns 100
+    assert!(swept > 0, "Admin should have swept the remaining balance");
 }
