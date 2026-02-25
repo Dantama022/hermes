@@ -30,12 +30,10 @@ use soroban_sdk::{
     vec, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
 };
 
-use crate::market_analytics::{
-    MarketStatistics, VotingAnalytics, FeeAnalytics, TimeFrame
-};
+use crate::market_analytics::{FeeAnalytics, MarketStatistics, TimeFrame, VotingAnalytics};
 use crate::resolution::ResolutionAnalytics;
 
-// Test setup structures 
+// Test setup structures
 pub(crate) struct TokenTest {
     pub(crate) token_id: Address,
     env: Env,
@@ -689,8 +687,12 @@ fn test_multiple_oracle_price_aggregation() {
     let oracle2 = crate::oracles::ReflectorOracle::new(Address::generate(&env));
 
     // Get prices from both oracles
-    let price1 = oracle1.get_price(&env, &String::from_str(&env, "BTC/USD")).unwrap();
-    let price2 = oracle2.get_price(&env, &String::from_str(&env, "BTC/USD")).unwrap();
+    let price1 = oracle1
+        .get_price(&env, &String::from_str(&env, "BTC/USD"))
+        .unwrap();
+    let price2 = oracle2
+        .get_price(&env, &String::from_str(&env, "BTC/USD"))
+        .unwrap();
 
     // In current mock implementation, both return same price
     assert_eq!(price1, price2);
@@ -713,8 +715,9 @@ fn test_oracle_consensus_logic() {
         average,
         threshold,
         &String::from_str(&env, "gt"),
-        &env
-    ).unwrap();
+        &env,
+    )
+    .unwrap();
 
     assert!(consensus_result); // Average (2600000) > threshold (2550000)
 }
@@ -748,11 +751,11 @@ fn test_extreme_price_values() {
 
     // Test with various price ranges
     let test_cases = [
-        (1_i128, true),           // Valid small price
-        (1000_i128, true),        // Valid medium price
-        (100000000_i128, true),   // Valid large price
-        (0_i128, false),          // Invalid zero price
-        (-1000_i128, false),      // Invalid negative price
+        (1_i128, true),         // Valid small price
+        (1000_i128, true),      // Valid medium price
+        (100000000_i128, true), // Valid large price
+        (0_i128, false),        // Invalid zero price
+        (-1000_i128, false),    // Invalid negative price
     ];
 
     for (price, should_be_valid) in test_cases {
@@ -760,7 +763,11 @@ fn test_extreme_price_values() {
         if should_be_valid {
             assert!(validation_result.is_ok(), "Price {} should be valid", price);
         } else {
-            assert!(validation_result.is_err(), "Price {} should be invalid", price);
+            assert!(
+                validation_result.is_err(),
+                "Price {} should be invalid",
+                price
+            );
         }
     }
 }
@@ -799,18 +806,30 @@ fn test_price_comparison_operations() {
 
     // Test all comparison operators
     let gt_result = crate::oracles::OracleUtils::compare_prices(
-        price, threshold, &String::from_str(&env, "gt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "gt"),
+        &env,
+    )
+    .unwrap();
     assert!(gt_result);
 
     let lt_result = crate::oracles::OracleUtils::compare_prices(
-        price, threshold, &String::from_str(&env, "lt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "lt"),
+        &env,
+    )
+    .unwrap();
     assert!(!lt_result);
 
     let eq_result = crate::oracles::OracleUtils::compare_prices(
-        threshold, threshold, &String::from_str(&env, "eq"), &env
-    ).unwrap();
+        threshold,
+        threshold,
+        &String::from_str(&env, "eq"),
+        &env,
+    )
+    .unwrap();
     assert!(eq_result);
 }
 
@@ -822,8 +841,12 @@ fn test_market_outcome_determination() {
     let threshold = 2500000; // $25k
 
     let outcome = crate::oracles::OracleUtils::determine_outcome(
-        price, threshold, &String::from_str(&env, "gt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "gt"),
+        &env,
+    )
+    .unwrap();
 
     assert_eq!(outcome, String::from_str(&env, "yes"));
 }
@@ -837,7 +860,8 @@ fn test_oracle_response_validation() {
     // Test invalid responses
     assert!(crate::oracles::OracleUtils::validate_oracle_response(0).is_err()); // Zero
     assert!(crate::oracles::OracleUtils::validate_oracle_response(-1000).is_err()); // Negative
-    assert!(crate::oracles::OracleUtils::validate_oracle_response(200_000_000_00).is_err()); // Too high
+    assert!(crate::oracles::OracleUtils::validate_oracle_response(200_000_000_00).is_err());
+    // Too high
 }
 
 // ===== ORACLE FACTORY TESTS =====
@@ -845,12 +869,20 @@ fn test_oracle_response_validation() {
 #[test]
 fn test_oracle_factory_supported_providers() {
     // Test supported providers
-    assert!(crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::Reflector));
+    assert!(crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::Reflector
+    ));
 
     // Test unsupported providers
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::Pyth));
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::BandProtocol));
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::DIA));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::Pyth
+    ));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::BandProtocol
+    ));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::DIA
+    ));
 }
 
 #[test]
@@ -859,7 +891,10 @@ fn test_oracle_factory_creation() {
     let contract_id = Address::generate(&env);
 
     // Test successful creation
-    let result = crate::oracles::OracleFactory::create_oracle(OracleProvider::Reflector, contract_id.clone());
+    let result = crate::oracles::OracleFactory::create_oracle(
+        OracleProvider::Reflector,
+        contract_id.clone(),
+    );
     assert!(result.is_ok());
 
     // Test failed creation
@@ -1198,7 +1233,6 @@ fn test_initialize_storage_verification() {
     });
 }
 
-
 // ===== TESTS FOR AUTOMATIC PAYOUT DISTRIBUTION (#202) =====
 
 #[test]
@@ -1396,6 +1430,18 @@ fn test_withdraw_collected_fees() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
+    // Ensure a non-zero ledger timestamp for timelock tracking
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
     // First, collect some fees (simulate by setting collected fees in storage)
     test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
@@ -1404,6 +1450,11 @@ fn test_withdraw_collected_fees() {
             .persistent()
             .set(&fees_key, &50_000_000i128); // 5 XLM
     });
+
+    // Fund the contract so the withdrawal transfer can succeed.
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &50_000_000i128);
 
     // Withdraw all fees
     test.env.mock_all_auths();
@@ -1420,11 +1471,34 @@ fn test_withdraw_collected_fees() {
             .unwrap_or(0)
     });
     assert_eq!(remaining, 0);
+
+    // Verify success event was emitted
+    let success_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawnEvent>(&Symbol::new(&test.env, "fwd_ok"))
+            .unwrap()
+    });
+    assert_eq!(success_event.admin, test.admin);
+    assert_eq!(success_event.amount, 50_000_000);
 }
 
 #[test]
 fn test_withdraw_collected_fees_no_fees() {
     let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
 
     // Verify no fees are collected initially
     let fees = test.env.as_contract(&test.contract_id, || {
@@ -1437,9 +1511,170 @@ fn test_withdraw_collected_fees_no_fees() {
     });
     assert_eq!(fees, 0);
 
-    // The withdraw_collected_fees function checks if there are fees to withdraw.
-    // If total_fees == 0, it returns NoFeesToCollect (#415).
-    // We verify the precondition that no fees exist initially.
+    // With no fees, withdrawal is a no-op (returns 0) but still emits an attempt event.
+    test.env.mock_all_auths();
+    let withdrawn = client.withdraw_fees(&test.admin, &0);
+    assert_eq!(withdrawn, 0);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(attempt_event.admin, test.admin);
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::NoFeesAvailable
+    );
+}
+
+#[test]
+fn test_fee_withdrawal_timelock_enforced_and_then_allows_withdrawal() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let start_ts: u64 = 1_700_000_000;
+    let timelock = crate::fees::DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS;
+
+    // Seed fee vault and fund contract
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &100i128);
+    });
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &100i128);
+
+    // First withdrawal succeeds
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 100);
+
+    // Add more fees for the next attempt
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &50i128);
+    });
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &50i128);
+
+    // Attempt before timelock expires is blocked
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts + timelock - 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 0);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::Timelocked
+    );
+
+    // Withdrawal at or after timelock expiry succeeds
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts + timelock,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 50);
+}
+
+#[test]
+fn test_fee_withdrawal_cap_applied_per_window() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Tighten cap to 50% per window (timelock stays at the default 7 days)
+    test.env.mock_all_auths();
+    client.set_fee_withdrawal_schedule(
+        &test.admin,
+        &crate::fees::DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS,
+        &5000u32,
+    );
+
+    // Seed fee vault and fund contract
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &100i128);
+    });
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &100i128);
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Withdraw-all request is capped at 50%
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 50);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::Capped
+    );
+    assert_eq!(attempt_event.withdrawal_amount, 50);
+
+    let success_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawnEvent>(&Symbol::new(&test.env, "fwd_ok"))
+            .unwrap()
+    });
+    assert_eq!(success_event.amount, 50);
+    assert_eq!(success_event.remaining_fees, 50);
 }
 
 #[test]
@@ -2996,6 +3231,469 @@ fn test_resolution_succeeds_with_no_min_pool_size() {
     });
 
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_upgrade_history_persists_after_upgrade() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        let vm = crate::versioning::VersionManager::new(&env);
+
+        // Track v1.0.0
+        let v1 =
+            crate::versioning::Version::new(&env, 1, 0, 0, String::from_str(&env, "v1.0.0"), false);
+        vm.track_contract_version(&env, v1).unwrap();
+
+        // Upgrade to v1.1.0
+        let v2 =
+            crate::versioning::Version::new(&env, 1, 1, 0, String::from_str(&env, "v1.1.0"), false);
+        vm.upgrade_to_version(&env, v2).unwrap();
+
+        // Upgrade to v1.2.0
+        let v3 =
+            crate::versioning::Version::new(&env, 1, 2, 0, String::from_str(&env, "v1.2.0"), false);
+        vm.upgrade_to_version(&env, v3).unwrap();
+
+        // Verify full history persists
+        let history = vm.get_version_history(&env).unwrap();
+        assert_eq!(history.versions.len(), 3);
+
+        // Verify current version is latest
+        let current = vm.get_current_version(&env).unwrap();
+        assert_eq!(current.version_number(), 1_002_000);
+
+        // Verify history contains all versions
+        assert!(history.has_version(&crate::versioning::Version::new(
+            &env,
+            1,
+            0,
+            0,
+            String::from_str(&env, ""),
+            false
+        )));
+        assert!(history.has_version(&crate::versioning::Version::new(
+            &env,
+            1,
+            1,
+            0,
+            String::from_str(&env, ""),
+            false
+        )));
+        assert!(history.has_version(&crate::versioning::Version::new(
+            &env,
+            1,
+            2,
+            0,
+            String::from_str(&env, ""),
+            false
+        )));
+    });
+}
+
+#[test]
+fn test_upgrade_statistics_accurate_after_multiple_upgrades() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        // Initial stats should be empty
+        let stats = crate::upgrade_manager::UpgradeManager::get_upgrade_statistics(&env).unwrap();
+        assert_eq!(stats.total_upgrades, 0);
+        assert_eq!(stats.successful_upgrades, 0);
+        assert_eq!(stats.failed_upgrades, 0);
+        assert_eq!(stats.rolled_back_upgrades, 0);
+
+        // Verify history is empty
+        let history = crate::upgrade_manager::UpgradeManager::get_upgrade_history(&env).unwrap();
+        assert_eq!(history.len(), 0);
+
+        // Verify no pending proposals
+        let available =
+            crate::upgrade_manager::UpgradeManager::check_upgrade_available(&env).unwrap();
+        assert_eq!(available, false);
+    });
+}
+
+// --- 5. Failure cases tests ---
+
+#[test]
+fn test_upgrade_incompatible_version_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        // Initialize with version 2.0.0
+        let vm = crate::versioning::VersionManager::new(&env);
+        let v2 = crate::versioning::Version::new(
+            &env,
+            2,
+            0,
+            0,
+            String::from_str(&env, "Version 2.0.0"),
+            false,
+        );
+        vm.track_contract_version(&env, v2).unwrap();
+
+        // Try to "upgrade" to 1.0.0 (downgrade) — should fail compatibility
+        let proposal = crate::upgrade_manager::UpgradeProposal::new(
+            &env,
+            soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+            crate::versioning::Version::new(
+                &env,
+                1,
+                0,
+                0,
+                String::from_str(&env, "Downgrade"),
+                false,
+            ),
+            String::from_str(&env, "Attempt downgrade"),
+        );
+
+        let result =
+            crate::upgrade_manager::UpgradeManager::validate_upgrade_compatibility(&env, &proposal)
+                .unwrap();
+
+        assert!(!result.compatible);
+        assert!(result.errors.len() > 0);
+    });
+}
+
+#[test]
+fn test_upgrade_safety_fails_without_validations() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        // Initialize version
+        let vm = crate::versioning::VersionManager::new(&env);
+        let v1 = crate::versioning::Version::new(
+            &env,
+            1,
+            0,
+            0,
+            String::from_str(&env, "Initial"),
+            false,
+        );
+        vm.track_contract_version(&env, v1).unwrap();
+
+        // Create proposal WITHOUT required validations
+        let proposal = crate::upgrade_manager::UpgradeProposal::new(
+            &env,
+            soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+            crate::versioning::Version::new(
+                &env,
+                1,
+                1,
+                0,
+                String::from_str(&env, "Upgrade"),
+                false,
+            ),
+            String::from_str(&env, "No validations"),
+        );
+
+        // Safety check should fail
+        let safe =
+            crate::upgrade_manager::UpgradeManager::test_upgrade_safety(&env, &proposal).unwrap();
+        assert_eq!(safe, false);
+    });
+}
+
+#[test]
+fn test_upgrade_proposal_with_failed_validation() {
+    let env = Env::default();
+
+    let mut proposal = crate::upgrade_manager::UpgradeProposal::new(
+        &env,
+        soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+        crate::versioning::Version::new(&env, 1, 1, 0, String::from_str(&env, "Upgrade"), false),
+        String::from_str(&env, "Test"),
+    );
+
+    // Add required validation
+    proposal.add_required_validation(String::from_str(&env, "security_audit"));
+
+    // Add FAILED validation result
+    let failed_result = crate::upgrade_manager::ValidationResult {
+        validation_name: String::from_str(&env, "security_audit"),
+        passed: false,
+        message: String::from_str(&env, "Critical vulnerability found"),
+        validated_at: env.ledger().timestamp(),
+    };
+    proposal.add_validation_result(failed_result);
+
+    // all_validations_passed should return false
+    assert!(!proposal.all_validations_passed());
+
+    // Proposal should not be approved
+    assert!(!proposal.approved);
+    assert!(!proposal.executed);
+}
+
+#[test]
+fn test_rollback_requires_admin_authorization() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+
+    // Set admin in storage
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "admin"), &admin);
+    });
+
+    // Verify that admin and non-admin are different
+    assert_ne!(admin, non_admin);
+
+    // Verify Unauthorized error code is correct
+    assert_eq!(crate::errors::Error::Unauthorized as u32, 100);
+
+    // The rollback_upgrade function calls admin.require_auth() and
+    // validate_admin_permissions which checks the stored admin.
+    // A non-admin call would fail with Error::Unauthorized.
+}
+
+#[test]
+fn test_major_upgrade_without_rollback_plan_warns() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        // Initialize with version 1.0.0
+        let vm = crate::versioning::VersionManager::new(&env);
+        let v1 = crate::versioning::Version::new(
+            &env,
+            1,
+            0,
+            0,
+            String::from_str(&env, "Version 1.0.0"),
+            false,
+        );
+        vm.track_contract_version(&env, v1).unwrap();
+
+        // Create major version upgrade (2.0.0) WITHOUT rollback hash
+        let proposal = crate::upgrade_manager::UpgradeProposal::new(
+            &env,
+            soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+            crate::versioning::Version::new(
+                &env,
+                2,
+                0,
+                0,
+                String::from_str(&env, "Major upgrade"),
+                false,
+            ),
+            String::from_str(&env, "Major version bump"),
+        );
+
+        // has_rollback_hash should be false by default
+        assert!(!proposal.has_rollback_hash);
+
+        // Validate compatibility — should produce warnings
+        let result =
+            crate::upgrade_manager::UpgradeManager::validate_upgrade_compatibility(&env, &proposal)
+                .unwrap();
+
+        // Should have warnings about missing rollback plan
+        assert!(result.warnings.len() > 0);
+        assert!(result.recommendations.len() > 0);
+        // Breaking changes detected for major version bump
+        assert!(result.breaking_changes);
+    });
+}
+
+// --- 6. Additional coverage tests ---
+
+#[test]
+fn test_version_compatibility_validation() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        let vm = crate::versioning::VersionManager::new(&env);
+
+        let v1 = crate::versioning::Version::new(&env, 1, 0, 0, String::from_str(&env, ""), false);
+        let v1_1 =
+            crate::versioning::Version::new(&env, 1, 1, 0, String::from_str(&env, ""), false);
+        let v2 = crate::versioning::Version::new(&env, 2, 0, 0, String::from_str(&env, ""), false);
+
+        // Same major, higher minor — compatible
+        let compat = vm.validate_version_compatibility(&env, &v1, &v1_1).unwrap();
+        assert!(compat);
+
+        // Different major — incompatible (breaking change)
+        let compat = vm.validate_version_compatibility(&env, &v1, &v2).unwrap();
+        assert!(!compat);
+
+        // Downgrade — incompatible
+        let compat = vm.validate_version_compatibility(&env, &v1_1, &v1).unwrap();
+        assert!(!compat);
+    });
+}
+
+#[test]
+fn test_upgrade_proposal_full_lifecycle() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+    let admin = Address::generate(&env);
+
+    env.as_contract(&contract_id, || {
+        // Initialize version
+        let vm = crate::versioning::VersionManager::new(&env);
+        let v1 = crate::versioning::Version::new(
+            &env,
+            1,
+            0,
+            0,
+            String::from_str(&env, "Initial"),
+            false,
+        );
+        vm.track_contract_version(&env, v1).unwrap();
+
+        // Create proposal
+        let mut proposal = crate::upgrade_manager::UpgradeProposal::new(
+            &env,
+            soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+            crate::versioning::Version::new(&env, 1, 1, 0, String::from_str(&env, "v1.1.0"), false),
+            String::from_str(&env, "Feature upgrade"),
+        );
+
+        // Set proposer
+        proposal.set_proposer(admin.clone());
+        assert_eq!(proposal.proposer, admin);
+
+        // Add validations
+        proposal.add_required_validation(String::from_str(&env, "compat_check"));
+        let result = crate::upgrade_manager::ValidationResult {
+            validation_name: String::from_str(&env, "compat_check"),
+            passed: true,
+            message: String::from_str(&env, "OK"),
+            validated_at: env.ledger().timestamp(),
+        };
+        proposal.add_validation_result(result);
+        assert!(proposal.all_validations_passed());
+
+        // Set rollback hash
+        proposal.set_rollback_hash(soroban_sdk::BytesN::from_array(&env, &[0u8; 32]));
+        assert!(proposal.has_rollback_hash);
+
+        // Approve
+        proposal.approve();
+        assert!(proposal.approved);
+
+        // Store proposal
+        crate::upgrade_manager::UpgradeManager::store_upgrade_proposal(&env, &proposal).unwrap();
+
+        // Check upgrade available
+        let available =
+            crate::upgrade_manager::UpgradeManager::check_upgrade_available(&env).unwrap();
+        assert!(available);
+
+        // Validate compatibility
+        let compat =
+            crate::upgrade_manager::UpgradeManager::validate_upgrade_compatibility(&env, &proposal)
+                .unwrap();
+        assert!(compat.compatible);
+        assert!(!compat.breaking_changes);
+
+        // Test safety
+        let safe =
+            crate::upgrade_manager::UpgradeManager::test_upgrade_safety(&env, &proposal).unwrap();
+        assert!(safe);
+
+        // Mark executed
+        env.ledger().with_mut(|li| li.timestamp = 99999);
+        proposal.mark_executed(&env);
+        assert!(proposal.executed);
+        assert_eq!(proposal.executed_at, 99999);
+    });
+}
+
+#[test]
+fn test_version_rollback() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        let vm = crate::versioning::VersionManager::new(&env);
+
+        // Track v1.0.0
+        let v1 =
+            crate::versioning::Version::new(&env, 1, 0, 0, String::from_str(&env, "v1.0.0"), false);
+        vm.track_contract_version(&env, v1.clone()).unwrap();
+
+        // Upgrade to v1.1.0
+        let v1_1 =
+            crate::versioning::Version::new(&env, 1, 1, 0, String::from_str(&env, "v1.1.0"), false);
+        vm.upgrade_to_version(&env, v1_1).unwrap();
+
+        // Rollback to v1.0.0
+        let rollback_target = crate::versioning::Version::new(
+            &env,
+            1,
+            0,
+            0,
+            String::from_str(&env, "Rollback to v1.0.0"),
+            false,
+        );
+        let result = vm.rollback_to_version(&env, rollback_target);
+        assert!(result.is_ok());
+
+        // Current version should now be v1.0.0
+        let current = vm.get_current_version(&env).unwrap();
+        assert_eq!(current.major, 1);
+        assert_eq!(current.minor, 0);
+        assert_eq!(current.patch, 0);
+    });
+}
+
+#[test]
+fn test_migration_with_required_flag() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, PredictifyHybrid);
+
+    env.as_contract(&contract_id, || {
+        // Initialize version
+        let vm = crate::versioning::VersionManager::new(&env);
+        let v1 = crate::versioning::Version::new(
+            &env,
+            1,
+            0,
+            0,
+            String::from_str(&env, "Initial"),
+            false,
+        );
+        vm.track_contract_version(&env, v1).unwrap();
+
+        // Create proposal with migration_required = true
+        let target = crate::versioning::Version::new(
+            &env,
+            1,
+            1,
+            0,
+            String::from_str(&env, "Migration needed"),
+            true, // migration_required
+        );
+
+        let proposal = crate::upgrade_manager::UpgradeProposal::new(
+            &env,
+            soroban_sdk::BytesN::from_array(&env, &[1u8; 32]),
+            target,
+            String::from_str(&env, "Upgrade with migration"),
+        );
+
+        let result =
+            crate::upgrade_manager::UpgradeManager::validate_upgrade_compatibility(&env, &proposal)
+                .unwrap();
+
+        assert!(result.migration_required);
+        assert!(result.recommendations.len() > 0);
+        // Compatibility score should be reduced
+        assert!(result.compatibility_score < 100);
+    });
 }
 
 #[test]

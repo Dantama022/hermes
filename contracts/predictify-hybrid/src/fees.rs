@@ -732,10 +732,11 @@ impl FeeManager {
         // Validate fee amount
         FeeValidator::validate_fee_amount(fee_amount)?;
 
-        // Transfer fees to admin
-        FeeUtils::transfer_fees_to_admin(env, &admin, fee_amount)?;
-
-        // Record fee collection
+        // Record fee collection into the contract fee vault.
+        //
+        // NOTE: This intentionally does NOT transfer fees out of the contract.
+        // Fees remain in the contract and must be withdrawn via the admin
+        // fee withdrawal function which enforces a timelock/schedule.
         FeeTracker::record_fee_collection(env, &market_id, fee_amount, &admin)?;
 
         // Mark fees as collected
@@ -1423,6 +1424,242 @@ impl FeeTracker {
     }
 }
 
+// ===== ADMIN FEE WITHDRAWAL SCHEDULE =====
+
+/// Status for an admin fee withdrawal attempt.
+///
+/// This is returned via emitted events and is used to avoid reverting the
+/// transaction for schedule checks (so monitoring can observe blocked attempts).
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FeeWithdrawalStatus {
+    /// Withdrawal executed successfully.
+    Executed,
+    /// No fees are currently available in the fee vault.
+    NoFeesAvailable,
+    /// Withdrawal is blocked by the configured timelock.
+    Timelocked,
+    /// Withdrawal amount was reduced due to the configured cap.
+    Capped,
+}
+
+/// Configuration for admin fee withdrawals.
+///
+/// The schedule reduces abuse risk by:
+/// - Enforcing a minimum time between successful withdrawals
+/// - Optionally capping the amount that can be withdrawn per window
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeWithdrawalSchedule {
+    /// Minimum number of seconds required between successful withdrawals.
+    pub timelock_seconds: u64,
+    /// Maximum amount allowed per withdrawal window, expressed in basis points
+    /// of the current fee vault balance (10_000 = 100%).
+    pub max_withdrawal_bps: u32,
+}
+
+const FEE_VAULT_KEY: Symbol = symbol_short!("tot_fees");
+const WITHDRAWAL_LAST_TS_KEY: Symbol = symbol_short!("wd_last");
+const WITHDRAWAL_SCHEDULE_KEY: Symbol = symbol_short!("wd_cfg");
+
+/// Default timelock: 7 days.
+pub const DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS: u64 = 7 * 24 * 60 * 60;
+/// Default cap: 100% per withdrawal window (cap disabled by default).
+pub const DEFAULT_FEE_WITHDRAWAL_MAX_BPS: u32 = 10_000;
+
+/// Fee withdrawal management utilities.
+pub struct FeeWithdrawalManager;
+
+impl FeeWithdrawalManager {
+    /// Get the current fee withdrawal schedule (or defaults if not set).
+    pub fn get_schedule(env: &Env) -> FeeWithdrawalSchedule {
+        env.storage()
+            .persistent()
+            .get(&WITHDRAWAL_SCHEDULE_KEY)
+            .unwrap_or(FeeWithdrawalSchedule {
+                timelock_seconds: DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS,
+                max_withdrawal_bps: DEFAULT_FEE_WITHDRAWAL_MAX_BPS,
+            })
+    }
+
+    /// Set/update the fee withdrawal schedule (admin only).
+    ///
+    /// Security: schedule updates can only tighten restrictions:
+    /// - `timelock_seconds` may only increase
+    /// - `max_withdrawal_bps` may only decrease
+    pub fn set_schedule(
+        env: &Env,
+        admin: &Address,
+        schedule: &FeeWithdrawalSchedule,
+    ) -> Result<(), Error> {
+        FeeValidator::validate_admin_permissions(env, admin)?;
+
+        // Validate schedule bounds
+        if schedule.timelock_seconds < DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS {
+            return Err(Error::InvalidInput);
+        }
+        if schedule.max_withdrawal_bps == 0 || schedule.max_withdrawal_bps > 10_000 {
+            return Err(Error::InvalidInput);
+        }
+
+        // Only allow tightening if already set
+        if env.storage().persistent().has(&WITHDRAWAL_SCHEDULE_KEY) {
+            let current = Self::get_schedule(env);
+            if schedule.timelock_seconds < current.timelock_seconds {
+                return Err(Error::InvalidInput);
+            }
+            if schedule.max_withdrawal_bps > current.max_withdrawal_bps {
+                return Err(Error::InvalidInput);
+            }
+        }
+
+        env.storage()
+            .persistent()
+            .set(&WITHDRAWAL_SCHEDULE_KEY, schedule);
+        Ok(())
+    }
+
+    /// Returns the last successful withdrawal timestamp (0 if never withdrawn).
+    pub fn get_last_withdrawal_ts(env: &Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&WITHDRAWAL_LAST_TS_KEY)
+            .unwrap_or(0u64)
+    }
+
+    /// Withdraw collected fees to the admin address, enforcing the configured schedule.
+    ///
+    /// If the schedule conditions are not met (no fees / timelock), this returns `Ok(0)`
+    /// and emits a `FeeWithdrawalAttemptEvent` for observability.
+    pub fn withdraw_fees(
+        env: &Env,
+        admin: &Address,
+        requested_amount: i128,
+    ) -> Result<i128, Error> {
+        if requested_amount < 0 {
+            return Err(Error::InvalidInput);
+        }
+
+        let now = env.ledger().timestamp();
+        let schedule = Self::get_schedule(env);
+        let last_withdrawal_ts = Self::get_last_withdrawal_ts(env);
+        let next_allowed_ts = if last_withdrawal_ts == 0 {
+            0
+        } else {
+            last_withdrawal_ts.saturating_add(schedule.timelock_seconds)
+        };
+
+        let available_fees: i128 = env.storage().persistent().get(&FEE_VAULT_KEY).unwrap_or(0);
+        if available_fees <= 0 {
+            crate::events::EventEmitter::emit_fee_withdrawal_attempt(
+                env,
+                admin,
+                requested_amount,
+                available_fees,
+                0,
+                FeeWithdrawalStatus::NoFeesAvailable,
+                last_withdrawal_ts,
+                next_allowed_ts,
+                &schedule,
+            );
+            return Ok(0);
+        }
+
+        if next_allowed_ts != 0 && now < next_allowed_ts {
+            crate::events::EventEmitter::emit_fee_withdrawal_attempt(
+                env,
+                admin,
+                requested_amount,
+                available_fees,
+                0,
+                FeeWithdrawalStatus::Timelocked,
+                last_withdrawal_ts,
+                next_allowed_ts,
+                &schedule,
+            );
+            return Ok(0);
+        }
+
+        // Apply cap (bps of current available fees). If cap is <100% and the computed
+        // value rounds down to 0, allow at least 1 stroop to avoid permanent lock.
+        let mut cap_amount = (available_fees
+            .checked_mul(schedule.max_withdrawal_bps as i128)
+            .ok_or(Error::InvalidInput)?)
+            / 10_000;
+        if schedule.max_withdrawal_bps < 10_000 && cap_amount == 0 {
+            cap_amount = 1;
+        }
+
+        let desired_amount = if requested_amount == 0 {
+            available_fees
+        } else {
+            requested_amount
+        };
+        let mut withdrawal_amount = if desired_amount > available_fees {
+            available_fees
+        } else {
+            desired_amount
+        };
+
+        let mut status = FeeWithdrawalStatus::Executed;
+        if withdrawal_amount > cap_amount {
+            withdrawal_amount = cap_amount;
+            status = FeeWithdrawalStatus::Capped;
+        }
+
+        if withdrawal_amount <= 0 {
+            crate::events::EventEmitter::emit_fee_withdrawal_attempt(
+                env,
+                admin,
+                requested_amount,
+                available_fees,
+                0,
+                FeeWithdrawalStatus::NoFeesAvailable,
+                last_withdrawal_ts,
+                next_allowed_ts,
+                &schedule,
+            );
+            return Ok(0);
+        }
+
+        // Emit attempt (includes planned withdrawal amount) before executing state updates.
+        crate::events::EventEmitter::emit_fee_withdrawal_attempt(
+            env,
+            admin,
+            requested_amount,
+            available_fees,
+            withdrawal_amount,
+            status,
+            last_withdrawal_ts,
+            now.saturating_add(schedule.timelock_seconds),
+            &schedule,
+        );
+
+        // Update vault balance first (defensive accounting) and then transfer.
+        let remaining_fees = available_fees
+            .checked_sub(withdrawal_amount)
+            .ok_or(Error::InvalidInput)?;
+        env.storage()
+            .persistent()
+            .set(&FEE_VAULT_KEY, &remaining_fees);
+        env.storage()
+            .persistent()
+            .set(&WITHDRAWAL_LAST_TS_KEY, &now);
+
+        FeeUtils::transfer_fees_to_admin(env, admin, withdrawal_amount)?;
+
+        crate::events::EventEmitter::emit_fee_withdrawn(
+            env,
+            admin,
+            withdrawal_amount,
+            remaining_fees,
+            now,
+        );
+
+        Ok(withdrawal_amount)
+    }
+}
+
 // ===== FEE CONFIG MANAGER =====
 
 /// Fee configuration management
@@ -1667,7 +1904,10 @@ mod tests {
             env.ledger().timestamp() + 86400,
             crate::types::OracleConfig::new(
                 crate::types::OracleProvider::Pyth,
-                Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+                Address::from_str(
+                    &env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
                 String::from_str(&env, "BTC/USD"),
                 25_000_00,
                 String::from_str(&env, "gt"),
@@ -1733,7 +1973,10 @@ mod tests {
             env.ledger().timestamp() + 86400,
             crate::types::OracleConfig::new(
                 crate::types::OracleProvider::Pyth,
-                Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+                Address::from_str(
+                    &env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
                 String::from_str(&env, "BTC/USD"),
                 25_000_00,
                 String::from_str(&env, "gt"),
