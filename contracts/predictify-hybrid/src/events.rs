@@ -114,6 +114,8 @@ pub struct EventCreatedEvent {
     pub outcomes: Vec<String>,
     /// Event end time
     pub end_time: u64,
+    /// Creation fee amount charged for this event (in stroops)
+    pub creation_fee_amount: i128,
     /// Event admin
     pub admin: Address,
     /// Creation timestamp
@@ -679,6 +681,50 @@ pub struct FeeCollectedEvent {
     pub timestamp: u64,
 }
 
+/// Admin fee withdrawal attempt event
+///
+/// Emitted on every admin call to withdraw fees, including blocked attempts
+/// (e.g., timelock not satisfied or no fees available). This provides an
+/// audit trail for monitoring and abuse detection.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeWithdrawalAttemptEvent {
+    /// Admin address attempting withdrawal
+    pub admin: Address,
+    /// Amount requested by admin (0 means "withdraw max")
+    pub requested_amount: i128,
+    /// Fee vault balance available at the time of attempt
+    pub available_fees: i128,
+    /// Amount that will be withdrawn for this attempt (0 if blocked)
+    pub withdrawal_amount: i128,
+    /// Attempt status (executed / timelocked / capped / no-fees)
+    pub status: crate::fees::FeeWithdrawalStatus,
+    /// Last successful withdrawal timestamp (0 if never)
+    pub last_withdrawal_ts: u64,
+    /// Next timestamp when a withdrawal will be allowed (0 if never withdrawn yet)
+    pub next_allowed_ts: u64,
+    /// Configured timelock (seconds)
+    pub timelock_seconds: u64,
+    /// Configured max withdrawal cap (basis points of current vault balance)
+    pub max_withdrawal_bps: u32,
+    /// Attempt timestamp
+    pub timestamp: u64,
+}
+
+/// Admin fee withdrawal success event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeWithdrawnEvent {
+    /// Admin address receiving the fees
+    pub admin: Address,
+    /// Amount withdrawn
+    pub amount: i128,
+    /// Remaining fee vault balance after withdrawal
+    pub remaining_fees: i128,
+    /// Withdrawal timestamp
+    pub timestamp: u64,
+}
+
 // ===== ORACLE RESULT VERIFICATION EVENTS =====
 
 /// Event emitted when oracle result verification is initiated for a market.
@@ -1085,6 +1131,31 @@ pub struct AdminInitializedEvent {
     /// Admin address
     pub admin: Address,
     /// Initialization timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when the contract admin is transferred to a new address.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferredEvent {
+    pub previous_admin: Address,
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+/// Event emitted when the contract is paused by admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractPausedEvent {
+    pub admin: Address,
+    pub timestamp: u64,
+}
+
+/// Event emitted when the contract is unpaused by admin.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractUnpausedEvent {
+    pub admin: Address,
     pub timestamp: u64,
 }
 
@@ -1693,6 +1764,20 @@ pub struct CircuitBreakerEvent {
     pub admin: Option<Address>,
 }
 
+/// Event emitted when a market's total pool size does not meet the required minimum.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MinPoolSizeNotMetEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Current total pool size
+    pub current_pool: i128,
+    /// Required minimum pool size
+    pub required_min: i128,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
 // ===== EVENT EMISSION UTILITIES =====
 
 /// Event emission utilities
@@ -1760,6 +1845,7 @@ impl EventEmitter {
             event_id: event_id.clone(),
             description: description.clone(),
             outcomes: outcomes.clone(),
+            creation_fee_amount: crate::fees::MARKET_CREATION_FEE,
             admin: admin.clone(),
             end_time,
             timestamp: env.ledger().timestamp(),
@@ -2131,6 +2217,22 @@ impl EventEmitter {
         Self::store_event(env, &symbol_short!("mkt_res"), &event);
     }
 
+    /// Emit event when minimum pool size is not met at resolution time
+    pub fn emit_min_pool_size_not_met(
+        env: &Env,
+        market_id: &Symbol,
+        current_pool: i128,
+        required_min: i128,
+    ) {
+        let event = MinPoolSizeNotMetEvent {
+            market_id: market_id.clone(),
+            current_pool,
+            required_min,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("pool_lo"), &event);
+    }
+
     /// Emit dispute created event
     pub fn emit_dispute_created(
         env: &Env,
@@ -2188,6 +2290,62 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("fee_col"), &event);
+    }
+
+    /// Emit an admin fee withdrawal attempt event.
+    ///
+    /// This event is emitted for both successful and blocked attempts, enabling
+    /// off-chain monitoring of fee withdrawal behavior.
+    pub fn emit_fee_withdrawal_attempt(
+        env: &Env,
+        admin: &Address,
+        requested_amount: i128,
+        available_fees: i128,
+        withdrawal_amount: i128,
+        status: crate::fees::FeeWithdrawalStatus,
+        last_withdrawal_ts: u64,
+        next_allowed_ts: u64,
+        schedule: &crate::fees::FeeWithdrawalSchedule,
+    ) {
+        let event = FeeWithdrawalAttemptEvent {
+            admin: admin.clone(),
+            requested_amount,
+            available_fees,
+            withdrawal_amount,
+            status,
+            last_withdrawal_ts,
+            next_allowed_ts,
+            timelock_seconds: schedule.timelock_seconds,
+            max_withdrawal_bps: schedule.max_withdrawal_bps,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        // Publish to the Soroban event stream
+        env.events()
+            .publish((symbol_short!("fwd_att"), admin.clone()), event.clone());
+
+        // Also store the last event for simple on-chain querying/debugging
+        Self::store_event(env, &symbol_short!("fwd_att"), &event);
+    }
+
+    /// Emit an admin fee withdrawal success event.
+    pub fn emit_fee_withdrawn(
+        env: &Env,
+        admin: &Address,
+        amount: i128,
+        remaining_fees: i128,
+        timestamp: u64,
+    ) {
+        let event = FeeWithdrawnEvent {
+            admin: admin.clone(),
+            amount,
+            remaining_fees,
+            timestamp,
+        };
+
+        env.events()
+            .publish((symbol_short!("fwd_ok"), admin.clone()), event.clone());
+        Self::store_event(env, &symbol_short!("fwd_ok"), &event);
     }
 
     /// Emit extension requested event
@@ -2332,6 +2490,34 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("adm_init"), &event);
+    }
+
+    /// Emit admin transferred event (primary admin role transferred to new address).
+    pub fn emit_admin_transferred(env: &Env, previous_admin: &Address, new_admin: &Address) {
+        let event = AdminTransferredEvent {
+            previous_admin: previous_admin.clone(),
+            new_admin: new_admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("adm_xfer"), &event);
+    }
+
+    /// Emit contract paused event.
+    pub fn emit_contract_paused(env: &Env, admin: &Address) {
+        let event = ContractPausedEvent {
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ctr_pause"), &event);
+    }
+
+    /// Emit contract unpaused event.
+    pub fn emit_contract_unpaused(env: &Env, admin: &Address) {
+        let event = ContractUnpausedEvent {
+            admin: admin.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("ctr_unp"), &event);
     }
 
     /// Emit contract initialized event (full initialization with platform fee)
@@ -3124,6 +3310,32 @@ impl EventEmitter {
         T: Clone + soroban_sdk::IntoVal<soroban_sdk::Env, soroban_sdk::Val>,
     {
         env.storage().persistent().set(event_key, event_data);
+    }
+
+    /// Emit event visibility set event
+    pub fn emit_event_visibility_set(
+        env: &Env,
+        event_id: &Symbol,
+        visibility: &crate::types::EventVisibility,
+        admin: &Address,
+    ) {
+        env.events().publish(
+            (symbol_short!("evt_vis"), event_id.clone()),
+            (visibility.clone(), admin.clone(), env.ledger().timestamp()),
+        );
+    }
+
+    /// Emit allowlist updated event
+    pub fn emit_allowlist_updated(
+        env: &Env,
+        event_id: &Symbol,
+        addresses: &Vec<Address>,
+        admin: &Address,
+    ) {
+        env.events().publish(
+            (symbol_short!("allowlst"), event_id.clone()),
+            (addresses.clone(), admin.clone(), env.ledger().timestamp()),
+        );
     }
 }
 

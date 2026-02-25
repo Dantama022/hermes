@@ -4,10 +4,7 @@ use alloc::format;
 use alloc::string::ToString;
 use soroban_sdk::{contracterror, contracttype, Address, Env, Map, String, Symbol, Vec};
 
-/// Comprehensive error codes for the Predictify Hybrid prediction market contract.
-///
-/// This enum defines all possible error conditions that can occur within the Predictify Hybrid
-/// smart contract system.
+/// Error codes for Predictify Hybrid contract
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
