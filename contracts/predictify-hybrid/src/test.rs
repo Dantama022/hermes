@@ -18,7 +18,8 @@
 #![cfg(test)]
 
 use crate::events::{
-    BetPlacedEvent, FeeWithdrawalAttemptEvent, FeeWithdrawnEvent, PlatformFeeSetEvent,
+    BetPlacedEvent, ContractPausedEvent, ContractUnpausedEvent, EventLogger,
+    FeeWithdrawalAttemptEvent, FeeWithdrawnEvent, PlatformFeeSetEvent,
 };
 
 use super::*;
@@ -915,6 +916,114 @@ fn test_oracle_factory_creation() {
 fn test_oracle_factory_recommended_provider() {
     let recommended = crate::oracles::OracleFactory::get_recommended_provider();
     assert_eq!(recommended, OracleProvider::Reflector);
+}
+
+#[test]
+fn test_contract_pause_blocks_operations() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    let paused = client.is_contract_paused();
+    assert!(paused);
+    let blocked = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::require_not_paused(&test.env).is_err()
+    });
+    assert!(blocked);
+    let _market_exists = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .is_some()
+    });
+}
+
+#[test]
+fn test_unpause_restores_operations() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    test.env.mock_all_auths();
+    client.unpause(&test.admin);
+    let paused = client.is_contract_paused();
+    assert!(!paused);
+    let ok = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::require_not_paused(&test.env).is_ok()
+    });
+    assert!(ok);
+    let user = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &10_000_000,
+    );
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    assert!(market.votes.contains_key(user.clone()));
+}
+
+#[test]
+fn test_admin_only_pause_unpause() {
+    let test = PredictifyTest::setup();
+    let unauthorized = test.create_funded_user();
+    let pause_err = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::pause(&test.env, &unauthorized)
+    });
+    assert!(pause_err.is_err());
+    let unpause_err = test.env.as_contract(&test.contract_id, || {
+        crate::admin::ContractPauseManager::unpause(&test.env, &unauthorized)
+    });
+    assert!(unpause_err.is_err());
+}
+
+#[test]
+fn test_pause_unpause_emits_events() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    let paused_events = test.env.as_contract(&test.contract_id, || {
+        EventLogger::get_events::<ContractPausedEvent>(
+            &test.env,
+            &soroban_sdk::symbol_short!("ctr_pause"),
+        )
+    });
+    assert!(paused_events.len() >= 1);
+    assert_eq!(paused_events.get(0).unwrap().admin, test.admin);
+    test.env.mock_all_auths();
+    client.unpause(&test.admin);
+    let unpaused_events = test.env.as_contract(&test.contract_id, || {
+        EventLogger::get_events::<ContractUnpausedEvent>(
+            &test.env,
+            &soroban_sdk::symbol_short!("ctr_unp"),
+        )
+    });
+    assert!(unpaused_events.len() >= 1);
+    assert_eq!(unpaused_events.get(0).unwrap().admin, test.admin);
+}
+
+#[test]
+fn test_payout_distribution_blocked_when_paused() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+    let market_id = test.create_test_market();
+    test.env.mock_all_auths();
+    client.pause(&test.admin);
+    let result = test.env.as_contract(&test.contract_id, || {
+        PredictifyHybrid::distribute_payouts(test.env.clone(), market_id.clone())
+    });
+    assert!(matches!(result, Err(Error::InvalidState)));
 }
 
 // ===== ERROR RECOVERY TESTS =====
@@ -4364,10 +4473,14 @@ fn test_unclaimed_winnings_sweep_comprehensive() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
-    let outcomes = vec![&test.env, String::from_str(&test.env, "yes"), String::from_str(&test.env, "no")];
-    
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
     let oracle_config = OracleConfig {
-        provider: OracleProvider::Reflector, 
+        provider: OracleProvider::Reflector,
         oracle_address: Address::generate(&test.env),
         feed_id: String::from_str(&test.env, "BTC"),
         threshold: 1000,
@@ -4386,18 +4499,27 @@ fn test_unclaimed_winnings_sweep_comprehensive() {
         &oracle_config,
         &None,
         &0,
-        &None, 
+        &None,
         &None,
         &None,
     );
 
     // 2. Seed the market with a vote using the real market_id
     test.env.mock_all_auths();
-    client.vote(&test.user, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    client.vote(
+        &test.user,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
 
     // --- State Transition: Active -> Ended ---
     let market = test.env.as_contract(&test.contract_id, || {
-        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
     });
 
     test.env.ledger().set(LedgerInfo {
