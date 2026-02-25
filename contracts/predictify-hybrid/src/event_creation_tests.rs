@@ -236,7 +236,8 @@ fn test_create_event_limit_enforced() {
             &1, // duration_days
             &oracle_config,
             &None,
-            &0,
+            &3600,
+            &None,
         );
     }
 }
@@ -271,7 +272,8 @@ fn test_decrement_on_cancel_frees_slot() {
             &1, // duration_days
             &oracle_config,
             &None,
-            &0,
+            &3600,
+            &None,
         ));
     }
 
@@ -289,6 +291,7 @@ fn test_decrement_on_cancel_frees_slot() {
         &1, // duration_days
         &oracle_config,
         &None,
-        &0,
+        &3600,
+        &None,
     );
 }

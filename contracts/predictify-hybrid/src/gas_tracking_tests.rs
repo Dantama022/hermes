@@ -158,7 +158,8 @@ impl GasTestContext {
                 comparison: String::from_str(&self.env, "gt"),
             },
             &None,
-            &0,
+            &3600,
+            &None,
         )
     }
 }
@@ -213,7 +214,8 @@ fn test_gas_create_market_minimal() {
             comparison: String::from_str(&ctx.env, "gt"),
         },
         &None,
-        &0,
+        &3600,
+        &None,
     );
     
     // Verify: Market created with minimal data
@@ -255,7 +257,8 @@ fn test_gas_create_market_maximal() {
             comparison: String::from_str(&ctx.env, "gte"),
         },
         &None,
-        &0,
+        &3600,
+        &None,
     );
     
     let market = ctx.env.as_contract(&ctx.contract_id, || {
@@ -405,7 +408,8 @@ fn test_gas_operations_within_expected_ranges() {
             comparison: String::from_str(&ctx.env, "gt"),
         },
         &None,
-        &0,
+        &3600,
+        &None,
     );
     
     // 2. Vote (expected: low cost)
