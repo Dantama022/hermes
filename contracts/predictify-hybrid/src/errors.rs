@@ -109,7 +109,6 @@ pub enum Error {
     TimeoutNotSet = 419,
     /// Invalid timeout hours
     InvalidTimeoutHours = 422,
-
     // ===== CIRCUIT BREAKER ERRORS =====
     /// Circuit breaker not initialized
     CBNotInitialized = 500,

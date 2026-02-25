@@ -107,6 +107,9 @@ impl BetCancellationTestSetup {
             &oracle_config,
             &None,
             &3600,
+            &None, // min_pool_size
+            &None, // bet_deadline_mins_before_end
+            &None, // dispute_window_seconds
         )
     }
 
@@ -455,7 +458,7 @@ fn test_cancel_bet_immediately_after_placement() {
 // ===== MARKET STATE VALIDATION =====
 
 #[test]
-#[should_panic(expected = "Error(Contract, #101)")]
+#[should_panic(expected = "Error(Contract, #105)")]
 fn test_cancel_bet_nonexistent_market_fails() {
     let setup = BetCancellationTestSetup::new();
     let client = PredictifyHybridClient::new(&setup.env, &setup.contract_id);
@@ -463,6 +466,7 @@ fn test_cancel_bet_nonexistent_market_fails() {
     let fake_market = Symbol::new(&setup.env, "fake_market");
     
     // Attempt to cancel bet on non-existent market
+    // Should fail with NothingToClaim since there's no bet
     client.cancel_bet(&setup.user, &fake_market);
 }
 

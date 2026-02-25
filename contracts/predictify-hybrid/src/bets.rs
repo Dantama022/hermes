@@ -439,7 +439,11 @@ impl BetManager {
     ///
     /// Returns `true` if the user has already placed a bet, `false` otherwise.
     pub fn has_user_bet(env: &Env, market_id: &Symbol, user: &Address) -> bool {
-        BetStorage::get_bet(env, market_id, user).is_some()
+        if let Some(bet) = BetStorage::get_bet(env, market_id, user) {
+            bet.is_active()
+        } else {
+            false
+        }
     }
 
     /// Get a user's bet on a specific market.

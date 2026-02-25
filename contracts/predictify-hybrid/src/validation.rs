@@ -2289,7 +2289,6 @@ impl OracleValidator {
         oracle_result: &crate::types::OracleResult,
         market: &crate::types::Market,
     ) -> Result<(), ValidationError> {
-
         // Validate oracle response
         Self::validate_oracle_response(env, oracle_result)?;
 
