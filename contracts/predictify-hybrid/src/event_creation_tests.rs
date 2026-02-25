@@ -1,10 +1,11 @@
 #![cfg(test)]
 
 use crate::errors::Error;
-use crate::types::{MarketState, OracleConfig, OracleProvider};
+use crate::types::{EventVisibility, MarketState, OracleConfig, OracleProvider};
 use crate::{PredictifyHybrid, PredictifyHybridClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{vec, Address, Env, String, Symbol, Vec};
+use soroban_sdk::token::StellarAssetClient;
+use soroban_sdk::{symbol_short, vec, Address, Env, String, Symbol, Vec};
 
 // Test helper structure
 struct TestSetup {
@@ -24,11 +25,27 @@ impl TestSetup {
         });
 
         let admin = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_id = token_contract.address();
+
         let contract_id = env.register(PredictifyHybrid, ());
 
         // Initialize the contract
         let client = PredictifyHybridClient::new(&env, &contract_id);
         client.initialize(&admin, &None);
+
+        // Configure token used for fees and staking
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, "TokenID"), &token_id);
+        });
+
+        // Fund admin with tokens so creation fees can be paid
+        let stellar_client = StellarAssetClient::new(&env, &token_id);
+        env.mock_all_auths();
+        stellar_client.mint(&admin, &1_000_000_0000000); // 1,000 XLM
 
         Self {
             env,
@@ -66,6 +83,7 @@ fn test_create_event_success() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
 
     // Verify event details using the new get_event method
@@ -73,6 +91,61 @@ fn test_create_event_success() {
     assert_eq!(event.description, description);
     assert_eq!(event.end_time, end_time);
     assert_eq!(event.outcomes.len(), outcomes.len());
+
+    // Verify that a creation fee was recorded
+    setup.env.as_contract(&setup.contract_id, || {
+        let key = symbol_short!("creat_fee");
+        let total: i128 = setup
+            .env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(0);
+        assert_eq!(total, crate::fees::MARKET_CREATION_FEE);
+    });
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #400)")] // Error::InvalidState = 400
+fn test_create_event_without_token_configuration_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 10000;
+    });
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(PredictifyHybrid, ());
+    let client = PredictifyHybridClient::new(&env, &contract_id);
+    client.initialize(&admin, &None);
+
+    // Intentionally do NOT configure TokenID so creation fee processing fails
+    let description = String::from_str(&env, "Fee test event");
+    let outcomes = vec![
+        &env,
+        String::from_str(&env, "Yes"),
+        String::from_str(&env, "No"),
+    ];
+    let end_time = env.ledger().timestamp() + 3600;
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&env),
+        feed_id: String::from_str(&env, "BTC/USD"),
+        threshold: 50000,
+        comparison: String::from_str(&env, "gt"),
+    };
+
+    client.create_event(
+        &admin,
+        &description,
+        &outcomes,
+        &end_time,
+        &oracle_config,
+        &None,
+        &0,
+        &EventVisibility::Public,
+    );
 }
 
 #[test]
@@ -103,6 +176,9 @@ fn test_create_market_success() {
         &oracle_config,
         &None,
         &0,
+        &None,
+        &None,
+        &None,
     );
 
     assert!(client.get_market(&market_id).is_some());
@@ -138,6 +214,7 @@ fn test_create_event_unauthorized() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
 }
 
@@ -170,6 +247,7 @@ fn test_create_event_invalid_end_time() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
 }
 
@@ -198,5 +276,44 @@ fn test_create_event_empty_outcomes() {
         &oracle_config,
         &None,
         &0,
+        &EventVisibility::Public,
     );
+}
+
+#[test]
+fn test_event_storage_consistency() {
+    let setup = TestSetup::new();
+    let client = PredictifyHybridClient::new(&setup.env, &setup.contract_id);
+
+    let description = String::from_str(&setup.env, "Stored event?");
+    let outcomes = vec![
+        &setup.env,
+        String::from_str(&setup.env, "Yes"),
+        String::from_str(&setup.env, "No"),
+    ];
+    let end_time = setup.env.ledger().timestamp() + 7200;
+    let oracle_config = OracleConfig {
+        provider: OracleProvider::Reflector,
+        oracle_address: Address::generate(&setup.env),
+        feed_id: String::from_str(&setup.env, "BTC/USD"),
+        threshold: 50000,
+        comparison: String::from_str(&setup.env, "gt"),
+    };
+
+    let event_id = client.create_event(
+        &setup.admin,
+        &description,
+        &outcomes,
+        &end_time,
+        &oracle_config,
+        &None,
+        &0,
+        &EventVisibility::Public,
+    );
+
+    let stored = client.get_event(&event_id).unwrap();
+    assert_eq!(stored.description, description);
+    assert_eq!(stored.end_time, end_time);
+    assert_eq!(stored.outcomes.len(), outcomes.len());
+    assert_eq!(stored.id, event_id);
 }

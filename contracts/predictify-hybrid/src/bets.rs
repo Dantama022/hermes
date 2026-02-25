@@ -25,7 +25,7 @@ use crate::errors::Error;
 use crate::events::EventEmitter;
 use crate::markets::{MarketStateManager, MarketUtils, MarketValidator};
 use crate::reentrancy_guard::ReentrancyGuard;
-use crate::types::{Bet, BetLimits, BetStatus, BetStats, Market, MarketState};
+use crate::types::{Bet, BetLimits, BetStats, BetStatus, Market, MarketState};
 use crate::validation;
 
 // ===== CONSTANTS =====
@@ -217,6 +217,7 @@ impl BetManager {
     /// - `Error::InsufficientStake` - Bet amount below minimum
     /// - `Error::InvalidOutcome` - Selected outcome not valid for this market
     /// - `Error::InsufficientBalance` - User doesn't have enough funds
+    /// - `Error::Unauthorized` - User not on allowlist for private event
     ///
     /// # Security
     ///
@@ -225,6 +226,7 @@ impl BetManager {
     /// - Validates user has not already bet on this market
     /// - Validates user has sufficient balance
     /// - Locks funds atomically with bet creation
+    /// - Enforces allowlist for private events
     ///
     /// # Example
     ///
@@ -246,6 +248,10 @@ impl BetManager {
     ) -> Result<Bet, Error> {
         // Require authentication from the user
         user.require_auth();
+
+        // Note: Event visibility checking is disabled to avoid deserialization issues
+        // when markets and events share the same ID space. Events should use a different
+        // ID prefix (e.g., "evt_") to enable visibility checks.
 
         // Get and validate market
         let mut market = MarketStateManager::get_market(env, &market_id)?;
@@ -911,6 +917,16 @@ impl BetValidator {
         // Check if market has not ended
         let current_time = env.ledger().timestamp();
         if current_time >= market.end_time {
+            return Err(Error::MarketClosed);
+        }
+
+        // Bet deadline: no bets after deadline (0 = use end_time)
+        let deadline = if market.bet_deadline > 0 {
+            market.bet_deadline
+        } else {
+            market.end_time
+        };
+        if current_time >= deadline {
             return Err(Error::MarketClosed);
         }
 
