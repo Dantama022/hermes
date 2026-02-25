@@ -714,6 +714,9 @@ impl PredictifyHybrid {
         // Generate a unique collision-resistant event ID (reusing market ID generator)
         let event_id = MarketIdGenerator::generate_market_id(&env, &admin);
 
+        let oracle_config_for_market = oracle_config.clone();
+        let fallback_oracle_config_for_market = fallback_oracle_config.clone();
+
         let (has_fallback, fallback_cfg) = match &fallback_oracle_config {
             Some(c) => (true, c.clone()),
             None => (false, OracleConfig::none_sentinel(&env)),
@@ -735,8 +738,23 @@ impl PredictifyHybrid {
             allowlist: Vec::new(&env),
         };
 
+        let market = Market::new(
+            &env,
+            admin.clone(),
+            description.clone(),
+            outcomes.clone(),
+            end_time,
+            oracle_config_for_market,
+            fallback_oracle_config_for_market,
+            resolution_timeout,
+            MarketState::Active,
+        );
+
         // Store the event
         crate::storage::EventManager::store_event(&env, &event);
+
+        // Store a corresponding market for betting paths
+        env.storage().persistent().set(&event_id, &market);
 
         // Increment active event count for this creator
         crate::storage::CreatorLimitsManager::increment_active_events(&env, &admin);
