@@ -942,46 +942,89 @@ pub struct ResolutionValidation {
 pub struct OracleResolutionManager;
 
 impl OracleResolutionManager {
-    /// Fetch oracle result for a market
-    pub fn fetch_oracle_result(
+    /// Helper to fetch price and determine outcome from an oracle config
+    fn try_fetch_from_config(
         env: &Env,
-        market_id: &Symbol,
-        oracle_contract: &Address,
-    ) -> Result<OracleResolution, Error> {
+        config: &crate::types::OracleConfig,
+    ) -> Result<(i128, String), Error> {
+        let oracle =
+            OracleFactory::create_oracle(config.provider.clone(), config.oracle_address.clone())?;
+
+        let price = oracle.get_price(env, &config.feed_id)?;
+
+        let outcome =
+            OracleUtils::determine_outcome(price, config.threshold, &config.comparison, env)?;
+
+        Ok((price, outcome))
+    }
+
+    /// Fetch oracle result for a market with fallback support and timeout
+    pub fn fetch_oracle_result(env: &Env, market_id: &Symbol) -> Result<OracleResolution, Error> {
         // Get the market from storage
         let mut market = MarketStateManager::get_market(env, market_id)?;
+
+        // 1. Check if resolution timeout has been reached
+        let current_time = env.ledger().timestamp();
+        if current_time > market.end_time + market.resolution_timeout {
+            // Reached timeout without resolution, mark for refund
+            let old_state = market.state.clone();
+            market.state = crate::types::MarketState::Cancelled;
+            MarketStateManager::update_market(env, market_id, &market);
+
+            crate::events::EventEmitter::emit_resolution_timeout(env, market_id, current_time);
+            crate::events::EventEmitter::emit_state_change_event(
+                env,
+                market_id,
+                &old_state,
+                &crate::types::MarketState::Cancelled,
+                &soroban_sdk::String::from_str(env, "Resolution timeout reached, market cancelled"),
+            );
+
+            return Err(Error::InvalidState);
+        }
 
         // Validate market for oracle resolution
         OracleResolutionValidator::validate_market_for_oracle_resolution(env, &market)?;
 
-        // Get the price from the appropriate oracle using the factory pattern
-        let oracle = OracleFactory::create_oracle(
-            market.oracle_config.provider.clone(),
-            oracle_contract.clone(),
-        )?;
+        // 2. Try primary oracle
+        let mut used_config = market.oracle_config.clone();
+        let primary_result = Self::try_fetch_from_config(env, &used_config);
 
-        // Perform external oracle call (reentrancy guard removed)
-        let price_result = oracle.get_price(env, &market.oracle_config.feed_id);
-        let price = price_result?;
-
-        // Determine the outcome based on the price and threshold using OracleUtils
-        let outcome = OracleUtils::determine_outcome(
-            price,
-            market.oracle_config.threshold,
-            &market.oracle_config.comparison,
-            env,
-        )?;
+        let (price, outcome) = match primary_result {
+            Ok(res) => res,
+            Err(_) => {
+                // 3. Try fallback oracle if primary fails
+                if market.has_fallback {
+                    let fallback_config = &market.fallback_oracle_config;
+                    match Self::try_fetch_from_config(env, fallback_config) {
+                        Ok(res) => {
+                            crate::events::EventEmitter::emit_fallback_used(
+                                env,
+                                market_id,
+                                &market.oracle_config.oracle_address,
+                                &fallback_config.oracle_address,
+                            );
+                            used_config = fallback_config.clone();
+                            res
+                        }
+                        Err(_) => return Err(Error::OracleUnavailable),
+                    }
+                } else {
+                    return Err(Error::OracleUnavailable);
+                }
+            }
+        };
 
         // Create oracle resolution record
         let resolution = OracleResolution {
             market_id: market_id.clone(),
             oracle_result: outcome.clone(),
             price,
-            threshold: market.oracle_config.threshold,
-            comparison: market.oracle_config.comparison.clone(),
-            timestamp: env.ledger().timestamp(),
-            provider: market.oracle_config.provider.clone(),
-            feed_id: market.oracle_config.feed_id.clone(),
+            threshold: used_config.threshold,
+            comparison: used_config.comparison.clone(),
+            timestamp: current_time,
+            provider: used_config.provider.clone(),
+            feed_id: used_config.feed_id.clone(),
         };
 
         // Store the result in the market
@@ -989,9 +1032,15 @@ impl OracleResolutionManager {
         MarketStateManager::update_market(env, market_id, &market);
 
         // Emit oracle result event
-        let provider_str = soroban_sdk::String::from_str(env, "Oracle");
-        let feed_str = market.oracle_config.feed_id.clone();
-        let comparison_str = market.oracle_config.comparison.clone();
+        let provider_str = match used_config.provider {
+            crate::types::OracleProvider::Reflector => {
+                soroban_sdk::String::from_str(env, "Reflector")
+            }
+            crate::types::OracleProvider::Pyth => soroban_sdk::String::from_str(env, "Pyth"),
+            _ => soroban_sdk::String::from_str(env, "Custom"),
+        };
+        let feed_str = used_config.feed_id.clone();
+        let comparison_str = used_config.comparison.clone();
 
         crate::events::EventEmitter::emit_oracle_result(
             env,
@@ -1000,7 +1049,7 @@ impl OracleResolutionManager {
             &provider_str,
             &feed_str,
             price,
-            market.oracle_config.threshold,
+            used_config.threshold,
             &comparison_str,
         );
 
@@ -1236,8 +1285,16 @@ impl MarketResolutionManager {
         // Get the market from storage
         let mut market = MarketStateManager::get_market(env, market_id)?;
 
-        // Validate market for resolution
-        MarketResolutionValidator::validate_market_for_resolution(env, &market)?;
+        // Validate market for resolution (includes min pool size check)
+        let validation = MarketResolutionValidator::validate_market_for_resolution(env, &market);
+        if let Err(Error::InvalidState) = validation {
+            let min_pool = market.min_pool_size.unwrap_or(0);
+            crate::events::EventEmitter::emit_min_pool_size_not_met(
+                env, market_id, market.total_staked, min_pool,
+            );
+            return Err(Error::InvalidState);
+        }
+        validation?;
 
         // Retrieve the oracle result
         let oracle_result = market
@@ -1249,9 +1306,22 @@ impl MarketResolutionManager {
         // Calculate community consensus
         let community_consensus = MarketAnalytics::calculate_community_consensus(&market);
 
-        // Determine final result using hybrid algorithm
-        let final_result =
-            MarketUtils::determine_final_result(env, &oracle_result, &community_consensus);
+        // Determine winning outcome(s) using multi-outcome resolution with tie detection
+        // This handles both single winner and tie cases (pool split)
+        let winning_outcomes = MarketUtils::determine_winning_outcomes(
+            env,
+            &market,
+            &oracle_result,
+            &community_consensus,
+            0, // Tie threshold: 0 = exact ties only
+        );
+
+        // For resolution record, use first outcome (or comma-separated for display)
+        let final_result = if winning_outcomes.len() > 0 {
+            winning_outcomes.get(0).unwrap().clone()
+        } else {
+            oracle_result.clone() // Fallback
+        };
 
         // Determine resolution method
         let resolution_method = MarketResolutionAnalytics::determine_resolution_method(
@@ -1280,9 +1350,16 @@ impl MarketResolutionManager {
         // Capture old state for event
         let old_state = market.state.clone();
 
-        // Set winning outcome
-        MarketStateManager::set_winning_outcome(&mut market, final_result.clone(), Some(market_id));
+        // Set winning outcome(s) - supports both single winner and ties
+        MarketStateManager::set_winning_outcomes(
+            &mut market,
+            winning_outcomes.clone(),
+            Some(market_id),
+        );
         MarketStateManager::update_market(env, market_id, &market);
+
+        // Decrement active event count since the event is resolved
+        crate::storage::CreatorLimitsManager::decrement_active_events(env, &market.admin);
 
         // Emit market resolved event
         let oracle_result_str = market
@@ -1351,9 +1428,14 @@ impl MarketResolutionManager {
             confidence_score: 100, // Admin override has full confidence
         };
 
-        // Set final outcome
-        MarketStateManager::set_winning_outcome(&mut market, outcome.clone(), Some(market_id));
+        // Set final outcome(s) - convert single outcome to vector
+        let mut winning_outcomes = Vec::new(env);
+        winning_outcomes.push_back(outcome.clone());
+        MarketStateManager::set_winning_outcomes(&mut market, winning_outcomes, Some(market_id));
         MarketStateManager::update_market(env, market_id, &market);
+
+        // Decrement active event count since the event is manually finalized
+        crate::storage::CreatorLimitsManager::decrement_active_events(env, &market.admin);
 
         Ok(resolution)
     }
@@ -1389,7 +1471,7 @@ impl OracleResolutionValidator {
     pub fn validate_market_for_oracle_resolution(env: &Env, market: &Market) -> Result<(), Error> {
         // Check if the market has already been resolved
         if market.oracle_result.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+            return Err(Error::MarketResolved);
         }
 
         // Check if the market ended (we can only fetch oracle result after market ends)
@@ -1432,8 +1514,8 @@ impl MarketResolutionValidator {
     /// Validate market for resolution
     pub fn validate_market_for_resolution(env: &Env, market: &Market) -> Result<(), Error> {
         // Check if market is already resolved
-        if market.winning_outcome.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+        if market.winning_outcomes.is_some() {
+            return Err(Error::MarketResolved);
         }
 
         // Check if oracle result is available
@@ -1442,9 +1524,15 @@ impl MarketResolutionValidator {
         }
 
         // Check if market has ended
-        let current_time = env.ledger().timestamp();
-        if current_time < market.end_time {
+        if market.is_active(env) {
             return Err(Error::MarketClosed);
+        }
+
+        // Check minimum pool size requirement
+        if let Some(min_pool) = market.min_pool_size {
+            if min_pool > 0 && market.total_staked < min_pool {
+                return Err(Error::InvalidState);
+            }
         }
 
         Ok(())
@@ -1597,7 +1685,7 @@ pub struct ResolutionUtils;
 impl ResolutionUtils {
     /// Get resolution state for a market
     pub fn get_resolution_state(_env: &Env, market: &Market) -> ResolutionState {
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             ResolutionState::MarketResolved
         } else if market.oracle_result.is_some() {
             ResolutionState::OracleResolved
@@ -1610,14 +1698,14 @@ impl ResolutionUtils {
 
     /// Check if market can be resolved
     pub fn can_resolve_market(env: &Env, market: &Market) -> bool {
-        market.has_ended(env.ledger().timestamp())
+        market.has_ended(env)
             && market.oracle_result.is_some()
-            && market.winning_outcome.is_none()
+            && market.winning_outcomes.is_none()
     }
 
     /// Get resolution eligibility
     pub fn get_resolution_eligibility(env: &Env, market: &Market) -> (bool, String) {
-        if !market.has_ended(env.ledger().timestamp()) {
+        if !market.has_ended(env) {
             return (false, String::from_str(env, "Market has not ended"));
         }
 
@@ -1625,7 +1713,7 @@ impl ResolutionUtils {
             return (false, String::from_str(env, "Oracle result not available"));
         }
 
-        if market.winning_outcome.is_some() {
+        if market.winning_outcomes.is_some() {
             return (false, String::from_str(env, "Market already resolved"));
         }
 
@@ -1654,8 +1742,8 @@ impl ResolutionUtils {
         }
 
         // Validate market is not already resolved
-        if market.winning_outcome.is_some() {
-            return Err(Error::MarketAlreadyResolved);
+        if market.winning_outcomes.is_some() {
+            return Err(Error::MarketResolved);
         }
 
         Ok(())
@@ -1717,11 +1805,9 @@ impl ResolutionTesting {
     pub fn simulate_resolution_process(
         env: &Env,
         market_id: &Symbol,
-        oracle_contract: &Address,
     ) -> Result<MarketResolution, Error> {
         // Fetch oracle result
-        let _oracle_resolution =
-            OracleResolutionManager::fetch_oracle_result(env, market_id, oracle_contract)?;
+        let _oracle_resolution = OracleResolutionManager::fetch_oracle_result(env, market_id)?;
 
         // Resolve market
         let market_resolution = MarketResolutionManager::resolve_market(env, market_id)?;
@@ -1816,10 +1902,13 @@ mod tests {
             env.ledger().timestamp() + 86400,
             OracleConfig {
                 provider: OracleProvider::Pyth,
+                oracle_address: Address::generate(&env),
                 feed_id: String::from_str(&env, "BTC/USD"),
                 threshold: 2500000,
                 comparison: String::from_str(&env, "gt"),
             },
+            None,
+            86400,
             MarketState::Active,
         );
 

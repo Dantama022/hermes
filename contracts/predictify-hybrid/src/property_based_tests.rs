@@ -31,6 +31,7 @@ pub struct PropertyBasedTestSuite {
     pub contract_id: Address,
     pub admin: Address,
     pub users: StdVec<Address>,
+    pub token_id: Address,
 }
 
 impl PropertyBasedTestSuite {
@@ -44,19 +45,40 @@ impl PropertyBasedTestSuite {
         let client = PredictifyHybridClient::new(&env, &contract_id);
         client.initialize(&admin, &None);
 
+        // Setup Token
+        let token_admin = Address::generate(&env);
+        let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+        let token_id = token_contract.address();
+
+        // Store TokenID
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, "TokenID"), &token_id);
+        });
+
         // Generate multiple test users for comprehensive testing
-        let users = (0..10).map(|_| Address::generate(&env)).collect();
+        let users: StdVec<Address> = (0..10).map(|_| Address::generate(&env)).collect();
+
+        // Mint tokens to admin and users
+        let stellar_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_id);
+        stellar_client.mint(&admin, &1_000_000_000_000); // Mint ample funds
+
+        for user in &users {
+            stellar_client.mint(user, &1_000_000_000_000);
+        }
 
         Self {
             env,
             contract_id,
             admin,
             users,
+            token_id,
         }
     }
 
     /// Create a client for contract interactions
-    pub fn client(&self) -> PredictifyHybridClient {
+    pub fn client(&self) -> PredictifyHybridClient<'_> {
         PredictifyHybridClient::new(&self.env, &self.contract_id)
     }
 
@@ -64,6 +86,7 @@ impl PropertyBasedTestSuite {
     pub fn generate_oracle_config(&self, threshold: i128, comparison: &str) -> OracleConfig {
         OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&self.env),
             feed_id: SorobanString::from_str(&self.env, "BTC/USD"),
             threshold,
             comparison: SorobanString::from_str(&self.env, comparison),
@@ -155,6 +178,11 @@ proptest! {
             &outcomes,
             &duration_days,
             &oracle_config,
+            &None,
+            &0,
+            &None,
+            &None,
+            &None,
         );
 
         // Verify market was created with correct properties
@@ -203,6 +231,11 @@ proptest! {
             &outcomes,
             &duration_days,
             &oracle_config,
+            &None,
+            &0,
+            &None,
+            &None,
+            &None,
         );
 
         let market = client.get_market(&market_id).unwrap();
@@ -254,6 +287,11 @@ proptest! {
             &outcomes,
             &30,
             &oracle_config,
+            &None,
+            &0,
+            &None,
+            &None,
+            &None,
         );
 
         // Select user and outcome for voting
@@ -291,6 +329,7 @@ proptest! {
         // Property: Valid oracle configuration should be accepted
         let oracle_config = OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&suite.env),
             feed_id: SorobanString::from_str(&suite.env, &feed_id),
             threshold,
             comparison: SorobanString::from_str(&suite.env, comparison),
@@ -318,6 +357,7 @@ proptest! {
 
         let oracle_config = OracleConfig {
             provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&suite.env),
             feed_id: SorobanString::from_str(&suite.env, "BTC/USD"),
             threshold,
             comparison: SorobanString::from_str(&suite.env, comparison),
@@ -419,6 +459,11 @@ proptest! {
             &outcomes,
             &duration_days,
             &oracle_config,
+            &None,
+            &0,
+            &None,
+            &None,
+            &None,
         );
 
         let initial_market = client.get_market(&market_id).unwrap();
@@ -427,7 +472,7 @@ proptest! {
         prop_assert_eq!(initial_market.state, MarketState::Active);
 
         // Property: Market should be active before end time
-        prop_assert!(initial_market.is_active(suite.env.ledger().timestamp()));
+        prop_assert!(initial_market.is_active(&suite.env));
 
         // Advance time past market end
         let end_time = initial_market.end_time;
@@ -443,9 +488,8 @@ proptest! {
         });
 
         // Property: Market should not be active after end time
-        let current_time = suite.env.ledger().timestamp();
-        prop_assert!(!initial_market.is_active(current_time));
-        prop_assert!(initial_market.has_ended(current_time));
+        prop_assert!(!initial_market.is_active(&suite.env));
+        prop_assert!(initial_market.has_ended(&suite.env));
     }
 }
 
@@ -473,6 +517,11 @@ proptest! {
             &outcomes,
             &30,
             &oracle_config,
+            &None,
+            &86400u64,
+            &None,
+            &None,
+            &None,
         );
 
         // Store admin address to avoid borrowing issues

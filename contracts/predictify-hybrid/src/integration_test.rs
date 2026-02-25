@@ -91,10 +91,16 @@ impl IntegrationTestSuite {
             &duration_days,
             &OracleConfig {
                 provider: OracleProvider::Reflector,
+                oracle_address: Address::generate(&self.env),
                 feed_id: String::from_str(&self.env, "BTC"),
                 threshold: 2500000,
                 comparison: String::from_str(&self.env, "gt"),
             },
+            &None,
+            &0,
+            &None,
+            &None,
+            &None,
         );
 
         self.market_ids.push_back(market_id.clone());
@@ -191,7 +197,7 @@ fn test_complete_market_lifecycle() {
 
     // Step 5: Verify market has ended
     let market = test_suite.get_market(&market_id);
-    assert!(market.has_ended(test_suite.env.ledger().timestamp()));
+    assert!(market.has_ended(&test_suite.env));
 
     // Step 6: Resolve market
     let resolution_result = test_suite.resolve_market(&market_id);
@@ -200,7 +206,7 @@ fn test_complete_market_lifecycle() {
     // Step 7: Verify market is resolved
     let market = test_suite.get_market(&market_id);
     assert_eq!(market.state, MarketState::Resolved);
-    assert!(market.winning_outcome.is_some());
+    assert!(market.winning_outcomes.is_some());
 }
 
 #[test]
