@@ -50,6 +50,7 @@ impl CustomTokenTestSetup {
             String::from_str(&env, "no"),
         ];
 
+        let oracle_address = Address::generate(&env);
         let market_id = client.create_market(
             &admin,
             &String::from_str(&env, "Will it rain?"),
@@ -57,10 +58,16 @@ impl CustomTokenTestSetup {
             &30,
             &OracleConfig {
                 provider: OracleProvider::Reflector,
+                oracle_address: oracle_address.clone(),
                 feed_id: String::from_str(&env, "RAIN"),
                 threshold: 1,
                 comparison: String::from_str(&env, "gt"),
             },
+            &None,       // fallback_oracle_config
+            &3600,       // resolution_timeout
+            &None,       // min_pool_size
+            &None,       // bet_deadline_mins_before_end
+            &None,       // dispute_window_seconds
         );
 
         Self {
@@ -73,15 +80,15 @@ impl CustomTokenTestSetup {
         }
     }
 
-    fn client(&self) -> PredictifyHybridClient {
+    fn client(&self) -> PredictifyHybridClient<'_> {
         PredictifyHybridClient::new(&self.env, &self.contract_id)
     }
 
-    fn token_admin_client(&self) -> StellarAssetClient {
+    fn token_admin_client(&self) -> StellarAssetClient<'_> {
         StellarAssetClient::new(&self.env, &self.token_id)
     }
 
-    fn token_client(&self) -> soroban_sdk::token::Client {
+    fn token_client(&self) -> soroban_sdk::token::Client<'_> {
         soroban_sdk::token::Client::new(&self.env, &self.token_id)
     }
 }
@@ -168,7 +175,7 @@ fn test_payout_distribution_flow() {
         &bet_amount,
     );
 
-    // Advance time to end market
+    // Advance time to end market but NOT past dispute window
     let market = client.get_market(&setup.market_id).unwrap();
     setup.env.ledger().set(LedgerInfo {
         timestamp: market.end_time + 1,
@@ -182,26 +189,42 @@ fn test_payout_distribution_flow() {
     });
 
     // Resolve market manually (Admin wins "yes")
-    // Note: This calls distribute_payouts internally.
-    // If distribute_payouts doesn't actually transfer tokens (as per comments in lib.rs),
-    // we can't verify balance increase. 
-    // However, we can verify the market state changes.
     client.resolve_market_manual(
         &setup.admin,
         &setup.market_id,
         &String::from_str(&setup.env, "yes"),
     );
 
-    // Verify market is resolved
+    // Verify market is resolved but no payout distributed yet (due to dispute window)
     let market_after = client.get_market(&setup.market_id).unwrap();
-    // MarketState::Resolved is not directly accessible without import, so we check winning outcome
-    assert!(market_after.winning_outcome.is_some());
-    assert_eq!(market_after.winning_outcome.unwrap(), String::from_str(&setup.env, "yes"));
+    assert!(market_after.winning_outcomes.is_some());
+    assert_eq!(token_client.balance(&user_winner), 90_000_000); // Only initial balance minus bet
 
-    // Since actual transfer might be mocked or missing in current contract implementation (per code comments),
-    // we skip balance assertion for payout to avoid test failure if logic is missing.
-    // But we verify initial balance deduction worked.
-    assert_eq!(token_client.balance(&user_winner), 90_000_000);
+    // Advance time past dispute window (24h default)
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 86400 + 1,
+        protocol_version: 22,
+        sequence_number: setup.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Distribute payouts
+    let total_distributed = client.distribute_payouts(&setup.market_id);
+    assert!(total_distributed > 0);
+
+    // Verify winner received payout (Original stake + winnings - fees)
+    // Winner staked 10M, Loser staked 10M. Total pool 20M.
+    // Fee 2% = 400k. Payout pool = 19.6M.
+    // Winner share = 100%. Payout = 19.6M.
+    // Final balance = 90M + 19.6M = 109.6M
+    let winner_balance = token_client.balance(&user_winner);
+    assert_eq!(winner_balance, 109_600_000);
+
+    // Loser gets nothing
     assert_eq!(token_client.balance(&user_loser), 90_000_000);
 }
 
@@ -244,7 +267,6 @@ fn test_switch_token_support() {
     let user2 = Address::generate(&setup.env);
     token2_admin_client.mint(&user2, &20_000_000);
     
-    // We need to create a new market or bet on existing one?
     // Bet on existing one is fine.
     client.place_bet(
         &user2,
@@ -259,4 +281,101 @@ fn test_switch_token_support() {
     
     // Verify Token 1 balances are unchanged
     assert_eq!(token1_client.balance(&setup.contract_id), 10_000_000);
+}
+
+#[test]
+fn test_cancel_refund_custom_token() {
+    let setup = CustomTokenTestSetup::new();
+    let client = setup.client();
+    let token_admin_client = setup.token_admin_client();
+    let token_client = setup.token_client();
+    
+    let user = Address::generate(&setup.env);
+    let bet_amount = 10_000_000;
+
+    // Mint tokens
+    token_admin_client.mint(&user, &20_000_000);
+
+    // Place bet
+    client.place_bet(
+        &user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &bet_amount,
+    );
+
+    // Verify balance before cancellation
+    assert_eq!(token_client.balance(&user), 10_000_000);
+    assert_eq!(token_client.balance(&setup.contract_id), bet_amount);
+
+    // Cancel event
+    client.cancel_event(
+        &setup.admin,
+        &setup.market_id,
+        &Some(String::from_str(&setup.env, "Technical issue")),
+    );
+
+    // Verify balance after cancellation (should be refunded)
+    assert_eq!(token_client.balance(&user), 20_000_000);
+    assert_eq!(token_client.balance(&setup.contract_id), 0);
+}
+
+#[test]
+fn test_fee_collection_custom_token() {
+    let setup = CustomTokenTestSetup::new();
+    let client = setup.client();
+    let token_admin_client = setup.token_admin_client();
+    let token_client = setup.token_client();
+    
+    let user = Address::generate(&setup.env);
+    let bet_amount = 100_000_000;
+
+    // Mint tokens
+    token_admin_client.mint(&user, &bet_amount);
+
+    // Place bet
+    client.place_bet(
+        &user,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+        &bet_amount,
+    );
+
+    // Advance time to end market
+    let market = client.get_market(&setup.market_id).unwrap();
+    setup.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + 1,
+        protocol_version: 22,
+        sequence_number: setup.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Resolve market
+    client.resolve_market_manual(
+        &setup.admin,
+        &setup.market_id,
+        &String::from_str(&setup.env, "yes"),
+    );
+
+    // Collect fees
+    let fee_amount = client.collect_fees(
+        &setup.admin,
+        &setup.market_id,
+    );
+
+    // Verify admin balance has not increased yet (as fees are in vault)
+    let admin_balance_before = token_client.balance(&setup.admin);
+    assert_eq!(admin_balance_before, 0);
+
+    // Withdraw fees from vault
+    let withdrawn_amount = client.withdraw_fees(&setup.admin, &fee_amount);
+    assert_eq!(withdrawn_amount, fee_amount);
+
+    // Verify admin balance increased by withdrawn amount
+    let admin_balance_after = token_client.balance(&setup.admin);
+    assert_eq!(admin_balance_after, fee_amount);
 }
