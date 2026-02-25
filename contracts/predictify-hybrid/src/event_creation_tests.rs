@@ -409,7 +409,7 @@ fn test_event_id_unique() {
         &oracle_config,
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
     let desc_b = String::from_str(&setup.env, "Will this be a unique event B?");
     let event_id_2 = client.create_event(
@@ -420,7 +420,7 @@ fn test_event_id_unique() {
         &oracle_config,
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
 
     assert_ne!(event_id_1, event_id_2, "Event IDs must be unique");
