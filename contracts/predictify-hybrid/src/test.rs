@@ -17,7 +17,10 @@
 
 #![cfg(test)]
 
-use crate::events::{BetPlacedEvent, FeeCollectedEvent, PlatformFeeSetEvent};
+use crate::events::{
+    BetPlacedEvent, FeeCollectedEvent, FeeWithdrawalAttemptEvent, FeeWithdrawnEvent,
+    PlatformFeeSetEvent,
+};
 
 use super::*;
 use crate::markets::MarketUtils;
@@ -1713,7 +1716,7 @@ fn test_create_event_collects_configured_fee_and_emits_event() {
         },
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
 
     // Fee transfer and treasury accounting.
@@ -1783,7 +1786,7 @@ fn test_create_event_rejects_when_fee_insufficient() {
         },
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
 }
 
@@ -1820,7 +1823,7 @@ fn test_create_event_rejects_when_fee_asset_not_configured() {
         },
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
 }
 
@@ -1872,7 +1875,7 @@ fn test_create_event_uses_configured_fee_asset() {
         },
         &None,
         &0,
-        &None,
+        &EventVisibility::Public,
     );
 
     assert_eq!(
