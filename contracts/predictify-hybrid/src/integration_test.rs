@@ -99,6 +99,8 @@ impl IntegrationTestSuite {
             &None,
             &0,
             &None,
+            &None,
+            &None,
         );
 
         self.market_ids.push_back(market_id.clone());
