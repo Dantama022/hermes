@@ -1472,6 +1472,61 @@ pub struct WinningsClaimedBatchEvent {
     pub total_amount: i128,
     /// Number of markets in this batch claim
     pub claim_count: u32,
+     /// Event timestamp
+    pub timestamp: u64,
+}
+/// Event emitted when global claim period is updated.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimPeriodUpdatedEvent {
+    /// Admin who updated claim period
+    pub admin: Address,
+    /// New claim period in seconds
+    pub claim_period_seconds: u64,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when market-specific claim period is updated.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketClaimPeriodUpdatedEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Admin who updated claim period
+    pub admin: Address,
+    /// New claim period in seconds
+    pub claim_period_seconds: u64,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when treasury address is updated.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryUpdatedEvent {
+    /// Admin who updated treasury
+    pub admin: Address,
+    /// New treasury address
+    pub treasury: Address,
+    /// Event timestamp
+    pub timestamp: u64,
+}
+
+/// Event emitted when unclaimed winnings are swept after timeout.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnclaimedWinningsSweptEvent {
+    /// Market ID
+    pub market_id: Symbol,
+    /// Caller performing the sweep
+    pub caller: Address,
+    /// Recipient address (None when burned)
+    pub recipient: Option<Address>,
+    /// Swept amount
+    pub amount: i128,
+    /// Whether funds were burned
+    pub burned: bool,
     /// Event timestamp
     pub timestamp: u64,
 }
@@ -2845,6 +2900,61 @@ impl EventEmitter {
             timestamp: env.ledger().timestamp(),
         };
         Self::store_event(env, &symbol_short!("win_btc"), &event);
+          }
+    /// Emit global claim period updated event.
+    pub fn emit_claim_period_updated(env: &Env, admin: &Address, claim_period_seconds: u64) {
+        let event = ClaimPeriodUpdatedEvent {
+            admin: admin.clone(),
+            claim_period_seconds,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("clm_prd"), &event);
+    }
+
+    /// Emit market claim period updated event.
+    pub fn emit_market_claim_period_updated(
+        env: &Env,
+        admin: &Address,
+        market_id: &Symbol,
+        claim_period_seconds: u64,
+    ) {
+        let event = MarketClaimPeriodUpdatedEvent {
+            market_id: market_id.clone(),
+            admin: admin.clone(),
+            claim_period_seconds,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("m_clm_pd"), &event);
+    }
+
+    /// Emit treasury updated event.
+    pub fn emit_treasury_updated(env: &Env, admin: &Address, treasury: &Address) {
+        let event = TreasuryUpdatedEvent {
+            admin: admin.clone(),
+            treasury: treasury.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("treas_up"), &event);
+    }
+
+    /// Emit unclaimed winnings swept event.
+    pub fn emit_unclaimed_winnings_swept(
+        env: &Env,
+        market_id: &Symbol,
+        caller: &Address,
+        recipient: &Option<Address>,
+        amount: i128,
+        burned: bool,
+    ) {
+        let event = UnclaimedWinningsSweptEvent {
+            market_id: market_id.clone(),
+            caller: caller.clone(),
+            recipient: recipient.clone(),
+            amount,
+            burned,
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("unc_swip"), &event);
     }
 
     /// Emit market deadline extended event
