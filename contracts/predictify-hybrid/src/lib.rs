@@ -75,6 +75,8 @@ mod upgrade_manager_tests;
 
 mod bet_tests;
 #[cfg(test)]
+mod bet_cancellation_tests;
+#[cfg(test)]
 mod query_tests;
 
 #[cfg(test)]
@@ -1072,6 +1074,57 @@ impl PredictifyHybrid {
         }
         match bets::BetManager::place_bets(&env, user, bets) {
             Ok(placed_bets) => placed_bets,
+            Err(e) => panic_with_error!(env, e),
+        }
+    }
+
+    /// Cancels a user's active bet before the market deadline.
+    ///
+    /// This function allows users to cancel their bets and receive a full refund
+    /// of their locked funds before the market closes. The market statistics are
+    /// updated accordingly.
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment for blockchain operations
+    /// * `user` - The address of the user canceling the bet (must be authenticated)
+    /// * `market_id` - Unique identifier of the market
+    ///
+    /// # Panics
+    ///
+    /// This function will panic with specific errors if:
+    /// - User has no active bet on this market (`Error::NothingToClaim`)
+    /// - Market deadline has passed (`Error::MarketClosed`)
+    /// - Bet is not in Active status (`Error::InvalidState`)
+    /// - Market doesn't exist (`Error::MarketNotFound`)
+    ///
+    /// # Security
+    ///
+    /// - Only the bettor can cancel their own bet (enforced via `require_auth`)
+    /// - Refund and status update are atomic
+    /// - Market statistics are updated correctly
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use soroban_sdk::{Env, Address, Symbol};
+    /// # use predictify_hybrid::PredictifyHybrid;
+    /// # let env = Env::default();
+    /// # let user = Address::generate(&env);
+    /// # let market_id = Symbol::new(&env, "btc_100k");
+    ///
+    /// // Cancel bet before market closes
+    /// PredictifyHybrid::cancel_bet(env.clone(), user, market_id);
+    /// ```
+    pub fn cancel_bet(env: Env, user: Address, market_id: Symbol) {
+        if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
+            panic_with_error!(env, e);
+        }
+        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+            panic_with_error!(env, Error::InvalidState);
+        }
+        match bets::BetManager::cancel_bet(&env, user, market_id) {
+            Ok(_) => {},
             Err(e) => panic_with_error!(env, e),
         }
     }
