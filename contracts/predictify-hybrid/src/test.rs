@@ -17,7 +17,9 @@
 
 #![cfg(test)]
 
-use crate::events::{BetPlacedEvent, PlatformFeeSetEvent};
+use crate::events::{
+    BetPlacedEvent, FeeWithdrawalAttemptEvent, FeeWithdrawnEvent, PlatformFeeSetEvent,
+};
 
 use super::*;
 use crate::markets::MarketUtils;
@@ -1429,6 +1431,18 @@ fn test_withdraw_collected_fees() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
 
+    // Ensure a non-zero ledger timestamp for timelock tracking
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
     // First, collect some fees (simulate by setting collected fees in storage)
     test.env.as_contract(&test.contract_id, || {
         let fees_key = Symbol::new(&test.env, "tot_fees");
@@ -1437,6 +1451,11 @@ fn test_withdraw_collected_fees() {
             .persistent()
             .set(&fees_key, &50_000_000i128); // 5 XLM
     });
+
+    // Fund the contract so the withdrawal transfer can succeed.
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &50_000_000i128);
 
     // Withdraw all fees
     test.env.mock_all_auths();
@@ -1453,11 +1472,34 @@ fn test_withdraw_collected_fees() {
             .unwrap_or(0)
     });
     assert_eq!(remaining, 0);
+
+    // Verify success event was emitted
+    let success_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawnEvent>(&Symbol::new(&test.env, "fwd_ok"))
+            .unwrap()
+    });
+    assert_eq!(success_event.admin, test.admin);
+    assert_eq!(success_event.amount, 50_000_000);
 }
 
 #[test]
 fn test_withdraw_collected_fees_no_fees() {
     let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
 
     // Verify no fees are collected initially
     let fees = test.env.as_contract(&test.contract_id, || {
@@ -1470,9 +1512,170 @@ fn test_withdraw_collected_fees_no_fees() {
     });
     assert_eq!(fees, 0);
 
-    // The withdraw_collected_fees function checks if there are fees to withdraw.
-    // If total_fees == 0, it returns NoFeesToCollect (#415).
-    // We verify the precondition that no fees exist initially.
+    // With no fees, withdrawal is a no-op (returns 0) but still emits an attempt event.
+    test.env.mock_all_auths();
+    let withdrawn = client.withdraw_fees(&test.admin, &0);
+    assert_eq!(withdrawn, 0);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(attempt_event.admin, test.admin);
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::NoFeesAvailable
+    );
+}
+
+#[test]
+fn test_fee_withdrawal_timelock_enforced_and_then_allows_withdrawal() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let start_ts: u64 = 1_700_000_000;
+    let timelock = crate::fees::DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS;
+
+    // Seed fee vault and fund contract
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &100i128);
+    });
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &100i128);
+
+    // First withdrawal succeeds
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 100);
+
+    // Add more fees for the next attempt
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &50i128);
+    });
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &50i128);
+
+    // Attempt before timelock expires is blocked
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts + timelock - 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 0);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::Timelocked
+    );
+
+    // Withdrawal at or after timelock expiry succeeds
+    test.env.ledger().set(LedgerInfo {
+        timestamp: start_ts + timelock,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 50);
+}
+
+#[test]
+fn test_fee_withdrawal_cap_applied_per_window() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    // Tighten cap to 50% per window (timelock stays at the default 7 days)
+    test.env.mock_all_auths();
+    client.set_fee_withdrawal_schedule(
+        &test.admin,
+        &crate::fees::DEFAULT_FEE_WITHDRAWAL_TIMELOCK_SECONDS,
+        &5000u32,
+    );
+
+    // Seed fee vault and fund contract
+    test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .set(&Symbol::new(&test.env, "tot_fees"), &100i128);
+    });
+    let stellar_client = StellarAssetClient::new(&test.env, &test.token_test.token_id);
+    test.env.mock_all_auths();
+    stellar_client.mint(&test.contract_id, &100i128);
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: 1_700_000_000,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    // Withdraw-all request is capped at 50%
+    test.env.mock_all_auths();
+    assert_eq!(client.withdraw_fees(&test.admin, &0), 50);
+
+    let attempt_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawalAttemptEvent>(&Symbol::new(&test.env, "fwd_att"))
+            .unwrap()
+    });
+    assert_eq!(
+        attempt_event.status,
+        crate::fees::FeeWithdrawalStatus::Capped
+    );
+    assert_eq!(attempt_event.withdrawal_amount, 50);
+
+    let success_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, FeeWithdrawnEvent>(&Symbol::new(&test.env, "fwd_ok"))
+            .unwrap()
+    });
+    assert_eq!(success_event.amount, 50);
+    assert_eq!(success_event.remaining_fees, 50);
 }
 
 // ===== TESTS FOR EVENT CANCELLATION (#216, #217) =====

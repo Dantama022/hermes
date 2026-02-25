@@ -681,6 +681,50 @@ pub struct FeeCollectedEvent {
     pub timestamp: u64,
 }
 
+/// Admin fee withdrawal attempt event
+///
+/// Emitted on every admin call to withdraw fees, including blocked attempts
+/// (e.g., timelock not satisfied or no fees available). This provides an
+/// audit trail for monitoring and abuse detection.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeWithdrawalAttemptEvent {
+    /// Admin address attempting withdrawal
+    pub admin: Address,
+    /// Amount requested by admin (0 means "withdraw max")
+    pub requested_amount: i128,
+    /// Fee vault balance available at the time of attempt
+    pub available_fees: i128,
+    /// Amount that will be withdrawn for this attempt (0 if blocked)
+    pub withdrawal_amount: i128,
+    /// Attempt status (executed / timelocked / capped / no-fees)
+    pub status: crate::fees::FeeWithdrawalStatus,
+    /// Last successful withdrawal timestamp (0 if never)
+    pub last_withdrawal_ts: u64,
+    /// Next timestamp when a withdrawal will be allowed (0 if never withdrawn yet)
+    pub next_allowed_ts: u64,
+    /// Configured timelock (seconds)
+    pub timelock_seconds: u64,
+    /// Configured max withdrawal cap (basis points of current vault balance)
+    pub max_withdrawal_bps: u32,
+    /// Attempt timestamp
+    pub timestamp: u64,
+}
+
+/// Admin fee withdrawal success event
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeWithdrawnEvent {
+    /// Admin address receiving the fees
+    pub admin: Address,
+    /// Amount withdrawn
+    pub amount: i128,
+    /// Remaining fee vault balance after withdrawal
+    pub remaining_fees: i128,
+    /// Withdrawal timestamp
+    pub timestamp: u64,
+}
+
 // ===== ORACLE RESULT VERIFICATION EVENTS =====
 
 /// Event emitted when oracle result verification is initiated for a market.
@@ -2190,6 +2234,62 @@ impl EventEmitter {
         };
 
         Self::store_event(env, &symbol_short!("fee_col"), &event);
+    }
+
+    /// Emit an admin fee withdrawal attempt event.
+    ///
+    /// This event is emitted for both successful and blocked attempts, enabling
+    /// off-chain monitoring of fee withdrawal behavior.
+    pub fn emit_fee_withdrawal_attempt(
+        env: &Env,
+        admin: &Address,
+        requested_amount: i128,
+        available_fees: i128,
+        withdrawal_amount: i128,
+        status: crate::fees::FeeWithdrawalStatus,
+        last_withdrawal_ts: u64,
+        next_allowed_ts: u64,
+        schedule: &crate::fees::FeeWithdrawalSchedule,
+    ) {
+        let event = FeeWithdrawalAttemptEvent {
+            admin: admin.clone(),
+            requested_amount,
+            available_fees,
+            withdrawal_amount,
+            status,
+            last_withdrawal_ts,
+            next_allowed_ts,
+            timelock_seconds: schedule.timelock_seconds,
+            max_withdrawal_bps: schedule.max_withdrawal_bps,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        // Publish to the Soroban event stream
+        env.events()
+            .publish((symbol_short!("fwd_att"), admin.clone()), event.clone());
+
+        // Also store the last event for simple on-chain querying/debugging
+        Self::store_event(env, &symbol_short!("fwd_att"), &event);
+    }
+
+    /// Emit an admin fee withdrawal success event.
+    pub fn emit_fee_withdrawn(
+        env: &Env,
+        admin: &Address,
+        amount: i128,
+        remaining_fees: i128,
+        timestamp: u64,
+    ) {
+        let event = FeeWithdrawnEvent {
+            admin: admin.clone(),
+            amount,
+            remaining_fees,
+            timestamp,
+        };
+
+        env.events()
+            .publish((symbol_short!("fwd_ok"), admin.clone()), event.clone());
+        Self::store_event(env, &symbol_short!("fwd_ok"), &event);
     }
 
     /// Emit extension requested event
