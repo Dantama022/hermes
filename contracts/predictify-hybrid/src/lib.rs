@@ -83,6 +83,9 @@ mod bet_cancellation_tests;
 mod query_tests;
 
 #[cfg(test)]
+mod state_snapshot_reporting_tests;
+
+#[cfg(test)]
 mod balance_tests;
 
 #[cfg(test)]
