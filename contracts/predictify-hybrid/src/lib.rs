@@ -84,6 +84,9 @@ mod balance_tests;
 mod event_management_tests;
 
 #[cfg(test)]
+mod event_visibility_test;
+
+#[cfg(test)]
 mod category_tags_tests;
 mod statistics_tests;
 
@@ -479,6 +482,7 @@ impl PredictifyHybrid {
     /// * `outcomes` - Vector of possible outcomes
     /// * `end_time` - Absolute Unix timestamp for when the event ends
     /// * `oracle_config` - Configuration for oracle integration
+    /// * `visibility` - Public or Private event visibility
     ///
     /// # Returns
     ///
@@ -498,7 +502,7 @@ impl PredictifyHybrid {
         oracle_config: OracleConfig,
         fallback_oracle_config: Option<OracleConfig>,
         resolution_timeout: u64,
-        min_pool_size: Option<i128>,
+        visibility: EventVisibility,
     ) -> Symbol {
         if let Err(e) = admin::ContractPauseManager::require_not_paused(&env) {
             panic_with_error!(env, e);
@@ -565,7 +569,8 @@ impl PredictifyHybrid {
             admin: admin.clone(),
             created_at: env.ledger().timestamp(),
             status: MarketState::Active,
-            min_pool_size,
+            visibility,
+            allowlist: Vec::new(&env),
         };
 
         // Store the event
@@ -584,8 +589,8 @@ impl PredictifyHybrid {
             end_time,
         );
 
-        // Record statistics (optional, can reuse market stats for now)
-        // statistics::StatisticsManager::record_market_created(&env);
+        // Emit visibility set event
+        EventEmitter::emit_event_visibility_set(&env, &event_id, &visibility, &admin);
 
         event_id
     }
@@ -602,6 +607,147 @@ impl PredictifyHybrid {
     /// Returns `Some(Event)` if found, or `None` otherwise.
     pub fn get_event(env: Env, event_id: Symbol) -> Option<Event> {
         crate::storage::EventManager::get_event(&env, &event_id).ok()
+    }
+
+    /// Updates event visibility (admin only, before bets are placed).
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `admin` - Admin address (must be authorized)
+    /// * `event_id` - Event to update
+    /// * `visibility` - New visibility setting
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, `Err(Error)` otherwise.
+    pub fn set_event_visibility(
+        env: Env,
+        admin: Address,
+        event_id: Symbol,
+        visibility: EventVisibility,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .ok_or(Error::Unauthorized)?;
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut event = crate::storage::EventManager::get_event(&env, &event_id)?;
+
+        if event.status != MarketState::Active {
+            return Err(Error::MarketResolved);
+        }
+
+        let bet_stats = bets::BetManager::get_market_bet_stats(&env, &event_id);
+        if bet_stats.total_bets > 0 {
+            return Err(Error::BetsAlreadyPlaced);
+        }
+
+        event.visibility = visibility;
+        crate::storage::EventManager::store_event(&env, &event);
+
+        EventEmitter::emit_event_visibility_set(&env, &event_id, &visibility, &admin);
+
+        Ok(())
+    }
+
+    /// Adds addresses to event allowlist (admin only).
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `admin` - Admin address (must be authorized)
+    /// * `event_id` - Event to update
+    /// * `addresses` - Addresses to add to allowlist
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, `Err(Error)` otherwise.
+    pub fn add_to_allowlist(
+        env: Env,
+        admin: Address,
+        event_id: Symbol,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .ok_or(Error::Unauthorized)?;
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut event = crate::storage::EventManager::get_event(&env, &event_id)?;
+
+        for addr in addresses.iter() {
+            if !event.allowlist.contains(&addr) {
+                event.allowlist.push_back(addr);
+            }
+        }
+
+        crate::storage::EventManager::store_event(&env, &event);
+
+        EventEmitter::emit_allowlist_updated(&env, &event_id, &addresses, &admin);
+
+        Ok(())
+    }
+
+    /// Removes addresses from event allowlist (admin only).
+    ///
+    /// # Parameters
+    ///
+    /// * `env` - The Soroban environment
+    /// * `admin` - Admin address (must be authorized)
+    /// * `event_id` - Event to update
+    /// * `addresses` - Addresses to remove from allowlist
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if successful, `Err(Error)` otherwise.
+    pub fn remove_from_allowlist(
+        env: Env,
+        admin: Address,
+        event_id: Symbol,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .ok_or(Error::Unauthorized)?;
+
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        let mut event = crate::storage::EventManager::get_event(&env, &event_id)?;
+
+        let mut new_allowlist = Vec::new(&env);
+        for addr in event.allowlist.iter() {
+            if !addresses.contains(&addr) {
+                new_allowlist.push_back(addr);
+            }
+        }
+        event.allowlist = new_allowlist;
+
+        crate::storage::EventManager::store_event(&env, &event);
+
+        EventEmitter::emit_allowlist_updated(&env, &event_id, &addresses, &admin);
+
+        Ok(())
     }
 
     /// Allows users to vote on a market outcome by staking tokens.

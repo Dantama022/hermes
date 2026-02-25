@@ -3199,6 +3199,32 @@ impl EventEmitter {
     {
         env.storage().persistent().set(event_key, event_data);
     }
+
+    /// Emit event visibility set event
+    pub fn emit_event_visibility_set(
+        env: &Env,
+        event_id: &Symbol,
+        visibility: &crate::types::EventVisibility,
+        admin: &Address,
+    ) {
+        env.events().publish(
+            (symbol_short!("evt_vis"), event_id.clone()),
+            (visibility.clone(), admin.clone(), env.ledger().timestamp()),
+        );
+    }
+
+    /// Emit allowlist updated event
+    pub fn emit_allowlist_updated(
+        env: &Env,
+        event_id: &Symbol,
+        addresses: &Vec<Address>,
+        admin: &Address,
+    ) {
+        env.events().publish(
+            (symbol_short!("allowlst"), event_id.clone()),
+            (addresses.clone(), admin.clone(), env.ledger().timestamp()),
+        );
+    }
 }
 
 // ===== EVENT LOGGING AND MONITORING =====
