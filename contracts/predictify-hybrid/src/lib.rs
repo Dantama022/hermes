@@ -1652,6 +1652,7 @@ impl PredictifyHybrid {
         let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         user.require_auth();
         Self::claim_winnings_internal(&env, &user, &market_id);
+        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("claim"), gas_marker);
     }
 
     /// Claims winnings across multiple markets atomically for a single user.
@@ -1804,11 +1805,6 @@ impl PredictifyHybrid {
                     Err(e) => panic_with_error!(env, e),
                 }
 
-                crate::gas::GasTracker::end_tracking(
-                    &env,
-                    soroban_sdk::symbol_short!("claim"),
-                    gas_marker,
-                );
                 return;
             }
         }
@@ -1817,7 +1813,6 @@ impl PredictifyHybrid {
         market.claimed.set(user.clone(), true);
         env.storage().persistent().set(&market_id, &market);
 
-        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("claim"), gas_marker);
     }
 
     /// Sweeps unclaimed winning payouts after claim timeout to treasury or burns them.

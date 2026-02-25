@@ -19,7 +19,7 @@
 
 use crate::events::{
     BetPlacedEvent, ContractPausedEvent, ContractUnpausedEvent, EventLogger,
-    FeeWithdrawalAttemptEvent, FeeWithdrawnEvent, PlatformFeeSetEvent,
+    FeeCollectedEvent, FeeWithdrawalAttemptEvent, FeeWithdrawnEvent, PlatformFeeSetEvent,
 };
 
 use super::*;
