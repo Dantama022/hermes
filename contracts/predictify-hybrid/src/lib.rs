@@ -131,6 +131,7 @@ const DEFAULT_CLAIM_PERIOD_SECONDS: u64 = 90 * 24 * 60 * 60;
 const GLOBAL_CLAIM_PERIOD_KEY: &str = "claim_timeout";
 const MARKET_CLAIM_PERIODS_KEY: &str = "claim_overrides";
 const TREASURY_STORAGE_KEY: &str = "Treasury";
+const GLOBAL_MIN_POOL_SIZE_KEY: &str = "global_min_pool";
 
 #[contractimpl]
 impl PredictifyHybrid {
@@ -3382,6 +3383,44 @@ impl PredictifyHybrid {
         Ok(())
     }
 
+    /// Set global minimum pool size for resolution (admin only).
+    ///
+    /// Applies to all markets where `min_pool_size` is `None`.
+    /// A value of 0 disables any global minimum.
+    pub fn set_global_min_pool_size(
+        env: Env,
+        admin: Address,
+        min_pool: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, "Admin"))
+            .unwrap_or_else(|| panic_with_error!(env, Error::AdminNotSet));
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        if min_pool < 0 {
+            return Err(Error::InvalidInput);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, GLOBAL_MIN_POOL_SIZE_KEY), &min_pool);
+        Ok(())
+    }
+
+    /// Get global minimum pool size for resolution.
+    /// Returns 0 when not configured.
+    pub fn get_global_min_pool_size(env: Env) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(&env, GLOBAL_MIN_POOL_SIZE_KEY))
+            .unwrap_or(0)
+    }
+
     /// Set per-event minimum and maximum bet limits (admin only).
     /// Overrides global limits for the given market.
     pub fn set_event_bet_limits(
@@ -4364,8 +4403,13 @@ impl PredictifyHybrid {
             return Err(Error::MarketClosed);
         }
 
-        // Verify min_pool_size is set and not met
-        let min_pool = market.min_pool_size.unwrap_or(0);
+        // Verify effective min pool is set and not met (per-market override, else global)
+        let global_min: i128 = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(&env, GLOBAL_MIN_POOL_SIZE_KEY))
+            .unwrap_or(0);
+        let min_pool = market.min_pool_size.unwrap_or(global_min);
         if min_pool <= 0 || market.total_staked >= min_pool {
             return Err(Error::InvalidState);
         }

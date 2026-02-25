@@ -3109,6 +3109,435 @@ fn test_contract_functional_after_version_upgrade() {
 // ===== MINIMUM POOL SIZE TESTS =====
 
 #[test]
+fn test_resolution_allowed_when_pool_exactly_at_min_pool_size() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
+    test.env.mock_all_auths();
+    let min_pool = 300_0000000;
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Exact Min Pool Test"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &Some(min_pool),
+        &None,
+        &None,
+    );
+
+    let user1 = test.create_funded_user();
+    let user2 = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+    client.vote(&user2, &market_id, &String::from_str(&test.env, "no"), &200_0000000);
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.as_contract(&test.contract_id, || {
+        let mut m = test
+            .env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "yes"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
+    });
+
+    let result = test.env.as_contract(&test.contract_id, || {
+        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    });
+    assert!(result.is_ok());
+
+    let pool_lo_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::MinPoolSizeNotMetEvent>(&soroban_sdk::symbol_short!(
+                "pool_lo"
+            ))
+    });
+    assert!(pool_lo_event.is_none());
+}
+
+#[test]
+fn test_resolution_blocked_and_emits_event_when_pool_below_min_pool_size() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
+    test.env.mock_all_auths();
+    let min_pool = 500_0000000;
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Underfunded Min Pool Test"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &Some(min_pool),
+        &None,
+        &None,
+    );
+
+    let user1 = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.vote(&user1, &market_id, &String::from_str(&test.env, "yes"), &100_0000000);
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.as_contract(&test.contract_id, || {
+        let mut m = test
+            .env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "yes"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
+    });
+
+    let result = test.env.as_contract(&test.contract_id, || {
+        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    });
+    assert!(matches!(result, Err(Error::InvalidState)));
+
+    let pool_lo_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::MinPoolSizeNotMetEvent>(&soroban_sdk::symbol_short!(
+                "pool_lo"
+            ))
+            .unwrap()
+    });
+    assert_eq!(pool_lo_event.market_id, market_id);
+    assert_eq!(pool_lo_event.current_pool, 100_0000000);
+    assert_eq!(pool_lo_event.required_min, min_pool);
+
+    let st_chng_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::StateChangeEvent>(&soroban_sdk::symbol_short!(
+                "st_chng"
+            ))
+    });
+    assert!(st_chng_event.is_none());
+
+    let market_after = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    assert!(market_after.winning_outcomes.is_none());
+}
+
+#[test]
+fn test_resolution_allowed_when_min_pool_size_is_zero() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Zero Min Pool Test"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &Some(0),
+        &None,
+        &None,
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.as_contract(&test.contract_id, || {
+        let mut m = test
+            .env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "yes"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
+    });
+
+    let result = test.env.as_contract(&test.contract_id, || {
+        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    });
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_global_min_pool_blocks_resolution_when_market_min_not_set() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.mock_all_auths();
+    client.set_global_min_pool_size(&test.admin, &500_0000000);
+
+    let market_id = test.create_test_market();
+    let user1 = test.create_funded_user();
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.as_contract(&test.contract_id, || {
+        let mut m: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "yes"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
+    });
+
+    let result = test.env.as_contract(&test.contract_id, || {
+        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    });
+    assert!(matches!(result, Err(Error::InvalidState)));
+
+    let pool_lo_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::MinPoolSizeNotMetEvent>(&soroban_sdk::symbol_short!(
+                "pool_lo"
+            ))
+            .unwrap()
+    });
+    assert_eq!(pool_lo_event.market_id, market_id);
+    assert_eq!(pool_lo_event.current_pool, 100_0000000);
+    assert_eq!(pool_lo_event.required_min, 500_0000000);
+}
+
+#[test]
+fn test_per_market_min_pool_overrides_global_min_pool() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.mock_all_auths();
+    client.set_global_min_pool_size(&test.admin, &500_0000000);
+
+    let outcomes = vec![
+        &test.env,
+        String::from_str(&test.env, "yes"),
+        String::from_str(&test.env, "no"),
+    ];
+
+    test.env.mock_all_auths();
+    let market_id = client.create_market(
+        &test.admin,
+        &String::from_str(&test.env, "Per-Market Overrides Global"),
+        &outcomes,
+        &30,
+        &OracleConfig {
+            provider: OracleProvider::Reflector,
+            oracle_address: Address::generate(&test.env),
+            feed_id: String::from_str(&test.env, "TEST"),
+            threshold: 100,
+            comparison: String::from_str(&test.env, "gt"),
+        },
+        &None,
+        &0,
+        &Some(0),
+        &None,
+        &None,
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.as_contract(&test.contract_id, || {
+        let mut m: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "yes"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
+    });
+
+    let result = test.env.as_contract(&test.contract_id, || {
+        crate::resolution::MarketResolutionManager::resolve_market(&test.env, &market_id)
+    });
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_cancel_underfunded_event_uses_global_min_pool_when_market_min_not_set() {
+    let test = PredictifyTest::setup();
+    let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
+
+    test.env.mock_all_auths();
+    client.set_global_min_pool_size(&test.admin, &500_0000000);
+
+    let market_id = test.create_test_market();
+    let user1 = test.create_funded_user();
+
+    test.env.mock_all_auths();
+    client.place_bet(
+        &user1,
+        &market_id,
+        &String::from_str(&test.env, "yes"),
+        &100_0000000,
+    );
+
+    let market = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, Market>(&market_id)
+            .unwrap()
+    });
+    test.env.ledger().set(LedgerInfo {
+        timestamp: market.end_time + market.dispute_window_seconds + 1,
+        protocol_version: 22,
+        sequence_number: test.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 1,
+        min_persistent_entry_ttl: 1,
+        max_entry_ttl: 10000,
+    });
+
+    test.env.as_contract(&test.contract_id, || {
+        let mut m: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "yes"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
+    });
+
+    test.env.mock_all_auths();
+    let refunded = client.cancel_underfunded_event(&test.admin, &market_id);
+    assert_eq!(refunded, 100_0000000);
+
+    let pool_lo_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::MinPoolSizeNotMetEvent>(&soroban_sdk::symbol_short!(
+                "pool_lo"
+            ))
+            .unwrap()
+    });
+    assert_eq!(pool_lo_event.market_id, market_id);
+    assert_eq!(pool_lo_event.current_pool, 100_0000000);
+    assert_eq!(pool_lo_event.required_min, 500_0000000);
+}
+
+#[test]
 fn test_create_market_with_min_pool_size() {
     let test = PredictifyTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
@@ -3363,7 +3792,7 @@ fn test_proportional_share_different_stakes() {
         },
         &None,
         &0,
-        &Some(500_0000000), // 500 XLM minimum
+        &None,
         &None,
         &None,
     );
@@ -4205,6 +4634,7 @@ fn test_cancel_underfunded_event() {
     ];
 
     test.env.mock_all_auths();
+    let min_pool = 500_0000000;
     let market_id = client.create_market(
         &test.admin,
         &String::from_str(&test.env, "Unanimous Test"),
@@ -4232,7 +4662,6 @@ fn test_cancel_underfunded_event() {
     test.env.mock_all_auths();
     client.vote(&user1, &market_id, &String::from_str(&test.env, "unanimous"), &100_0000000);
     client.vote(&user2, &market_id, &String::from_str(&test.env, "unanimous"), &200_0000000);
-    client.vote(&user3, &market_id, &String::from_str(&test.env, "unanimous"), &300_0000000);
 
     // Advance time past end_time AND dispute window
     let market = test.env.as_contract(&test.contract_id, || {
@@ -4250,47 +4679,60 @@ fn test_cancel_underfunded_event() {
         max_entry_ttl: 10000,
     });
 
-    // Resolve with unanimous outcome
+    // Mark market as ended and set an oracle result so it is resolvable (but underfunded)
     test.env.as_contract(&test.contract_id, || {
-        let mut market: Market = test.env.storage().persistent().get(&market_id).unwrap();
-        market.state = MarketState::Resolved;
-        market.winning_outcomes = Some(vec![
-            &test.env,
-            String::from_str(&test.env, "unanimous"),
-        ]);
-        test.env.storage().persistent().set(&market_id, &market);
+        let mut m: Market = test.env.storage().persistent().get(&market_id).unwrap();
+        m.oracle_result = Some(String::from_str(&test.env, "unanimous"));
+        m.state = MarketState::Ended;
+        test.env.storage().persistent().set(&market_id, &m);
     });
 
-    // Distribute payouts
+    // Non-admin cannot cancel until timeout
+    let any_caller = test.create_funded_user();
     test.env.mock_all_auths();
-    let total_distributed = client.distribute_payouts(&market_id);
-    assert!(total_distributed > 0);
+    let unauthorized = client.try_cancel_underfunded_event(&any_caller, &market_id);
+    assert!(matches!(unauthorized, Err(Ok(Error::Unauthorized))));
 
-    // All should be claimed
+    // Admin can cancel immediately after end
+    test.env.mock_all_auths();
+    let refunded = client.cancel_underfunded_event(&test.admin, &market_id);
+    assert_eq!(refunded, 300_0000000);
+
+    let pool_lo_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::MinPoolSizeNotMetEvent>(&soroban_sdk::symbol_short!(
+                "pool_lo"
+            ))
+            .unwrap()
+    });
+    assert_eq!(pool_lo_event.market_id, market_id);
+    assert_eq!(pool_lo_event.current_pool, 300_0000000);
+    assert_eq!(pool_lo_event.required_min, min_pool);
+
+    let st_chng_event = test.env.as_contract(&test.contract_id, || {
+        test.env
+            .storage()
+            .persistent()
+            .get::<Symbol, crate::events::StateChangeEvent>(&soroban_sdk::symbol_short!(
+                "st_chng"
+            ))
+            .unwrap()
+    });
+    assert_eq!(st_chng_event.market_id, market_id);
+    assert_eq!(st_chng_event.old_state, MarketState::Ended);
+    assert_eq!(st_chng_event.new_state, MarketState::Cancelled);
+
     let market_after = test.env.as_contract(&test.contract_id, || {
         test.env.storage().persistent().get::<Symbol, Market>(&market_id).unwrap()
     });
-    assert!(market_after.claimed.get(user1.clone()).unwrap_or(false));
-    assert!(market_after.claimed.get(user2.clone()).unwrap_or(false));
-    assert!(market_after.claimed.get(user3.clone()).unwrap_or(false));
+    assert_eq!(market_after.state, MarketState::Cancelled);
 
-    // Each gets back proportional to stake (minus fee)
-    // User1: (100/600) * 600 * 0.98 = 98 XLM
-    // User2: (200/600) * 600 * 0.98 = 196 XLM
-    // User3: (300/600) * 600 * 0.98 = 294 XLM
-    let balance1 = test.env.as_contract(&test.contract_id, || {
-        storage::BalanceStorage::get_balance(&test.env, &user1, &types::ReflectorAsset::Stellar)
-    });
-    let balance2 = test.env.as_contract(&test.contract_id, || {
-        storage::BalanceStorage::get_balance(&test.env, &user2, &types::ReflectorAsset::Stellar)
-    });
-    let balance3 = test.env.as_contract(&test.contract_id, || {
-        storage::BalanceStorage::get_balance(&test.env, &user3, &types::ReflectorAsset::Stellar)
-    });
-
-    assert!(balance1.amount >= 97_0000000 && balance1.amount <= 99_0000000);
-    assert!(balance2.amount >= 195_0000000 && balance2.amount <= 197_0000000);
-    assert!(balance3.amount >= 293_0000000 && balance3.amount <= 295_0000000);
+    // Idempotent once cancelled
+    test.env.mock_all_auths();
+    let second = client.cancel_underfunded_event(&test.admin, &market_id);
+    assert_eq!(second, 0);
 }
 
 /// Test tie with zero stakers on non-tied outcome
