@@ -21,7 +21,7 @@ mod circuit_breaker;
 mod config;
 mod disputes;
 mod edge_cases;
-mod errors;
+pub mod errors;
 mod event_archive;
 mod events;
 mod extensions;
@@ -73,9 +73,9 @@ mod property_based_tests;
 #[cfg(test)]
 mod upgrade_manager_tests;
 
+mod bet_tests;
 #[cfg(test)]
 mod query_tests;
-mod bet_tests;
 
 #[cfg(test)]
 mod balance_tests;
@@ -2085,11 +2085,7 @@ impl PredictifyHybrid {
     ) -> Result<(), Error> {
         admin.require_auth();
         oracles::OracleIntegrationManager::admin_override_result(
-            &env,
-            &admin,
-            &market_id,
-            &outcome,
-            &reason,
+            &env, &admin, &market_id, &outcome, &reason,
         )
     }
 

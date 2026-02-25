@@ -29,9 +29,7 @@ use soroban_sdk::{
     vec, IntoVal, String, Symbol, TryFromVal, TryIntoVal,
 };
 
-use crate::market_analytics::{
-    MarketStatistics, VotingAnalytics, FeeAnalytics, TimeFrame
-};
+use crate::market_analytics::{FeeAnalytics, MarketStatistics, TimeFrame, VotingAnalytics};
 use crate::resolution::ResolutionAnalytics;
 
 // Test setup structures 
@@ -688,8 +686,12 @@ fn test_multiple_oracle_price_aggregation() {
     let oracle2 = crate::oracles::ReflectorOracle::new(Address::generate(&env));
 
     // Get prices from both oracles
-    let price1 = oracle1.get_price(&env, &String::from_str(&env, "BTC/USD")).unwrap();
-    let price2 = oracle2.get_price(&env, &String::from_str(&env, "BTC/USD")).unwrap();
+    let price1 = oracle1
+        .get_price(&env, &String::from_str(&env, "BTC/USD"))
+        .unwrap();
+    let price2 = oracle2
+        .get_price(&env, &String::from_str(&env, "BTC/USD"))
+        .unwrap();
 
     // In current mock implementation, both return same price
     assert_eq!(price1, price2);
@@ -712,8 +714,9 @@ fn test_oracle_consensus_logic() {
         average,
         threshold,
         &String::from_str(&env, "gt"),
-        &env
-    ).unwrap();
+        &env,
+    )
+    .unwrap();
 
     assert!(consensus_result); // Average (2600000) > threshold (2550000)
 }
@@ -747,11 +750,11 @@ fn test_extreme_price_values() {
 
     // Test with various price ranges
     let test_cases = [
-        (1_i128, true),           // Valid small price
-        (1000_i128, true),        // Valid medium price
-        (100000000_i128, true),   // Valid large price
-        (0_i128, false),          // Invalid zero price
-        (-1000_i128, false),      // Invalid negative price
+        (1_i128, true),         // Valid small price
+        (1000_i128, true),      // Valid medium price
+        (100000000_i128, true), // Valid large price
+        (0_i128, false),        // Invalid zero price
+        (-1000_i128, false),    // Invalid negative price
     ];
 
     for (price, should_be_valid) in test_cases {
@@ -759,7 +762,11 @@ fn test_extreme_price_values() {
         if should_be_valid {
             assert!(validation_result.is_ok(), "Price {} should be valid", price);
         } else {
-            assert!(validation_result.is_err(), "Price {} should be invalid", price);
+            assert!(
+                validation_result.is_err(),
+                "Price {} should be invalid",
+                price
+            );
         }
     }
 }
@@ -798,18 +805,30 @@ fn test_price_comparison_operations() {
 
     // Test all comparison operators
     let gt_result = crate::oracles::OracleUtils::compare_prices(
-        price, threshold, &String::from_str(&env, "gt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "gt"),
+        &env,
+    )
+    .unwrap();
     assert!(gt_result);
 
     let lt_result = crate::oracles::OracleUtils::compare_prices(
-        price, threshold, &String::from_str(&env, "lt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "lt"),
+        &env,
+    )
+    .unwrap();
     assert!(!lt_result);
 
     let eq_result = crate::oracles::OracleUtils::compare_prices(
-        threshold, threshold, &String::from_str(&env, "eq"), &env
-    ).unwrap();
+        threshold,
+        threshold,
+        &String::from_str(&env, "eq"),
+        &env,
+    )
+    .unwrap();
     assert!(eq_result);
 }
 
@@ -821,8 +840,12 @@ fn test_market_outcome_determination() {
     let threshold = 2500000; // $25k
 
     let outcome = crate::oracles::OracleUtils::determine_outcome(
-        price, threshold, &String::from_str(&env, "gt"), &env
-    ).unwrap();
+        price,
+        threshold,
+        &String::from_str(&env, "gt"),
+        &env,
+    )
+    .unwrap();
 
     assert_eq!(outcome, String::from_str(&env, "yes"));
 }
@@ -836,7 +859,8 @@ fn test_oracle_response_validation() {
     // Test invalid responses
     assert!(crate::oracles::OracleUtils::validate_oracle_response(0).is_err()); // Zero
     assert!(crate::oracles::OracleUtils::validate_oracle_response(-1000).is_err()); // Negative
-    assert!(crate::oracles::OracleUtils::validate_oracle_response(200_000_000_00).is_err()); // Too high
+    assert!(crate::oracles::OracleUtils::validate_oracle_response(200_000_000_00).is_err());
+    // Too high
 }
 
 // ===== ORACLE FACTORY TESTS =====
@@ -844,12 +868,20 @@ fn test_oracle_response_validation() {
 #[test]
 fn test_oracle_factory_supported_providers() {
     // Test supported providers
-    assert!(crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::Reflector));
+    assert!(crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::Reflector
+    ));
 
     // Test unsupported providers
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::Pyth));
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::BandProtocol));
-    assert!(!crate::oracles::OracleFactory::is_provider_supported(&OracleProvider::DIA));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::Pyth
+    ));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::BandProtocol
+    ));
+    assert!(!crate::oracles::OracleFactory::is_provider_supported(
+        &OracleProvider::DIA
+    ));
 }
 
 #[test]
@@ -858,7 +890,10 @@ fn test_oracle_factory_creation() {
     let contract_id = Address::generate(&env);
 
     // Test successful creation
-    let result = crate::oracles::OracleFactory::create_oracle(OracleProvider::Reflector, contract_id.clone());
+    let result = crate::oracles::OracleFactory::create_oracle(
+        OracleProvider::Reflector,
+        contract_id.clone(),
+    );
     assert!(result.is_ok());
 
     // Test failed creation
@@ -1196,7 +1231,6 @@ fn test_initialize_storage_verification() {
         assert!(admin_result.is_some());
     });
 }
-
 
 // ===== TESTS FOR AUTOMATIC PAYOUT DISTRIBUTION (#202) =====
 
