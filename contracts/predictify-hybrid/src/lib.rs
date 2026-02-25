@@ -104,6 +104,9 @@ mod event_creation_tests;
 #[cfg(test)]
 mod unclaimed_winnings_timeout_tests;
 
+#[cfg(test)]
+mod metadata_validation_tests;
+
 // Re-export commonly used items
 use admin::{AdminAnalyticsResult, AdminInitializer, AdminManager, AdminPermission, AdminRole};
 pub use errors::Error;
