@@ -36,7 +36,10 @@ fn create_test_market(
 
     let oracle_config = OracleConfig {
         provider: OracleProvider::Reflector,
-        oracle_address: soroban_sdk::Address::from_str(env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+        oracle_address: soroban_sdk::Address::from_str(
+            env,
+            "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+        ),
         feed_id: String::from_str(env, "BTC/USD"),
         threshold: 100,
         comparison: String::from_str(env, "gte"),
@@ -283,7 +286,10 @@ impl TokenTestSetup {
             &30,
             &OracleConfig {
                 provider: OracleProvider::Reflector,
-                oracle_address: soroban_sdk::Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+                oracle_address: soroban_sdk::Address::from_str(
+                    &env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
                 feed_id: String::from_str(&env, "BTC/USD"),
                 threshold: 100,
                 comparison: String::from_str(&env, "gte"),

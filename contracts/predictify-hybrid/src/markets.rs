@@ -117,8 +117,8 @@ impl MarketCreator {
             outcomes,
             end_time,
             oracle_config,
-            None,    // fallback_oracle_config
-            86400,   // resolution_timeout (1 day)
+            None,  // fallback_oracle_config
+            86400, // resolution_timeout (1 day)
             MarketState::Active,
         );
 
@@ -2374,7 +2374,10 @@ impl MarketTestHelpers {
             30,
             OracleConfig::new(
                 OracleProvider::Pyth,
-                Address::from_str(_env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+                Address::from_str(
+                    _env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
                 String::from_str(_env, "BTC/USD"),
                 25_000_00,
                 String::from_str(_env, "gt"),
@@ -3092,7 +3095,10 @@ mod tests {
             env.ledger().timestamp() + 86400,
             OracleConfig::new(
                 OracleProvider::Pyth,
-                Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+                Address::from_str(
+                    &env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
                 String::from_str(&env, "BTC/USD"),
                 25_000_00,
                 String::from_str(&env, "gt"),

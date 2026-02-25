@@ -1290,7 +1290,10 @@ impl MarketResolutionManager {
         if let Err(Error::InvalidState) = validation {
             let min_pool = market.min_pool_size.unwrap_or(0);
             crate::events::EventEmitter::emit_min_pool_size_not_met(
-                env, market_id, market.total_staked, min_pool,
+                env,
+                market_id,
+                market.total_staked,
+                min_pool,
             );
             return Err(Error::InvalidState);
         }
@@ -1698,9 +1701,7 @@ impl ResolutionUtils {
 
     /// Check if market can be resolved
     pub fn can_resolve_market(env: &Env, market: &Market) -> bool {
-        market.has_ended(env)
-            && market.oracle_result.is_some()
-            && market.winning_outcomes.is_none()
+        market.has_ended(env) && market.oracle_result.is_some() && market.winning_outcomes.is_none()
     }
 
     /// Get resolution eligibility

@@ -58,7 +58,10 @@ impl TestSetup {
         let client = PredictifyHybridClient::new(&self.env, &self.contract_id);
         let oracle_config = OracleConfig::new(
             OracleProvider::Reflector,
-            Address::from_str(&self.env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
+            Address::from_str(
+                &self.env,
+                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+            ),
             String::from_str(&self.env, "BTC/USD"),
             5000000,
             String::from_str(&self.env, "gt"),
