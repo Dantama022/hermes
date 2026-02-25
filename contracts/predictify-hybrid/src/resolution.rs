@@ -1288,9 +1288,17 @@ impl MarketResolutionManager {
         // Validate market for resolution (includes min pool size check)
         let validation = MarketResolutionValidator::validate_market_for_resolution(env, &market);
         if let Err(Error::InvalidState) = validation {
-            let min_pool = market.min_pool_size.unwrap_or(0);
+            let global_min: i128 = env
+                .storage()
+                .persistent()
+                .get(&Symbol::new(env, "global_min_pool"))
+                .unwrap_or(0);
+            let min_pool = market.min_pool_size.unwrap_or(global_min);
             crate::events::EventEmitter::emit_min_pool_size_not_met(
-                env, market_id, market.total_staked, min_pool,
+                env,
+                market_id,
+                market.total_staked,
+                min_pool,
             );
             return Err(Error::InvalidState);
         }
@@ -1528,11 +1536,15 @@ impl MarketResolutionValidator {
             return Err(Error::MarketClosed);
         }
 
-        // Check minimum pool size requirement
-        if let Some(min_pool) = market.min_pool_size {
-            if min_pool > 0 && market.total_staked < min_pool {
-                return Err(Error::InvalidState);
-            }
+        // Check minimum pool size requirement (per-market override, else global)
+        let global_min: i128 = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(env, "global_min_pool"))
+            .unwrap_or(0);
+        let min_pool = market.min_pool_size.unwrap_or(global_min);
+        if min_pool > 0 && market.total_staked < min_pool {
+            return Err(Error::InvalidState);
         }
 
         Ok(())
@@ -1698,9 +1710,7 @@ impl ResolutionUtils {
 
     /// Check if market can be resolved
     pub fn can_resolve_market(env: &Env, market: &Market) -> bool {
-        market.has_ended(env)
-            && market.oracle_result.is_some()
-            && market.winning_outcomes.is_none()
+        market.has_ended(env) && market.oracle_result.is_some() && market.winning_outcomes.is_none()
     }
 
     /// Get resolution eligibility
