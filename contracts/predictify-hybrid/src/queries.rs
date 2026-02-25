@@ -205,15 +205,9 @@ impl QueryManager {
         let market = Self::get_market_from_storage(env, &market_id)?;
 
         // Check if user has participated
-        let outcome = market
-            .votes
-            .get(user.clone())
-            .ok_or(Error::InvalidInput)?;
+        let outcome = market.votes.get(user.clone()).ok_or(Error::InvalidInput)?;
 
-        let stake_amount = market
-            .stakes
-            .get(user.clone())
-            .ok_or(Error::InvalidInput)?;
+        let stake_amount = market.stakes.get(user.clone()).ok_or(Error::InvalidInput)?;
 
         let has_claimed = market.claimed.get(user.clone()).unwrap_or(false);
 
@@ -430,7 +424,7 @@ impl QueryManager {
             resolved_markets,
             total_value_locked,
             total_fees_collected: 0i128, // TODO: Retrieve from fees module
-            unique_users: 0u32, // TODO: Calculate from user index
+            unique_users: 0u32,          // TODO: Calculate from user index
             contract_version: String::from_str(env, "1.0.0"),
             last_update: env.ledger().timestamp(),
         };
