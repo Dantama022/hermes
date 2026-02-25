@@ -1491,7 +1491,7 @@ impl InputValidator {
         Self::validate_array_size(outcomes, config::MAX_MARKET_OUTCOMES)?;
         
         // Validate minimum number of outcomes
-        if outcomes.len() < config::MIN_MARKET_OUTCOMES as usize {
+        if (outcomes.len() as u32) < config::MIN_MARKET_OUTCOMES {
             return Err(ValidationError::ArrayTooSmall);
         }
         
@@ -1534,7 +1534,7 @@ impl InputValidator {
         }
         
         // Validate maximum number of tags
-        if tags.len() > config::MAX_TAGS_PER_MARKET as usize {
+        if (tags.len() as u32) > config::MAX_TAGS_PER_MARKET {
             return Err(ValidationError::ArrayTooLarge);
         }
         

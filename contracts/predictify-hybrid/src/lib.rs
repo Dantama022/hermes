@@ -396,6 +396,15 @@ impl PredictifyHybrid {
             panic_with_error!(env, Error::InvalidInput);
         }
 
+        // Validate metadata using InputValidator
+        if let Err(_) = crate::validation::InputValidator::validate_question_length(&question) {
+            panic_with_error!(env, Error::InvalidQuestion);
+        }
+
+        if let Err(_) = crate::validation::InputValidator::validate_outcomes(&outcomes) {
+            panic_with_error!(env, Error::InvalidOutcomes);
+        }
+
         // Validate inputs
         if outcomes.len() < 2 {
             panic_with_error!(env, Error::InvalidOutcomes);

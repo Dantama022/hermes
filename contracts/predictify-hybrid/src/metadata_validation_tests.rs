@@ -12,6 +12,9 @@
 
 #![cfg(test)]
 
+extern crate alloc;
+use alloc::format;
+
 use crate::config;
 use crate::types::{OracleConfig, OracleProvider};
 use crate::validation::{InputValidator, ValidationError};
@@ -443,6 +446,9 @@ fn test_create_market_with_valid_metadata() {
         &oracle_config,
         &None,
         &604800,
+        &None, // min_pool_size
+        &None, // bet_deadline_mins_before_end
+        &None, // dispute_window_seconds
     );
     
     // Verify market was created (market_id is a Symbol, just check it's not empty by converting to bytes)
@@ -450,7 +456,7 @@ fn test_create_market_with_valid_metadata() {
 }
 
 #[test]
-#[should_panic(expected = "InvalidQuestion")]
+#[should_panic(expected = "#300")]
 fn test_create_market_with_short_question() {
     let test = MetadataTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
@@ -469,11 +475,14 @@ fn test_create_market_with_short_question() {
         &oracle_config,
         &None,
         &604800,
+        &None, // min_pool_size
+        &None, // bet_deadline_mins_before_end
+        &None, // dispute_window_seconds
     );
 }
 
 #[test]
-#[should_panic(expected = "InvalidQuestion")]
+#[should_panic(expected = "#300")]
 fn test_create_market_with_long_question() {
     let test = MetadataTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
@@ -493,11 +502,14 @@ fn test_create_market_with_long_question() {
         &oracle_config,
         &None,
         &604800,
+        &None, // min_pool_size
+        &None, // bet_deadline_mins_before_end
+        &None, // dispute_window_seconds
     );
 }
 
 #[test]
-#[should_panic(expected = "InvalidOutcome")]
+#[should_panic(expected = "#301")]
 fn test_create_market_with_short_outcome() {
     let test = MetadataTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
@@ -520,11 +532,14 @@ fn test_create_market_with_short_outcome() {
         &oracle_config,
         &None,
         &604800,
+        &None, // min_pool_size
+        &None, // bet_deadline_mins_before_end
+        &None, // dispute_window_seconds
     );
 }
 
 #[test]
-#[should_panic(expected = "InvalidOutcome")]
+#[should_panic(expected = "#301")]
 fn test_create_market_with_long_outcome() {
     let test = MetadataTest::setup();
     let client = PredictifyHybridClient::new(&test.env, &test.contract_id);
@@ -548,6 +563,9 @@ fn test_create_market_with_long_outcome() {
         &oracle_config,
         &None,
         &604800,
+        &None, // min_pool_size
+        &None, // bet_deadline_mins_before_end
+        &None, // dispute_window_seconds
     );
 }
 
