@@ -246,7 +246,7 @@ fn test_approve_action_not_found() {
     
     env.as_contract(&contract_id, || {
         let result = MultisigManager::approve_action(&env, &admin, 999);
-        assert_eq!(result, Err(Error::NotFound));
+        assert_eq!(result, Err(Error::ConfigNotFound));
     });
 }
 

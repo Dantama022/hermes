@@ -1720,14 +1720,14 @@ impl MultisigManager {
         AdminAccessControl::validate_permission(env, admin, &AdminPermission::EmergencyActions)?;
         
         let key = Self::get_action_key(env, action_id);
-        let mut action: PendingAdminAction = env.storage().persistent().get(&key).ok_or(Error::NotFound)?;
+        let mut action: PendingAdminAction = env.storage().persistent().get(&key).ok_or(Error::ConfigNotFound)?;
         
         if action.executed {
             return Err(Error::InvalidState);
         }
         
         if env.ledger().timestamp() > action.expires_at {
-            return Err(Error::Expired);
+            return Err(Error::DisputeVoteExpired);
         }
         
         if action.approvals.contains(admin) {
@@ -1744,7 +1744,7 @@ impl MultisigManager {
     /// Execute a pending action if threshold is met
     pub fn execute_action(env: &Env, action_id: u64) -> Result<(), Error> {
         let key = Self::get_action_key(env, action_id);
-        let mut action: PendingAdminAction = env.storage().persistent().get(&key).ok_or(Error::NotFound)?;
+        let mut action: PendingAdminAction = env.storage().persistent().get(&key).ok_or(Error::ConfigNotFound)?;
         
         if action.executed {
             return Err(Error::InvalidState);
