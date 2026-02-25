@@ -678,6 +678,46 @@ impl EventManager {
     }
 }
 
+// ===== CREATOR LIMITS STORAGE =====
+
+/// Manager for creator-related limit and tracking operations
+pub struct CreatorLimitsManager;
+
+impl CreatorLimitsManager {
+    /// Get the storage key for a specific creator's active events count
+    fn get_active_events_key(env: &Env, creator: &Address) -> Symbol {
+        let mut key_bytes = soroban_sdk::Bytes::new(env);
+        key_bytes.append(&soroban_sdk::Bytes::from_slice(env, b"ActiveEvents_"));
+        // Simply use a composite struct to represent the key to avoid complex byte manipulation. 
+        // A common pattern in Soroban is a tuple `(Symbol, Address)`.
+        Symbol::new(env, "ActiveEvt") // we will construct a tuple key instead in the actual methods
+    }
+
+    /// Retrieve the number of active events for a given creator
+    pub fn get_active_events(env: &Env, creator: &Address) -> u32 {
+        let key = (Symbol::new(env, "ActiveEvents"), creator.clone());
+        env.storage().persistent().get(&key).unwrap_or(0)
+    }
+
+    /// Increment a creator's active events count by 1
+    pub fn increment_active_events(env: &Env, creator: &Address) {
+        let key = (Symbol::new(env, "ActiveEvents"), creator.clone());
+        let current_count: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(current_count + 1));
+    }
+
+    /// Decrement a creator's active events count by 1
+    pub fn decrement_active_events(env: &Env, creator: &Address) {
+        let key = (Symbol::new(env, "ActiveEvents"), creator.clone());
+        let current_count: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+        
+        // Prevent underflow if count is already 0
+        if current_count > 0 {
+            env.storage().persistent().set(&key, &(current_count - 1));
+        }
+    }
+}
+
 // ===== STORAGE UTILITIES =====
 
 /// Storage utility functions
@@ -762,10 +802,13 @@ mod tests {
             env.ledger().timestamp() + 86400,
             OracleConfig::new(
                 OracleProvider::Reflector,
+                soroban_sdk::Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
                 String::from_str(&env, "BTC"),
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            86400,
             MarketState::Active,
         );
 
@@ -814,10 +857,13 @@ mod tests {
             env.ledger().timestamp() + 86400,
             OracleConfig::new(
                 OracleProvider::Reflector,
+                soroban_sdk::Address::from_str(&env, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"),
                 String::from_str(&env, "BTC"),
                 2500000,
                 String::from_str(&env, "gt"),
             ),
+            None,
+            86400,
             MarketState::Active,
         );
 

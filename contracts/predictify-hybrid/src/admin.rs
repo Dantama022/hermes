@@ -1,4 +1,5 @@
 extern crate alloc;
+use alloc::format;
 use soroban_sdk::{contracttype, Address, Env, Map, String, Symbol, Vec};
 // use alloc::string::ToString; // Unused import
 
@@ -587,7 +588,93 @@ impl AdminAccessControl {
 
         Ok(())
     }
+}
 
+// ===== CONTRACT PAUSE AND ADMIN TRANSFER =====
+
+const CONTRACT_PAUSED_KEY: &str = "ContractPaused";
+
+/// Contract-level pause and primary admin transfer.
+pub struct ContractPauseManager;
+
+impl ContractPauseManager {
+    /// Returns true if the contract is currently paused.
+    pub fn is_contract_paused(env: &Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(env, CONTRACT_PAUSED_KEY))
+            .unwrap_or(false)
+    }
+
+    /// Pause contract operations. Caller must be the current primary admin.
+    pub fn pause(env: &Env, admin: &Address) -> Result<(), Error> {
+        admin.require_auth();
+        let stored: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(env, "Admin"))
+            .ok_or(Error::AdminNotSet)?;
+        if admin != &stored {
+            return Err(Error::Unauthorized);
+        }
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(env, CONTRACT_PAUSED_KEY), &true);
+        EventEmitter::emit_contract_paused(env, admin);
+        Ok(())
+    }
+
+    /// Unpause contract operations. Caller must be the current primary admin.
+    pub fn unpause(env: &Env, admin: &Address) -> Result<(), Error> {
+        admin.require_auth();
+        let stored: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(env, "Admin"))
+            .ok_or(Error::AdminNotSet)?;
+        if admin != &stored {
+            return Err(Error::Unauthorized);
+        }
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(env, CONTRACT_PAUSED_KEY), &false);
+        EventEmitter::emit_contract_unpaused(env, admin);
+        Ok(())
+    }
+
+    /// Require that the contract is not paused; return Error::InvalidState otherwise.
+    pub fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if Self::is_contract_paused(env) {
+            return Err(Error::InvalidState);
+        }
+        Ok(())
+    }
+
+    /// Transfer the primary admin role to a new address. Caller must be the current primary admin.
+    /// New admin must not be the zero/invalid address.
+    pub fn transfer_admin(env: &Env, current_admin: &Address, new_admin: &Address) -> Result<(), Error> {
+        current_admin.require_auth();
+        let stored: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(env, "Admin"))
+            .ok_or(Error::AdminNotSet)?;
+        if current_admin != &stored {
+            return Err(Error::Unauthorized);
+        }
+        if new_admin == current_admin {
+            return Err(Error::InvalidInput);
+        }
+        AdminValidator::validate_admin_address(env, new_admin)?;
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(env, "Admin"), new_admin);
+        EventEmitter::emit_admin_transferred(env, current_admin, new_admin);
+        Ok(())
+    }
+}
+
+impl AdminAccessControl {
     /// Validates admin authentication and permissions for a specific action.
     ///
     /// This comprehensive validation function combines authentication and
