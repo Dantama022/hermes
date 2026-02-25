@@ -160,6 +160,8 @@ impl GasTestContext {
             &None,
             &3600,
             &None,
+            &None,
+            &None,
         )
     }
 }
@@ -216,6 +218,8 @@ fn test_gas_create_market_minimal() {
         &None,
         &3600,
         &None,
+        &None,
+        &None,
     );
     
     // Verify: Market created with minimal data
@@ -258,6 +262,8 @@ fn test_gas_create_market_maximal() {
         },
         &None,
         &3600,
+        &None,
+        &None,
         &None,
     );
     
@@ -409,6 +415,8 @@ fn test_gas_operations_within_expected_ranges() {
         },
         &None,
         &3600,
+        &None,
+        &None,
         &None,
     );
     
