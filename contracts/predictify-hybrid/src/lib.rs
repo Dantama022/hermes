@@ -718,11 +718,6 @@ impl PredictifyHybrid {
             panic_with_error!(env, e.to_contract_error());
         }
 
-        // Process event creation fee using the shared fee manager.
-        if let Err(e) = crate::fees::FeeManager::process_creation_fee(&env, &admin) {
-            panic_with_error!(env, e);
-        }
-
         // Generate a unique collision-resistant event ID (reusing market ID generator)
         let event_id = MarketIdGenerator::generate_market_id(&env, &admin);
 
@@ -747,6 +742,12 @@ impl PredictifyHybrid {
             allowlist: Vec::new(&env),
         };
 
+        // Collect creation fee before persisting the event so failed payments abort creation.
+        let creation_fee = match crate::markets::MarketUtils::process_creation_fee(&env, &admin) {
+            Ok(amount) => amount,
+            Err(e) => panic_with_error!(env, e),
+        };
+
         // Store the event
         crate::storage::EventManager::store_event(&env, &event);
 
@@ -763,8 +764,18 @@ impl PredictifyHybrid {
             end_time,
         );
 
-        // Emit visibility set event
-        EventEmitter::emit_event_visibility_set(&env, &event_id, &visibility, &admin);
+        if creation_fee > 0 {
+            EventEmitter::emit_fee_collected(
+                &env,
+                &event_id,
+                &admin,
+                creation_fee,
+                &String::from_str(&env, "creation_fee"),
+            );
+        }
+
+        // Record statistics (optional, can reuse market stats for now)
+        // statistics::StatisticsManager::record_market_created(&env);
 
         crate::gas::GasTracker::end_tracking(
             &env,
@@ -1652,17 +1663,79 @@ impl PredictifyHybrid {
         }
         let gas_marker = crate::gas::GasTracker::start_tracking(&env);
         user.require_auth();
-        if ReentrancyGuard::check_reentrancy_state(&env).is_err() {
+        Self::claim_winnings_internal(&env, &user, &market_id);
+        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("claim"), gas_marker);
+    }
+
+    /// Claims winnings across multiple markets atomically for a single user.
+    ///
+    /// This function validates every claim first, then executes all claims in one transaction.
+    /// If any claim is invalid, the entire batch is reverted.
+    ///
+    /// # Panics
+    ///
+    /// Panics with:
+    /// - `Error::InvalidInput` for empty batch, oversized batch, or duplicate market IDs
+    /// - Any error from `claim_winnings` for invalid claims
+    pub fn batch_claim_winnings(env: Env, user: Address, market_ids: Vec<Symbol>) {
+        const MAX_BATCH_CLAIMS: u32 = 50;
+
+        if market_ids.is_empty() {
+            panic_with_error!(env, Error::InvalidInput);
+        }
+
+        if market_ids.len() as u32 > MAX_BATCH_CLAIMS {
+            panic_with_error!(env, Error::InvalidInput);
+        }
+
+        // Pre-validate all claims to enforce all-or-nothing behavior.
+        let mut seen_markets: Vec<Symbol> = Vec::new(&env);
+        for market_id in market_ids.iter() {
+            if seen_markets.contains(&market_id) {
+                panic_with_error!(env, Error::InvalidInput);
+            }
+            seen_markets.push_back(market_id.clone());
+
+            let market: Market = env
+                .storage()
+                .persistent()
+                .get(&market_id)
+                .unwrap_or_else(|| panic_with_error!(env, Error::MarketNotFound));
+
+            if market.claimed.get(user.clone()).unwrap_or(false) {
+                panic_with_error!(env, Error::AlreadyClaimed);
+            }
+
+            let winning_outcomes = match &market.winning_outcomes {
+                Some(outcomes) => outcomes,
+                None => panic_with_error!(env, Error::MarketNotResolved),
+            };
+
+            let user_outcome = market
+                .votes
+                .get(user.clone())
+                .unwrap_or_else(|| panic_with_error!(env, Error::NothingToClaim));
+
+            if !winning_outcomes.contains(&user_outcome) {
+                panic_with_error!(env, Error::NothingToClaim);
+            }
+        }
+
+        for market_id in market_ids.iter() {
+            Self::claim_winnings_internal(&env, &user, &market_id);
+        }
+    }
+
+    fn claim_winnings_internal(env: &Env, user: &Address, market_id: &Symbol) {
+        if ReentrancyGuard::check_reentrancy_state(env).is_err() {
             panic_with_error!(env, Error::InvalidState);
         }
 
         let mut market: Market = env
             .storage()
             .persistent()
-            .get(&market_id)
-            .unwrap_or_else(|| {
-                panic_with_error!(env, Error::MarketNotFound);
-            });
+            .get(market_id)
+            .unwrap_or_else(|| panic_with_error!(env, Error::MarketNotFound));
 
         // Enforce claim timeout period
         let claim_period = Self::get_effective_claim_period(env.clone(), market_id.clone());
@@ -1702,7 +1775,7 @@ impl PredictifyHybrid {
 
             if winning_total > 0 {
                 // Retrieve dynamic platform fee percentage from configuration
-                let cfg = match crate::config::ConfigManager::get_config(&env) {
+                let cfg = match crate::config::ConfigManager::get_config(env) {
                     Ok(c) => c,
                     Err(_) => panic_with_error!(env, Error::ConfigNotFound),
                 };
@@ -1717,49 +1790,26 @@ impl PredictifyHybrid {
                     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
                 let payout = product / winning_total;
 
-                // Calculate fee amount for statistics
-                // Payout is net of fee. Fee was deducted in user_share calculation.
-                // Gross payout would be (user_stake * total_pool) / winning_total
-                // Logic check:
-                // user_share = user_stake * (1 - fee)
-                // payout = user_share * pool / winning_total
-                // payout = user_stake * (1-fee) * pool / winning_total
-                // payout = (user_stake * pool / winning_total) - (user_stake * pool / winning_total * fee)
-                // So Fee = (user_stake * pool / winning_total) * fee
-                // Or Fee = Payout / (1 - fee) * fee ? No, division precision.
-                // Simpler: Fee = (Payout * fee_percent) / (100 - fee_percent)?
-                // Let's rely on explicit calculation if possible or approximation.
-                // Actually, let's re-calculate gross to get fee.
-                // Gross = (user_stake * total_pool) / winning_total.
-                // Fee = Gross - Payout.
-
-                let gross_share = (user_stake
-                    .checked_mul(PERCENTAGE_DENOMINATOR)
-                    .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput)))
-                    / PERCENTAGE_DENOMINATOR;
-                // Wait, user_stake * 100 / 100 = user_stake.
-                // The math above used PERCENTAGE_DENOMINATOR (100).
-
                 let product_gross = user_stake
                     .checked_mul(total_pool)
                     .unwrap_or_else(|| panic_with_error!(env, Error::InvalidInput));
                 let gross_payout = product_gross / winning_total;
                 let fee_amount = gross_payout - payout;
 
-                statistics::StatisticsManager::record_winnings_claimed(&env, &user, payout);
-                statistics::StatisticsManager::record_fees_collected(&env, fee_amount);
+                statistics::StatisticsManager::record_winnings_claimed(env, user, payout);
+                statistics::StatisticsManager::record_fees_collected(env, fee_amount);
 
                 // Mark as claimed
                 market.claimed.set(user.clone(), true);
-                env.storage().persistent().set(&market_id, &market);
+                env.storage().persistent().set(market_id, &market);
 
                 // Emit winnings claimed event
-                EventEmitter::emit_winnings_claimed(&env, &market_id, &user, payout);
+                EventEmitter::emit_winnings_claimed(env, market_id, user, payout);
 
                 // Credit tokens to user balance
                 match storage::BalanceStorage::add_balance(
-                    &env,
-                    &user,
+                    env,
+                    user,
                     &types::ReflectorAsset::Stellar,
                     payout,
                 ) {
@@ -1767,11 +1817,6 @@ impl PredictifyHybrid {
                     Err(e) => panic_with_error!(env, e),
                 }
 
-                crate::gas::GasTracker::end_tracking(
-                    &env,
-                    soroban_sdk::symbol_short!("claim"),
-                    gas_marker,
-                );
                 return;
             }
         }
@@ -1780,7 +1825,6 @@ impl PredictifyHybrid {
         market.claimed.set(user.clone(), true);
         env.storage().persistent().set(&market_id, &market);
 
-        crate::gas::GasTracker::end_tracking(&env, soroban_sdk::symbol_short!("claim"), gas_marker);
     }
 
     /// Sweeps unclaimed winning payouts after claim timeout to treasury or burns them.
