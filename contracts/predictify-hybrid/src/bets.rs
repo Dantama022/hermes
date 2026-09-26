@@ -580,8 +580,10 @@ impl BetManager {
     ///
     /// # Atomicity
     ///
-    /// All bets are validated before any funds are locked. If any bet fails,
-    /// the entire transaction reverts with no state changes.
+    /// Every entry is fully validated (market state, outcome, limits, duplicate
+    /// markets, existing bets, per-user cap, overflow) before any storage write
+    /// or token transfer. If entry #3 of 5 fails, entries #1 and #2 are never
+    /// written and the call returns with no state change.
     ///
     /// # Errors
     ///
@@ -590,7 +592,9 @@ impl BetManager {
     /// - `Error::IdempotentBatchAlreadyApplied` - This idempotency key has already been consumed
     /// - `Error::MarketNotFound` - Any market does not exist
     /// - `Error::MarketClosed` - Any market has ended or is not active
-    /// - `Error::AlreadyBet` - User has already bet on any market
+    /// - `Error::AlreadyBet` - User has already bet on any market, or the batch
+    ///   lists the same market more than once
+    /// - `Error::MaxBetCapExceeded` - Any bet would push the user's stake over the cap
     /// - `Error::InsufficientStake` - Any bet amount below minimum
     /// - `Error::InvalidOutcome` - Any outcome not valid for its market
     /// - `Error::InsufficientBalance` - User doesn't have enough total funds
@@ -612,14 +616,13 @@ impl BetManager {
             return Err(Error::IdempotentBatchAlreadyApplied);
         }
 
-        // Slippage check: verify live fee is not above the maximum acceptable threshold
-        // max_fee_bps == 0 means no slippage guard
-        if max_fee_bps > 0 {
-            let actual_fee = Self::get_live_fee_percentage(env)?;
-            if actual_fee > max_fee_bps {
-                return Err(Error::FeeExceedsMax);
-            }
-        }
+        // =====================================================================
+        // Phase 1: Validate the ENTIRE batch. No storage writes, no transfers.
+        //
+        // Every check that can reject a bet runs here, for every entry, before
+        // anything is committed. If entry #3 of 5 fails, entries #1 and #2
+        // have not touched storage and the call returns with no state change.
+        // =====================================================================
 
         // Validate batch size
         if bets.is_empty() {
@@ -630,22 +633,37 @@ impl BetManager {
             return Err(Error::BatchSizeExceeded);
         }
 
-        // Phase 1: Validate all bets and collect data
+        // Slippage check: verify live fee is not above the maximum acceptable threshold
+        // max_fee_bps == 0 means no slippage guard
+        if max_fee_bps > 0 {
+            let actual_fee = Self::get_live_fee_percentage(env)?;
+            if actual_fee > max_fee_bps {
+                return Err(Error::FeeExceedsMax);
+            }
+        }
+
         // Enforce fee slippage guard once for the batch
         BetValidator::validate_fee_slippage(env, max_fee_bps)?;
 
-        let mut markets = soroban_sdk::Vec::new(env);
+        // Markets with their post-batch `total_staked` already computed, so the
+        // commit phase has no fallible arithmetic left.
+        let mut markets: soroban_sdk::Vec<Market> = soroban_sdk::Vec::new(env);
+        let mut seen_markets: soroban_sdk::Vec<Symbol> = soroban_sdk::Vec::new(env);
         let mut total_amount: i128 = 0;
 
         for bet_data in bets.iter() {
             let (market_id, outcome, amount) = bet_data;
 
-            // Enforce global per-ledger bet cap for each bet in the batch
-            let rate_limiter = crate::rate_limiter::RateLimiter::new(env.clone());
-            rate_limiter.rate_limit_global_bets_per_ledger()?;
+            // A user may hold only one bet per market. Two entries for the same
+            // market would pass the storage-based AlreadyBet check below (neither
+            // is stored yet) and the second would silently overwrite the first.
+            if seen_markets.contains(&market_id) {
+                return Err(Error::AlreadyBet);
+            }
+            seen_markets.push_back(market_id.clone());
 
             // Get and validate market
-            let market = MarketStateManager::get_market(env, &market_id)?;
+            let mut market = MarketStateManager::get_market(env, &market_id)?;
             BetValidator::validate_market_for_betting(env, &market)?;
 
             // Validate bet parameters
@@ -667,19 +685,43 @@ impl BetManager {
                 }
             }
 
+            // Per-user max bet cap (same check as single `place_bet`). Safe to
+            // evaluate against stored stake because market ids are unique within
+            // the batch, so no earlier entry contributes to this market's stake.
+            BetValidator::validate_user_stake_under_cap(env, &market_id, &user, amount)?;
+
+            // Pre-compute the market's new total so overflow is caught now,
+            // not halfway through the commit loop.
+            market.total_staked = market
+                .total_staked
+                .checked_add(amount)
+                .ok_or(Error::InvalidInput)?;
+
             // Accumulate total amount
             total_amount = total_amount
                 .checked_add(amount)
                 .ok_or(Error::InvalidInput)?;
 
-            // Store market for later use
             markets.push_back(market);
         }
 
+        // Enforce the global per-ledger bet cap for each bet in the batch. The
+        // limiter records a counter as it checks, so it runs only after every
+        // entry has validated; a rejection here still aborts the invocation,
+        // which rolls back the counter increments.
+        let rate_limiter = crate::rate_limiter::RateLimiter::new(env.clone());
+        for _ in 0..bets.len() {
+            rate_limiter.rate_limit_global_bets_per_ledger()?;
+        }
+
+        // =====================================================================
         // Phase 2: Lock total funds once (more efficient than per-bet transfers)
+        // =====================================================================
         BetUtils::lock_funds(env, &user, total_amount)?;
 
-        // Phase 3: Create and store all bets
+        // =====================================================================
+        // Phase 3: Commit all bets. Every entry has already been validated.
+        // =====================================================================
         let mut placed_bets = soroban_sdk::Vec::new(env);
 
         for (i, bet_data) in bets.iter().enumerate() {
@@ -698,16 +740,28 @@ impl BetManager {
             // Store bet
             BetStorage::store_bet(env, &bet)?;
 
+            // Update user stake for per-user max bet cap tracking
+            BetValidator::update_user_stake(env, &market_id, &user, amount)?;
+
+            // Per-market leaderboard update (errors ignored, as in `place_bet`)
+            {
+                let cumulative_stake = BetValidator::get_user_stake(env, &market_id, &user);
+                let timestamp = env.ledger().timestamp();
+                let _ = crate::market_analytics::MarketLeaderboard::upsert(
+                    env,
+                    &market_id,
+                    &user,
+                    cumulative_stake,
+                    timestamp,
+                    crate::storage::MAX_MARKET_LEADERBOARD_CAPACITY,
+                );
+            }
+
             // Update market betting stats
             Self::update_market_bet_stats(env, &market_id, &outcome, amount)?;
 
-            // Update market's total staked
-            market.total_staked = market
-                .total_staked
-                .checked_add(amount)
-                .ok_or(Error::InvalidInput)?;
-
             // Update votes and stakes for backward compatibility
+            // (`total_staked` was already updated in Phase 1)
             market.votes.set(user.clone(), outcome.clone());
             market.stakes.set(user.clone(), amount);
 
@@ -1839,6 +1893,63 @@ mod tests {
             86400,
             MarketState::Active,
         )
+    }
+
+    /// A failure on entry #3 of a batch must leave no trace of entries #1 and #2.
+    #[test]
+    fn test_place_bets_mid_batch_failure_writes_no_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
+        let user = Address::generate(&env);
+        let end_time = env.ledger().timestamp() + 10_000;
+
+        env.as_contract(&contract_id, || {
+            let m1 = Symbol::new(&env, "batch_m1");
+            let m2 = Symbol::new(&env, "batch_m2");
+            let m3 = Symbol::new(&env, "batch_m3");
+            MarketStateManager::update_market(&env, &m1, &test_market(&env, end_time));
+            MarketStateManager::update_market(&env, &m2, &test_market(&env, end_time));
+            MarketStateManager::update_market(&env, &m3, &test_market(&env, end_time));
+
+            let yes = String::from_str(&env, "yes");
+            let bogus = String::from_str(&env, "maybe");
+            let amount = 10_000_000i128;
+            let key = BytesN::from_array(&env, &[7u8; 32]);
+
+            let cases: [(Symbol, String, Error); 3] = [
+                // Entry #3 targets a market that does not exist.
+                (Symbol::new(&env, "batch_none"), yes.clone(), Error::MarketNotFound),
+                // Entry #3 has an invalid outcome.
+                (m3.clone(), bogus, Error::InvalidOutcome),
+                // Entry #3 repeats entry #1's market.
+                (m1.clone(), yes.clone(), Error::AlreadyBet),
+            ];
+
+            for (third_market, third_outcome, expected) in cases {
+                let bets = soroban_sdk::vec![
+                    &env,
+                    (m1.clone(), yes.clone(), amount),
+                    (m2.clone(), yes.clone(), amount),
+                    (third_market, third_outcome, amount),
+                ];
+                let result =
+                    BetManager::place_bets(&env, user.clone(), bets, 10_000, key.clone());
+                assert_eq!(result.err(), Some(expected));
+
+                for m in [&m1, &m2, &m3] {
+                    assert!(BetManager::get_bet(&env, m, &user).is_none());
+                    assert_eq!(BetValidator::get_user_stake(&env, m, &user), 0);
+                    assert_eq!(BetManager::get_market_bet_stats(&env, m).total_bets, 0);
+                    let market = MarketStateManager::get_market(&env, m).unwrap();
+                    assert_eq!(market.total_staked, 0);
+                    assert!(market.stakes.get(user.clone()).is_none());
+                }
+                // Idempotency key must not be consumed by a failed batch.
+                let idem = crate::storage::DataKey::PlaceBetsIdem(user.clone(), key.clone());
+                assert!(!env.storage().persistent().has(&idem));
+            }
+        });
     }
 
     #[test]
