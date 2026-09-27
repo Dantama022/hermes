@@ -5,7 +5,7 @@
 //! feed ID constraints.
 
 use super::*;
-use crate::markets::{MarketPauseManager, MarketStateManager};
+use crate::markets::{MarketPauseManager, MarketStateManager, MarketValidator};
 use crate::oracles::OracleValidationConfigManager;
 use crate::types::MarketPauseInfo;
 use soroban_sdk::{Env, String, Address, Symbol, Vec, Map, IntoVal, vec};
@@ -23,13 +23,13 @@ fn test_oracle_provider_validation() {
     let pyth = OracleProvider::pyth();
     let pyth_result = pyth.validate_for_market(&env);
     assert!(pyth_result.is_err());
-    assert_eq!(pyth_result.unwrap_err(), Error::InvalidOracleConfig);
+    assert_eq!(pyth_result.unwrap_err(), Error::InvalidOracleProvider);
 
     // Band Protocol is not supported on Stellar
     let band = OracleProvider::band_protocol();
     let band_result = band.validate_for_market(&env);
     assert!(band_result.is_err());
-    assert_eq!(band_result.unwrap_err(), Error::InvalidOracleConfig);
+    assert_eq!(band_result.unwrap_err(), Error::InvalidOracleProvider);
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn test_oracle_config_impossible_combinations() {
     };
     let result = reflector_invalid.validate(&env);
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), Error::InvalidOracleConfig);
+    assert_eq!(result.unwrap_err(), Error::InvalidOracleFeed);
 
     // 2. Pyth with short feed ID (impossible)
     let pyth_invalid = OracleConfig {
@@ -59,7 +59,7 @@ fn test_oracle_config_impossible_combinations() {
     };
     let result = pyth_invalid.validate(&env);
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), Error::InvalidOracleConfig);
+    assert_eq!(result.unwrap_err(), Error::InvalidOracleFeed);
 
     // 3. Band with long feed ID (impossible)
     let band_invalid = OracleConfig {
@@ -71,7 +71,118 @@ fn test_oracle_config_impossible_combinations() {
     };
     let result = band_invalid.validate(&env);
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), Error::InvalidOracleConfig);
+    assert_eq!(result.unwrap_err(), Error::InvalidOracleFeed);
+}
+
+fn oracle_config_with(
+    env: &Env,
+    provider: OracleProvider,
+    feed_id: &str,
+    threshold: i128,
+    comparison: &str,
+) -> OracleConfig {
+    OracleConfig::new(
+        provider,
+        Address::generate(env),
+        String::from_str(env, feed_id),
+        threshold,
+        String::from_str(env, comparison),
+    )
+}
+
+#[test]
+fn test_oracle_config_rejects_sentinel_with_invalid_oracle_config() {
+    let env = Env::default();
+    let sentinel = OracleConfig::none_sentinel(&env);
+    assert_eq!(sentinel.validate(&env), Err(Error::InvalidOracleConfig));
+}
+
+#[test]
+fn test_oracle_config_rejects_empty_feed_with_invalid_oracle_feed() {
+    let env = Env::default();
+    let config = oracle_config_with(&env, OracleProvider::reflector(), "", 100, "gt");
+    assert_eq!(config.validate(&env), Err(Error::InvalidOracleFeed));
+}
+
+#[test]
+fn test_oracle_config_rejects_non_positive_threshold_with_invalid_threshold() {
+    let env = Env::default();
+    for threshold in [0, -1] {
+        let config = oracle_config_with(
+            &env,
+            OracleProvider::reflector(),
+            "BTC/USD",
+            threshold,
+            "gt",
+        );
+        assert_eq!(config.validate(&env), Err(Error::InvalidThreshold));
+    }
+}
+
+#[test]
+fn test_oracle_config_rejects_unknown_comparison_with_invalid_comparison() {
+    let env = Env::default();
+    let config = oracle_config_with(&env, OracleProvider::reflector(), "BTC/USD", 100, "gte");
+    assert_eq!(config.validate(&env), Err(Error::InvalidComparison));
+}
+
+#[test]
+fn test_oracle_config_rejects_unsupported_provider_with_invalid_oracle_provider() {
+    let env = Env::default();
+    let config = oracle_config_with(&env, OracleProvider::dia(), "BTC/USD", 100, "gt");
+    assert_eq!(config.validate(&env), Err(Error::InvalidOracleProvider));
+}
+
+#[test]
+fn test_market_validator_reports_granular_oracle_errors() {
+    let env = Env::default();
+
+    let zero_threshold = oracle_config_with(&env, OracleProvider::reflector(), "BTC/USD", 0, "gt");
+    assert_eq!(
+        MarketValidator::validate_oracle_config(&env, &zero_threshold),
+        Err(Error::InvalidThreshold)
+    );
+
+    let empty_feed = oracle_config_with(&env, OracleProvider::reflector(), "", 100, "gt");
+    assert_eq!(
+        MarketValidator::validate_oracle_config(&env, &empty_feed),
+        Err(Error::InvalidOracleFeed)
+    );
+
+    let empty_comparison =
+        oracle_config_with(&env, OracleProvider::reflector(), "BTC/USD", 100, "");
+    assert_eq!(
+        MarketValidator::validate_oracle_config(&env, &empty_comparison),
+        Err(Error::InvalidComparison)
+    );
+
+    let valid = oracle_config_with(&env, OracleProvider::reflector(), "BTC/USD", 100, "gt");
+    assert!(MarketValidator::validate_oracle_config(&env, &valid).is_ok());
+}
+
+#[test]
+fn test_oracle_config_errors_expose_distinct_codes() {
+    let errors = [
+        Error::InvalidOracleConfig,
+        Error::InvalidOracleProvider,
+        Error::InvalidOracleFeed,
+        Error::InvalidThreshold,
+        Error::InvalidComparison,
+    ];
+
+    for (index, error) in errors.iter().enumerate() {
+        for other in errors.iter().skip(index + 1) {
+            assert_ne!(*error as u32, *other as u32);
+            assert_ne!(error.code(), other.code());
+            assert_ne!(error.description(), other.description());
+        }
+    }
+
+    assert_eq!(Error::InvalidOracleProvider as u32, 215);
+    assert_eq!(
+        Error::InvalidOracleProvider.code(),
+        "INVALID_ORACLE_PROVIDER"
+    );
 }
 
 #[test]

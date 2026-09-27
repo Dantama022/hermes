@@ -98,7 +98,9 @@ pub enum Error {
     /// The oracle service is unavailable. External data source may be temporarily
     /// down or unreachable.
     OracleUnavailable = 200,
-    /// The oracle configuration is invalid. Check oracle address, asset code, and other parameters.
+    /// The oracle configuration is missing or is the reserved "no oracle" sentinel.
+    /// Field-level rejections use `InvalidOracleProvider`, `InvalidOracleFeed`,
+    /// `InvalidThreshold`, or `InvalidComparison`.
     InvalidOracleConfig = 201,
     /// Oracle data is stale and exceeds the freshness threshold. Market resolution is delayed.
     OracleStale = 202,
@@ -114,7 +116,7 @@ pub enum Error {
     ResolutionTimeoutReached = 207,
     /// Oracle confidence interval is too wide. Accuracy threshold not met for reliable resolution.
     OracleConfidenceTooWide = 208,
-    /// Invalid oracle feed ID
+    /// Oracle feed ID is empty, unsupported, or malformed for the selected provider.
     InvalidOracleFeed = 209,
     /// Oracle callback authentication failed. Signature verification or authorization check failed.
     OracleCallbackAuthFailed = 210,
@@ -126,6 +128,8 @@ pub enum Error {
     OracleCallbackReplayDetected = 213,
     /// Oracle callback timeout. Response time exceeded maximum allowed duration.
     OracleCallbackTimeout = 214,
+    /// Oracle provider is not supported on the current network.
+    InvalidOracleProvider = 215,
 
     // ===== VALIDATION ERRORS =====
     /// Market question is empty or invalid. Question must be non-empty and descriptive.
@@ -883,7 +887,10 @@ impl ErrorHandler {
                 RecoveryStrategy::Abort
             }
             Error::AdminNotSet | Error::DisputeFeeFailed => RecoveryStrategy::ManualIntervention,
-            Error::InvalidState | Error::InvalidOracleConfig => RecoveryStrategy::NoRecovery,
+            Error::InvalidState
+            | Error::InvalidOracleConfig
+            | Error::InvalidOracleProvider
+            | Error::InvalidOracleFeed => RecoveryStrategy::NoRecovery,
             Error::FeeExceedsMax => RecoveryStrategy::Retry,
             Error::BetExceedsCap => RecoveryStrategy::NoRecovery,
             Error::BetCoolOffActive => RecoveryStrategy::RetryWithDelay,
@@ -1307,6 +1314,8 @@ impl ErrorHandler {
             | Error::DisputeFeeFailed
             | Error::InvalidState
             | Error::InvalidOracleConfig
+            | Error::InvalidOracleProvider
+            | Error::InvalidOracleFeed
             | Error::OperationWouldExceedBudget => 0,
             _ => 1,
         }
@@ -1455,7 +1464,10 @@ impl ErrorHandler {
                 ErrorCategory::Validation,
                 RecoveryStrategy::Retry,
             ),
-            Error::InvalidOracleConfig | Error::OracleConfidenceTooWide => (
+            Error::InvalidOracleConfig
+            | Error::InvalidOracleProvider
+            | Error::InvalidOracleFeed
+            | Error::OracleConfidenceTooWide => (
                 ErrorSeverity::Medium,
                 ErrorCategory::Oracle,
                 RecoveryStrategy::NoRecovery,
@@ -1683,6 +1695,7 @@ impl Error {
             Error::OracleCallbackInvalidSignature => "Oracle callback signature invalid",
             Error::OracleCallbackReplayDetected => "Oracle callback replay detected",
             Error::OracleCallbackTimeout => "Oracle callback timed out",
+            Error::InvalidOracleProvider => "Oracle provider is not supported on this network",
             Error::InvalidStakeAmount => "Invalid Stake Amount",
             Error::SignerRotationCooldown => "Signer Rotation Cooldown Active",
             Error::RegistryFull => "Deprecated registry is full",
@@ -1802,6 +1815,7 @@ impl Error {
             Error::OracleCallbackInvalidSignature => "ORACLE_CALLBACK_INVALID_SIGNATURE",
             Error::OracleCallbackReplayDetected => "ORACLE_CALLBACK_REPLAY_DETECTED",
             Error::OracleCallbackTimeout => "ORACLE_CALLBACK_TIMEOUT",
+            Error::InvalidOracleProvider => "INVALID_ORACLE_PROVIDER",
             Error::InvalidStakeAmount => "INVALID_STAKE_AMOUNT",
             Error::SignerRotationCooldown => "SIGNER_ROTATION_COOLDOWN",
             Error::RegistryFull => "REGISTRY_FULL",
