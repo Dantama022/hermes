@@ -1,10 +1,10 @@
 #![cfg(test)]
 
+use markets::{MarketsContract, MarketsContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo, MockAuth, MockAuthInvoke},
     Address, Env, IntoVal, String, Vec,
 };
-use markets::{MarketsContract, MarketsContractClient};
 
 // ============================================
 // Test Helpers
@@ -60,10 +60,10 @@ fn create_market_with_mock_auth(setup: &TestSetup<'_>) -> u32 {
     let description = String::from_str(env, "Test market description");
     let end_time = env.ledger().timestamp() + 86400;
     let resolution_source = String::from_str(env, "Test Source");
-    let outcome_tags = Vec::from_array(env, [
-        String::from_str(env, "Yes"),
-        String::from_str(env, "No"),
-    ]);
+    let outcome_tags = Vec::from_array(
+        env,
+        [String::from_str(env, "Yes"), String::from_str(env, "No")],
+    );
 
     // Authorize ONLY the market_creator for this specific create_market call.
     env.mock_auths(&[MockAuth {
@@ -101,10 +101,10 @@ fn create_market_with_auth_check(setup: &TestSetup<'_>) -> u32 {
     let description = String::from_str(env, "Test market description");
     let end_time = env.ledger().timestamp() + 86400;
     let resolution_source = String::from_str(env, "Test Source");
-    let outcome_tags = Vec::from_array(env, [
-        String::from_str(env, "Yes"),
-        String::from_str(env, "No"),
-    ]);
+    let outcome_tags = Vec::from_array(
+        env,
+        [String::from_str(env, "Yes"), String::from_str(env, "No")],
+    );
 
     setup.client.create_market(
         &setup.market_creator,
@@ -134,10 +134,10 @@ fn test_create_market_requires_auth() {
     let description = String::from_str(&env, "Test market description");
     let end_time = env.ledger().timestamp() + 86400;
     let resolution_source = String::from_str(&env, "Test Source");
-    let outcome_tags = Vec::from_array(&env, [
-        String::from_str(&env, "Yes"),
-        String::from_str(&env, "No"),
-    ]);
+    let outcome_tags = Vec::from_array(
+        &env,
+        [String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+    );
 
     let result = client.try_create_market(
         &unauthorized,
@@ -147,7 +147,10 @@ fn test_create_market_requires_auth() {
         &resolution_source,
         &outcome_tags,
     );
-    assert!(result.is_err(), "Unauthorized user should not create market");
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not create market"
+    );
 }
 
 #[test]
@@ -170,10 +173,10 @@ fn test_create_market_requires_auth_market_creator() {
     let description = String::from_str(&env, "Test market description");
     let end_time = env.ledger().timestamp() + 86400;
     let resolution_source = String::from_str(&env, "Test Source");
-    let outcome_tags = Vec::from_array(&env, [
-        String::from_str(&env, "Yes"),
-        String::from_str(&env, "No"),
-    ]);
+    let outcome_tags = Vec::from_array(
+        &env,
+        [String::from_str(&env, "Yes"), String::from_str(&env, "No")],
+    );
 
     let result = setup.client.try_create_market(
         &setup.market_creator,
@@ -200,12 +203,10 @@ fn test_place_bet_requires_auth() {
     let outcome_index = 0;
     let amount = 100;
 
-    let result = setup.client.try_place_bet(
-        &setup.unauthorized,
-        &market_id,
-        &outcome_index,
-        &amount,
-    );
+    let result =
+        setup
+            .client
+            .try_place_bet(&setup.unauthorized, &market_id, &outcome_index, &amount);
     assert!(result.is_err(), "Unauthorized user should not place bet");
 }
 
@@ -220,12 +221,9 @@ fn test_place_bet_requires_auth_success() {
     let outcome_index = 0;
     let amount = 100;
 
-    let result = setup.client.try_place_bet(
-        &setup.user1,
-        &market_id,
-        &outcome_index,
-        &amount,
-    );
+    let result = setup
+        .client
+        .try_place_bet(&setup.user1, &market_id, &outcome_index, &amount);
     assert!(result.is_ok(), "Authorized user should place bet");
 }
 
@@ -241,12 +239,13 @@ fn test_resolve_market_requires_auth() {
 
     let winning_outcome = 0;
 
-    let result = setup.client.try_resolve_market(
-        &setup.unauthorized,
-        &market_id,
-        &winning_outcome,
+    let result = setup
+        .client
+        .try_resolve_market(&setup.unauthorized, &market_id, &winning_outcome);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not resolve market"
     );
-    assert!(result.is_err(), "Unauthorized user should not resolve market");
 }
 
 #[test]
@@ -259,11 +258,10 @@ fn test_resolve_market_requires_auth_creator() {
 
     let winning_outcome = 0;
 
-    let result = setup.client.try_resolve_market(
-        &setup.market_creator,
-        &market_id,
-        &winning_outcome,
-    );
+    let result =
+        setup
+            .client
+            .try_resolve_market(&setup.market_creator, &market_id, &winning_outcome);
     assert!(result.is_ok(), "Market creator should resolve market");
 }
 
@@ -315,14 +313,18 @@ fn test_claim_winnings_requires_auth() {
             sub_invokes: &[],
         },
     }]);
-    setup.client.resolve_market(&setup.market_creator, &market_id, &0);
+    setup
+        .client
+        .resolve_market(&setup.market_creator, &market_id, &0);
 
     // Now test: unauthorized user should NOT be able to claim.
-    let result = setup.client.try_claim_winnings(
-        &setup.unauthorized,
-        &market_id,
+    let result = setup
+        .client
+        .try_claim_winnings(&setup.unauthorized, &market_id);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not claim winnings"
     );
-    assert!(result.is_err(), "Unauthorized user should not claim winnings");
 }
 
 #[test]
@@ -346,12 +348,11 @@ fn test_claim_winnings_requires_auth_success() {
         max_entry_ttl: 518400,
     });
 
-    setup.client.resolve_market(&setup.market_creator, &market_id, &0);
+    setup
+        .client
+        .resolve_market(&setup.market_creator, &market_id, &0);
 
-    let result = setup.client.try_claim_winnings(
-        &setup.user1,
-        &market_id,
-    );
+    let result = setup.client.try_claim_winnings(&setup.user1, &market_id);
     assert!(result.is_ok(), "Winner should claim winnings");
 }
 
@@ -365,11 +366,13 @@ fn test_cancel_market_requires_auth() {
 
     let market_id = create_market_with_mock_auth(&setup);
 
-    let result = setup.client.try_cancel_market(
-        &setup.unauthorized,
-        &market_id,
+    let result = setup
+        .client
+        .try_cancel_market(&setup.unauthorized, &market_id);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not cancel market"
     );
-    assert!(result.is_err(), "Unauthorized user should not cancel market");
 }
 
 #[test]
@@ -380,10 +383,9 @@ fn test_cancel_market_requires_auth_creator() {
 
     let market_id = create_market_with_auth_check(&setup);
 
-    let result = setup.client.try_cancel_market(
-        &setup.market_creator,
-        &market_id,
-    );
+    let result = setup
+        .client
+        .try_cancel_market(&setup.market_creator, &market_id);
     assert!(result.is_ok(), "Market creator should cancel market");
 }
 
@@ -399,12 +401,13 @@ fn test_withdraw_funds_requires_auth() {
 
     let amount = 50;
 
-    let result = setup.client.try_withdraw_funds(
-        &setup.unauthorized,
-        &market_id,
-        &amount,
+    let result = setup
+        .client
+        .try_withdraw_funds(&setup.unauthorized, &market_id, &amount);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not withdraw funds"
     );
-    assert!(result.is_err(), "Unauthorized user should not withdraw funds");
 }
 
 #[test]
@@ -417,11 +420,9 @@ fn test_withdraw_funds_requires_auth_creator() {
 
     let amount = 50;
 
-    let result = setup.client.try_withdraw_funds(
-        &setup.market_creator,
-        &market_id,
-        &amount,
-    );
+    let result = setup
+        .client
+        .try_withdraw_funds(&setup.market_creator, &market_id, &amount);
     match result {
         Ok(_) => assert!(true, "Auth passed"),
         Err(e) => {
@@ -443,12 +444,14 @@ fn test_update_market_params_requires_auth() {
 
     let new_end_time = env.ledger().timestamp() + 172800;
 
-    let result = setup.client.try_update_market_params(
-        &setup.unauthorized,
-        &market_id,
-        &new_end_time,
+    let result =
+        setup
+            .client
+            .try_update_market_params(&setup.unauthorized, &market_id, &new_end_time);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not update market params"
     );
-    assert!(result.is_err(), "Unauthorized user should not update market params");
 }
 
 #[test]
@@ -461,11 +464,10 @@ fn test_update_market_params_requires_auth_creator() {
 
     let new_end_time = env.ledger().timestamp() + 172800;
 
-    let result = setup.client.try_update_market_params(
-        &setup.market_creator,
-        &market_id,
-        &new_end_time,
-    );
+    let result =
+        setup
+            .client
+            .try_update_market_params(&setup.market_creator, &market_id, &new_end_time);
     match result {
         Ok(_) => assert!(true, "Auth passed"),
         Err(e) => {
@@ -487,12 +489,13 @@ fn test_add_liquidity_requires_auth() {
 
     let amount = 1000;
 
-    let result = setup.client.try_add_liquidity(
-        &setup.unauthorized,
-        &market_id,
-        &amount,
+    let result = setup
+        .client
+        .try_add_liquidity(&setup.unauthorized, &market_id, &amount);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not add liquidity"
     );
-    assert!(result.is_err(), "Unauthorized user should not add liquidity");
 }
 
 #[test]
@@ -505,11 +508,9 @@ fn test_add_liquidity_requires_auth_success() {
 
     let amount = 1000;
 
-    let result = setup.client.try_add_liquidity(
-        &setup.user1,
-        &market_id,
-        &amount,
-    );
+    let result = setup
+        .client
+        .try_add_liquidity(&setup.user1, &market_id, &amount);
     match result {
         Ok(_) => assert!(true, "Auth passed"),
         Err(e) => {
@@ -541,16 +542,19 @@ fn test_remove_liquidity_requires_auth() {
             sub_invokes: &[],
         },
     }]);
-    let _ = setup.client.try_add_liquidity(&setup.user1, &market_id, &1000);
+    let _ = setup
+        .client
+        .try_add_liquidity(&setup.user1, &market_id, &1000);
 
     // Now test: unauthorized user should NOT be able to remove liquidity.
     let amount = 100;
-    let result = setup.client.try_remove_liquidity(
-        &setup.unauthorized,
-        &market_id,
-        &amount,
+    let result = setup
+        .client
+        .try_remove_liquidity(&setup.unauthorized, &market_id, &amount);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not remove liquidity"
     );
-    assert!(result.is_err(), "Unauthorized user should not remove liquidity");
 }
 
 #[test]
@@ -561,15 +565,15 @@ fn test_remove_liquidity_requires_auth_liquidity_provider() {
 
     let market_id = create_market_with_auth_check(&setup);
 
-    let _ = setup.client.try_add_liquidity(&setup.user1, &market_id, &1000);
+    let _ = setup
+        .client
+        .try_add_liquidity(&setup.user1, &market_id, &1000);
 
     let amount = 100;
 
-    let result = setup.client.try_remove_liquidity(
-        &setup.user1,
-        &market_id,
-        &amount,
-    );
+    let result = setup
+        .client
+        .try_remove_liquidity(&setup.user1, &market_id, &amount);
     match result {
         Ok(_) => assert!(true, "Auth passed"),
         Err(e) => {
@@ -591,10 +595,16 @@ fn test_admin_requires_auth() {
     let unauthorized = Address::generate(&env);
 
     let result = client.try_pause_markets(&unauthorized);
-    assert!(result.is_err(), "Unauthorized user should not pause markets");
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not pause markets"
+    );
 
     let result = client.try_unpause_markets(&unauthorized);
-    assert!(result.is_err(), "Unauthorized user should not unpause markets");
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not unpause markets"
+    );
 }
 
 #[test]
@@ -622,11 +632,11 @@ fn test_transfer_ownership_requires_auth() {
     let unauthorized = Address::generate(&env);
     let new_owner = Address::generate(&env);
 
-    let result = client.try_transfer_ownership(
-        &unauthorized,
-        &new_owner,
+    let result = client.try_transfer_ownership(&unauthorized, &new_owner);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not transfer ownership"
     );
-    assert!(result.is_err(), "Unauthorized user should not transfer ownership");
 }
 
 #[test]
@@ -637,10 +647,9 @@ fn test_transfer_ownership_requires_auth_admin() {
 
     let new_owner = Address::generate(&env);
 
-    let result = setup.client.try_transfer_ownership(
-        &setup.admin,
-        &new_owner,
-    );
+    let result = setup
+        .client
+        .try_transfer_ownership(&setup.admin, &new_owner);
     match result {
         Ok(_) => assert!(true, "Auth passed"),
         Err(e) => {
@@ -679,5 +688,8 @@ fn test_all_entrypoints_have_auth_checks() {
         println!("✅ {} has auth checks", func);
     }
 
-    assert!(auth_functions.len() >= 12, "All entrypoints should be tested");
+    assert!(
+        auth_functions.len() >= 12,
+        "All entrypoints should be tested"
+    );
 }
