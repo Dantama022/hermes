@@ -11,8 +11,12 @@
 //! * aggregated statistics updates.
 //!
 //! Every event in this module is:
-//! * versioned through [`events::BettingEventSchema`] so indexers can
-//!   route on `(topic, schema_version)`,
+//! * versioned through [`events::BettingEventSchema`]: the
+//!   deployment-wide `schema_version` is encoded **once** in the contract
+//!   instance record (see [`events::BettingEventSchema::ensure_schema_record`])
+//!   and read back with
+//!   [`events::BettingEventSchema::deployment_schema_version`], so it is not
+//!   repeated in the topic tuple of every event,
 //! * monotonically nonce-stamped per topic so out-of-order / replayed
 //!   events from any indexer source can be detected,
 //! * stamped with the Soroban ledger timestamp so wall-clock-independent
