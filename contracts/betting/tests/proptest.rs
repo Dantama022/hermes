@@ -10,7 +10,7 @@
 //! | 1 | Nonce monotonicity | Per-topic nonce strictly increases with each emit |
 //! | 2 | Nonce isolation | Different topics maintain independent nonce counters |
 //! | 3 | Topic stability | Every emit publishes its frozen `symbol_short!` topic |
-//! | 4 | Schema version stability | Every emit carries `BETTING_EVENT_SCHEMA_VERSION` |
+//! | 4 | Schema version encoded once | The version lives in the instance record, never in per-event topics |
 //! | 5 | Payout arithmetic | `net_payout == gross_payout - fee_paid` always |
 //! | 6 | Batch field alignment | `bet_count == market_ids.len()` always |
 //! | 7 | Stats non-negativity | `total_amount_locked` and `total_bets` are non-negative |
@@ -184,11 +184,17 @@ fn execute_action(
                 TOPIC_BET_CREATED,
                 "INV-3 topic stability"
             );
-            // INV-4: schema version stability
+            // INV-4: schema version is encoded once in the instance
+            // record, so the event carries only its own topics.
             assert_eq!(
-                topics.get(2).unwrap(),
+                topics.len(),
+                2,
+                "INV-4 schema version must not be repeated per event"
+            );
+            assert_eq!(
+                BettingEventSchema::deployment_schema_version(env),
                 BETTING_EVENT_SCHEMA_VERSION,
-                "INV-4 schema version"
+                "INV-4 instance record schema version"
             );
 
             let ev: BetCreatedEvent = payload.try_into_val().unwrap();
@@ -227,11 +233,16 @@ fn execute_action(
                 TOPIC_BET_BATCH_CREATED,
                 "INV-3 topic stability (batch)"
             );
-            // INV-4: schema version
+            // INV-4: schema version is encoded once in the instance record
             assert_eq!(
-                topics.get(2).unwrap(),
+                topics.len(),
+                2,
+                "INV-4 schema version (batch) must not be repeated per event"
+            );
+            assert_eq!(
+                BettingEventSchema::deployment_schema_version(env),
                 BETTING_EVENT_SCHEMA_VERSION,
-                "INV-4 schema version (batch)"
+                "INV-4 instance record schema version (batch)"
             );
 
             let ev: BetBatchCreatedEvent = payload.try_into_val().unwrap();
@@ -272,11 +283,16 @@ fn execute_action(
                 TOPIC_BET_STATUS_CHANGED,
                 "INV-3 topic stability (status)"
             );
-            // INV-4: schema version
+            // INV-4: schema version is encoded once in the instance record
             assert_eq!(
-                topics.get(2).unwrap(),
+                topics.len(),
+                2,
+                "INV-4 schema version (status) must not be repeated per event"
+            );
+            assert_eq!(
+                BettingEventSchema::deployment_schema_version(env),
                 BETTING_EVENT_SCHEMA_VERSION,
-                "INV-4 schema version (status)"
+                "INV-4 instance record schema version (status)"
             );
 
             let ev: BetStatusChangedEvent = payload.try_into_val().unwrap();
@@ -310,11 +326,16 @@ fn execute_action(
                 TOPIC_BET_CLAIMED,
                 "INV-3 topic stability (claimed)"
             );
-            // INV-4: schema version
+            // INV-4: schema version is encoded once in the instance record
             assert_eq!(
-                topics.get(2).unwrap(),
+                topics.len(),
+                2,
+                "INV-4 schema version (claimed) must not be repeated per event"
+            );
+            assert_eq!(
+                BettingEventSchema::deployment_schema_version(env),
                 BETTING_EVENT_SCHEMA_VERSION,
-                "INV-4 schema version (claimed)"
+                "INV-4 instance record schema version (claimed)"
             );
 
             let ev: BetClaimedEvent = payload.try_into_val().unwrap();
@@ -361,11 +382,16 @@ fn execute_action(
                 TOPIC_BET_STATS_UPDATED,
                 "INV-3 topic stability (stats)"
             );
-            // INV-4: schema version
+            // INV-4: schema version is encoded once in the instance record
             assert_eq!(
-                topics.get(2).unwrap(),
+                topics.len(),
+                2,
+                "INV-4 schema version (stats) must not be repeated per event"
+            );
+            assert_eq!(
+                BettingEventSchema::deployment_schema_version(env),
                 BETTING_EVENT_SCHEMA_VERSION,
-                "INV-4 schema version (stats)"
+                "INV-4 instance record schema version (stats)"
             );
 
             let ev: BetStatsUpdatedEvent = payload.try_into_val().unwrap();
@@ -664,7 +690,9 @@ fn all_five_topics_have_independent_nonces() {
     }
 }
 
-/// INV-3 + INV-4: Every event carries the right topic and schema_version.
+/// INV-3 + INV-4: Every event carries the right topic, and the
+/// deployment-wide schema version is encoded once in the instance record
+/// instead of being repeated in each event.
 #[test]
 fn all_events_carry_correct_topic_and_schema_version() {
     let env = Env::default();
@@ -707,12 +735,24 @@ fn all_events_carry_correct_topic_and_schema_version() {
     for (i, (_, topics, _)) in events.iter().enumerate() {
         let first: soroban_sdk::Symbol = topics.get(0).unwrap();
         assert_eq!(first, expected_topics[i], "INV-3 wrong topic at index {i}");
-        let version: u32 = topics.get(2).unwrap();
         assert_eq!(
-            version, BETTING_EVENT_SCHEMA_VERSION,
-            "INV-4 wrong schema_version at index {i}"
+            topics.len(),
+            2,
+            "INV-4 schema version must not be repeated in the topics at index {i}"
         );
     }
+
+    let record_key = BettingEventSchema::schema_record_key();
+    let version: u32 = env.storage().instance().get(&record_key).unwrap_or(0);
+    assert_eq!(
+        version, BETTING_EVENT_SCHEMA_VERSION,
+        "INV-4 the instance record must hold the deployment schema version"
+    );
+    assert_eq!(
+        BettingEventSchema::deployment_schema_version(&env),
+        BETTING_EVENT_SCHEMA_VERSION,
+        "INV-4 the schema version must be readable once per deployment"
+    );
 }
 
 /// INV-5: Zero-fee claim has net == gross.
