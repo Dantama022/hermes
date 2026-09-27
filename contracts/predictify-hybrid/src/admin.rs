@@ -667,6 +667,10 @@ impl AdminAccessControl {
 
 const CONTRACT_PAUSED_KEY: &str = "ContractPaused";
 
+/// Storage key holding the address staged by [`ContractPauseManager::transfer_admin`]
+/// until it calls [`ContractPauseManager::accept_admin`].
+const PENDING_ADMIN_KEY: &str = "PendingAdmin";
+
 /// Contract-level pause and primary admin transfer.
 pub struct ContractPauseManager;
 
@@ -721,8 +725,16 @@ impl ContractPauseManager {
         Ok(())
     }
 
-    /// Transfer the primary admin role to a new address. Caller must be the current primary admin.
-    /// New admin must not be the zero/invalid address.
+    /// Step 1 of 2: stage a new primary admin.
+    ///
+    /// Caller must be the current primary admin and `new_admin` must pass
+    /// [`AdminValidator::validate_admin_address`]. The role is **not** moved
+    /// here: the address is only recorded as pending, and the current admin
+    /// keeps full control until the pending address calls
+    /// [`Self::accept_admin`]. This means a typo (or an arbitrary attacker
+    /// address) can no longer permanently orphan the contract — the transfer
+    /// can be corrected by calling this function again or aborted with
+    /// [`Self::cancel_admin_transfer`].
     pub fn transfer_admin(
         env: &Env,
         current_admin: &Address,
@@ -735,16 +747,62 @@ impl ContractPauseManager {
         AdminValidator::validate_admin_address(env, new_admin)?;
         env.storage()
             .persistent()
+            .set(&Symbol::new(env, PENDING_ADMIN_KEY), new_admin);
+        EventEmitter::emit_admin_transfer_started(env, current_admin, new_admin);
+        Ok(())
+    }
+
+    /// Step 2 of 2: complete a staged admin transfer.
+    ///
+    /// Must be called by the exact address staged through [`Self::transfer_admin`],
+    /// which proves the new admin controls the address before it takes over.
+    pub fn accept_admin(env: &Env, new_admin: &Address) -> Result<(), Error> {
+        new_admin.require_auth();
+
+        let pending: Address = Self::get_pending_admin(env).ok_or(Error::AdminNotSet)?;
+        if &pending != new_admin {
+            return Err(Error::Unauthorized);
+        }
+        AdminValidator::validate_admin_address(env, new_admin)?;
+
+        let previous_admin = AdminAccessControl::get_admin(env)?;
+
+        env.storage()
+            .persistent()
             .set(&Symbol::new(env, "Admin"), new_admin);
-        EventEmitter::emit_admin_transferred(env, current_admin, new_admin);
+        env.storage()
+            .persistent()
+            .remove(&Symbol::new(env, PENDING_ADMIN_KEY));
+
+        EventEmitter::emit_admin_transferred(env, &previous_admin, new_admin);
         AuditTrailManager::append_record(
             env,
             AuditAction::AdminTransferred,
-            current_admin.clone(),
+            new_admin.clone(),
             Map::new(env),
             None,
         );
         Ok(())
+    }
+
+    /// Abort an in-flight admin transfer. Caller must be the current primary admin.
+    ///
+    /// After this call nobody is staged and the current admin remains in place.
+    pub fn cancel_admin_transfer(env: &Env, current_admin: &Address) -> Result<(), Error> {
+        AdminAccessControl::require_admin_auth(env, current_admin)?;
+        let pending: Address = Self::get_pending_admin(env).ok_or(Error::AdminNotSet)?;
+        env.storage()
+            .persistent()
+            .remove(&Symbol::new(env, PENDING_ADMIN_KEY));
+        EventEmitter::emit_admin_transfer_canceled(env, current_admin, &pending);
+        Ok(())
+    }
+
+    /// Address staged by [`Self::transfer_admin`] and awaiting [`Self::accept_admin`], if any.
+    pub fn get_pending_admin(env: &Env) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(env, PENDING_ADMIN_KEY))
     }
 }
 
