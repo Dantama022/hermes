@@ -47,6 +47,42 @@ Crashes are stored in `contracts/disputes/fuzz/artifacts/main/`.
 
 ---
 
+## Seeding the corpus
+
+`cargo fuzz` reads and writes its working corpus at
+`contracts/disputes/fuzz/corpus/main/`. The directory is created on first run
+and is not checked in, so a fresh clone starts from an empty — but valid —
+corpus. Every file in the directory is replayed at start-up, and newly
+discovered inputs are appended there, which makes it the path to extend when you
+want the fuzzer to start from a *meaningful* set of inputs rather than from
+random mutations alone.
+
+To seed it, drop one or more raw byte files into a separate seed directory
+(for example `contracts/disputes/fuzz/seeds/main/`). Each file is a raw byte
+sequence that the action decoder walks one action at a time — the first byte of
+each step selects the action (see [Fuzz actions](#fuzz-actions)) and the
+remaining bytes are that action's payload. Longer files therefore drive longer
+action sequences in a single iteration.
+
+Then either point `cargo fuzz` at that directory with libFuzzer's
+`-seed_inputs` flag:
+
+```bash
+# the positional argument is the working corpus; -seed_inputs copies the
+# curated files into it before fuzzing begins
+cargo +nightly fuzz run \
+  --fuzz-dir contracts/disputes/fuzz \
+  main \
+  contracts/disputes/fuzz/corpus/main \
+  -- -seed_inputs=contracts/disputes/fuzz/seeds/main
+```
+
+or copy the seed files directly into `contracts/disputes/fuzz/corpus/main/`
+before the first run. Both approaches leave the fuzzer free to keep growing the
+working corpus afterwards.
+
+---
+
 ## Running the focused edge-case tests
 
 These use the standard test harness and do not require nightly:
