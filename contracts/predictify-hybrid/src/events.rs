@@ -492,6 +492,24 @@ pub struct AdminTransferredEvent {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferStartedEvent {
+    pub current_admin: Address,
+    pub pending_admin: Address,
+    pub nonce: u64,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferCanceledEvent {
+    pub current_admin: Address,
+    pub pending_admin: Address,
+    pub nonce: u64,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractPausedEvent {
     pub admin: Address,
     pub nonce: u64,
@@ -1408,6 +1426,28 @@ impl EventEmitter {
         };
         Self::store_event(env, &symbol_short!("adm_xfer"), &event);
         env.events().publish((symbol_short!("adm_xfer"), new_admin.clone()), event);
+    }
+
+    pub fn emit_admin_transfer_started(env: &Env, current_admin: &Address, pending_admin: &Address) {
+        let event = AdminTransferStartedEvent {
+            current_admin: current_admin.clone(),
+            pending_admin: pending_admin.clone(),
+            nonce: Self::get_and_increment_nonce(env, symbol_short!("adm_xf_st")),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("adm_xf_st"), &event);
+        env.events().publish((symbol_short!("adm_xf_st"), pending_admin.clone()), event);
+    }
+
+    pub fn emit_admin_transfer_canceled(env: &Env, current_admin: &Address, pending_admin: &Address) {
+        let event = AdminTransferCanceledEvent {
+            current_admin: current_admin.clone(),
+            pending_admin: pending_admin.clone(),
+            nonce: Self::get_and_increment_nonce(env, symbol_short!("adm_xf_cn")),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("adm_xf_cn"), &event);
+        env.events().publish((symbol_short!("adm_xf_cn"), pending_admin.clone()), event);
     }
 
     pub fn emit_admin_role_assigned(env: &Env, admin: &Address, role: &AdminRole, assigned_by: &Address) {
