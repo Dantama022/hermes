@@ -1,3 +1,17 @@
+//! On-chain time-series analytics for global and market-specific metrics.
+//!
+//! Each metric stream retains timestamped numeric data points and a cumulative
+//! summary. The default capacity is 10,000 points per stream and the admin can
+//! change it. Capacity is not an age-based retention period: this contract does
+//! not prune or replace old points, and recording fails when a stream is full.
+//! Persistent entries remain subject to Soroban storage TTL and archival rules.
+//!
+//! Queries provide cumulative summaries for global and market metrics, raw
+//! points for global metrics over an inclusive time range, and populated time
+//! buckets for global or market metrics. Bucket windows range from 1 second to
+//! 1 year, with at most 2,000 estimated buckets per query. Raw-point queries
+//! accept a result limit; a limit of zero returns all matching points.
+
 #![no_std]
 
 mod errors;
