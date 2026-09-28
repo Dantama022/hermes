@@ -2150,24 +2150,25 @@ impl DisputeManager {
     /// # Errors
     ///
     /// - [`Error::ConfigNotFound`] — voting record not found
-    pub fn determine_timeout_outcome(
+  pub fn determine_timeout_outcome(
         env: &Env,
         dispute_id: Symbol,
     ) -> Result<DisputeTimeoutOutcome, Error> {
-        // Get dispute voting data
         let voting_data = DisputeUtils::get_dispute_voting(env, &dispute_id)?;
+        let timeout = DisputeUtils::get_dispute_timeout(env, &dispute_id)?;
 
-        // Determine outcome based on stake-weighted voting
-        let outcome = if voting_data.total_support_stake > voting_data.total_against_stake {
+        // Minimal check: if zero votes, explicitly treat outcome as expired/against
+        let outcome = if voting_data.total_support_stake == 0 && voting_data.total_against_stake == 0 {
+            String::from_str(env, "Against") // Or your zero-vote fallback
+        } else if voting_data.total_support_stake > voting_data.total_against_stake {
             String::from_str(env, "Support")
         } else {
             String::from_str(env, "Against")
         };
 
-        // Create timeout outcome
         let timeout_outcome = DisputeTimeoutOutcome {
             dispute_id: dispute_id.clone(),
-            market_id: Symbol::new(env, ""), // Will be set properly
+            market_id: timeout.market_id, // Fixes the empty symbol bug too
             outcome,
             resolution_method: String::from_str(env, "Timeout Auto-Resolution"),
             resolution_timestamp: env.ledger().timestamp(),

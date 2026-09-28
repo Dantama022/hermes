@@ -1,0 +1,464 @@
+[35mCargo.lock[m[36m:[mname = "[1;31mdispute[ms"
+[35mCargo.lock[m[36m:[mname = "[1;31mdispute[ms-fuzz"
+[35mCargo.toml[m[36m:[m  "contracts/[1;31mdispute[ms/fuzz",
+[35mEMERGENCY_HALT_DELIVERY_SUMMARY.md[m[36m:[m5. [1;31mDispute[ms Contract ([1;31mdispute[m voting)
+[35mEMERGENCY_HALT_DELIVERY_SUMMARY.md[m[36m:[m  └─ [1;31mDispute[ms.pause()
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[mImplement a platform-wide emergency halt mechanism that enables atomic freezing of all platform activity (markets, betting, [1;31mdispute[ms, fees) in a single transaction. This is a critical security control for incident response.
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m5. [1;31mDispute[ms (predictify-hybrid)
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m- Vote on [1;31mdispute[m, process [1;31mdispute[m
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m  - `[1;31mdispute[m_report()`
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m  - `resolve_[1;31mdispute[m()`
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m#### 2.9 [1;31mDispute[ms Contract (Day 3)
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m  - `vote_on_[1;31mdispute[m()`
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m  - `process_[1;31mdispute[m()`
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m  - `resolve_[1;31mdispute[m()`
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m  - `escalate_[1;31mdispute[m()`
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m- [1;31mDispute[m operations blocked
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m- [ ] Verify no stuck markets/bets/[1;31mdispute[ms
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m        pause_[1;31mdispute[ms(&env, &admin),
+[35mEMERGENCY_HALT_IMPLEMENTATION_PLAN.md[m[36m:[m- [ ] [1;31mDispute[ms contract pause/resume
+[35mEMERGENCY_HALT_INDEX.md[m[36m:[m**Scope**: All contracts (Markets, Fees, Reporting, Validators, [1;31mDispute[ms)
+[35mEMERGENCY_HALT_INDEX.md[m[36m:[m└── contracts/[markets|fees|reporting|validators|[1;31mdispute[ms]/
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m   │        │ │ [1;31mDispute[ms │ │ Guards
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m            ├─ Call [1;31mDispute[ms::pause_all_[1;31mdispute[ms()
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m                   "Validators", "[1;31mDispute[ms"
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m            ├─ Query [1;31mDispute[ms::is_platform_halted()
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m                 [1;31mdispute[ms_paused: bool,
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m### Reporting, Validators, [1;31mDispute[ms: Same Pattern
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m### For Markets, Fees, Reporting, Validators, [1;31mDispute[ms:
+[35mEMERGENCY_HALT_INTEGRATION_GUIDE.md[m[36m:[m      "name": "[1;31mDispute[ms",
+[35mEMERGENCY_HALT_QUICK_REFERENCE.md[m[36m:[m| **Scope** | Affects: Markets, Bets, [1;31mDispute[ms, Fees, Validation |
+[35mEMERGENCY_HALT_QUICK_REFERENCE.md[m[36m:[m//   [1;31mdispute[ms_paused: true,
+[35mEMERGENCY_HALT_QUICK_REFERENCE.md[m[36m:[m│     "[1;31mdispute[ms": "paused",     │
+[35mEMERGENCY_HALT_QUICK_REFERENCE.md[m[36m:[m   - [1;31mDispute[ms: Operational / Paused / Unhealthy
+[35mEMERGENCY_HALT_QUICK_REFERENCE.md[m[36m:[mA: No, oracles continue running. Only market operations, fee collection, and [1;31mdispute[m resolution are paused.
+[35mEMERGENCY_HALT_SUMMARY.md[m[36m:[mThe Hermes prediction market platform has **no platform-wide emergency halt capability**. Currently, each contract (Markets, Fees, Reporting, Validators, [1;31mDispute[ms) has its own independent pause mechanism. This creates critical operational gaps:
+[35mEMERGENCY_HALT_SUMMARY.md[m[36m:[m        └─ Call [1;31mDispute[ms::pause_all() ───────┘
+[35mEMERGENCY_HALT_SUMMARY.md[m[36m:[m   │Markets│  │Fe│Report│Va│ [1;31mDispute[ms │
+[35mEMERGENCY_HALT_SUMMARY.md[m[36m:[m- Update Markets, Fees, Reporting, Validators, [1;31mDispute[ms
+[35mFUZZ_TARGET_FEES.md[m[36m:[m- **Sibling harness pattern**: Mirrors `contracts/[1;31mdispute[ms/fuzz/targets/main.rs` in structure, byte-corpus action dispatch, error-whitelist policy, and `AdvanceLedger` time-travel primitive. No new patterns are introduced by this design.
+[35mFUZZ_TARGET_FEES.md[m[36m:[mIt is a **structure-aware byte-dispatch corpus fuzzer** (not a type-level `Arbitrary` derive fuzzer) so that a single `fuzz_target!(|data: &[u8]|)` loop stays deterministic, corpus-reproducible, and binary-compatible with the [1;31mdispute[ms harness toolchain.
+[35mFUZZ_TARGET_FEES.md[m[36m:[m## 2. Environment (prerequisites — unchanged from [1;31mdispute[ms)
+[35mFUZZ_TARGET_FEES.md[m[36m:[mThese CLI flags are identical to the [1;31mdispute[ms harness; the two harnesses are intended to be run side-by-side in CI with identical resource budgets.
+[35mFUZZ_TARGET_FEES.md[m[36m:[mAs with the [1;31mdispute[ms harness, `cargo fuzz` uses a per-target working corpus
+[35mFUZZ_TARGET_FEES.md[m[36m:[m- [1;31mDispute[ms harness (reference): `contracts/[1;31mdispute[ms/fuzz/corpus/main/`
+[35mFUZZ_TARGET_FEES.md[m[36m:[m[1;31mdispute[ms harness documents the same flow under "Seeding the corpus" in
+[35mFUZZ_TARGET_FEES.md[m[36m:[m`contracts/[1;31mdispute[ms/FUZZ_TARGET.md`.
+[35mFUZZ_TARGET_FEES.md[m[36m:[m### 3.1 Overall structure (matches [1;31mdispute[ms/main.rs)
+[35mFUZZ_TARGET_FEES.md[m[36m:[m4. Construct a `FixtureState` struct (mirrors [1;31mdispute[ms `FixtureState`) that owns:
+[35mFUZZ_TARGET_FEES.md[m[36m:[m6. Enter the action loop: `for byte in data.chunks_exact(CHUNK_SIZE)` (chunk size = 16 bytes, same as [1;31mdispute[ms to keep uniform decoder across harnesses). Each chunk is 1 action opcode byte + 15 bytes payload per Section 3.2.
+[35mFUZZ_TARGET_FEES.md[m[36m:[mTotal: 8 actions. Payload size is **always 15 bytes per action** so corpus chunks are uniform ([1;31mdispute[ms harness uses same uniform chunk size for binary reproducibility).
+[35mFUZZ_TARGET_FEES.md[m[36m:[mIdentical to [1;31mdispute[ms `FixtureState` in structure, fees-specific fields are new:
+[35mFUZZ_TARGET_FEES.md[m[36m:[m### 6.2 Generic infrastructure errors (always allowed, same set as [1;31mdispute[ms harness)
+[35mFUZZ_TARGET_FEES.md[m[36m:[m- `Error::[1;31mDispute[mAlreadyExists` / `Error::[1;31mDispute[mNotPending` (cross-module)
+[35mFUZZ_TARGET_FEES.md[m[36m:[m5. **`Err -> no state change`**: For any action that returns `Err(e)` where `e` is on the whitelist, compare the sha256 hash of (all 6 storage keys serialized) before and after. If they differ → crash (a whitelisted Error must not mutate state). This is the single most important invariant of the whole harness and is **identical to the [1;31mdispute[ms harness invariant #3** (mutations-on-error detection).
+[35mFUZZ_TARGET_FEES.md[m[36m:[m2. Coverage tool: `cargo +nightly fuzz coverage --fuzz-dir contracts/predictify-hybrid/fuzz fees` (same cmd as [1;31mdispute[ms harness — doc parity).
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m**Description**: `ResolutionTimeoutEvent` and `[1;31mDispute[mTimeoutExpiredEvent` structs were missing `nonce` and `timestamp` fields required by event schema.  
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m### Issue: Missing emit functions for [1;31mdispute[m events
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m**Description**: Three emit functions referenced in `contracts/predictify-hybrid/src/[1;31mdispute[ms.rs` were not implemented in events.rs:
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m  - `emit_[1;31mdispute[m_timeout_set`
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m  - `emit_[1;31mdispute[m_timeout_expired`
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m  - `emit_[1;31mdispute[m_timeout_extended`
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m  - `emit_[1;31mdispute[m_vote_rejected`
+[35mINDIVIDUAL_ISSUE_TRACKER.md[m[36m:[m  - `emit_[1;31mdispute[m_auto_resolved`
+[35mPLATFORM_EMERGENCY_HALT_DESIGN.md[m[36m:[m           └─────► [1;31mDispute[ms Contract (pause [1;31mdispute[ms)
+[35mPLATFORM_EMERGENCY_HALT_DESIGN.md[m[36m:[m    pub [1;31mdispute[ms_paused: bool,
+[35mPLATFORM_EMERGENCY_HALT_DESIGN.md[m[36m:[m  - [1;31mDispute[ms Contract (if separate)
+[35mREADME.md[m[36m:[m- `[1;31mdispute[m_report` - Requires reporter auth
+[35mREADME.md[m[36m:[m- `resolve_[1;31mdispute[m` - Requires admin auth
+[35mSESSION_COMPLETION_REPORT.md[m[36m:[m| Missing emit functions | 6 | Added emit_[1;31mdispute[m_* and emit_resolution_* functions |
+[35mcontracts/disputes/Cargo.toml[m[36m:[mname = "[1;31mdispute[ms"
+[35mcontracts/disputes/Cargo.toml[m[36m:[mname = "[1;31mdispute[m_edge_cases"
+[35mcontracts/disputes/Cargo.toml[m[36m:[mpath = "tests/[1;31mdispute[m_edge_cases.rs"
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m# [1;31mDispute[ms Fuzz Target
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[mThis document describes the `cargo-fuzz` target for the [1;31mdispute[ms subsystem
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m`contracts/[1;31mdispute[ms/fuzz/targets/main.rs` and exercises
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m`predictify_hybrid::[1;31mdispute[ms::[1;31mDispute[mManager` via a structured byte corpus.
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[mcontracts/[1;31mdispute[ms/
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m├── Cargo.toml                        # [[test]] entries for err_stab and [1;31mdispute[m_edge_cases
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m│   ├── Cargo.toml                    # [1;31mdispute[ms-fuzz crate; [[bin]] main
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m    └── [1;31mdispute[m_edge_cases.rs         # focused deterministic edge-case tests (new)
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m  --fuzz-dir contracts/[1;31mdispute[ms/fuzz \
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[mCrashes are stored in `contracts/[1;31mdispute[ms/fuzz/artifacts/main/`.
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m`contracts/[1;31mdispute[ms/fuzz/corpus/main/`. The directory is created on first run
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m(for example `contracts/[1;31mdispute[ms/fuzz/seeds/main/`). Each file is a raw byte
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m  --fuzz-dir contracts/[1;31mdispute[ms/fuzz \
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m  contracts/[1;31mdispute[ms/fuzz/corpus/main \
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m  -- -seed_inputs=contracts/[1;31mdispute[ms/fuzz/seeds/main
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[mor copy the seed files directly into `contracts/[1;31mdispute[ms/fuzz/corpus/main/`
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[mcargo test -p [1;31mdispute[ms --test [1;31mdispute[m_edge_cases
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| 0 — Open[1;31mDispute[m | Calls `[1;31mDispute[mManager::process_[1;31mdispute[m` with a fuzz-derived stake |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| 1 — VoteSimple | Calls `vote_on_[1;31mdispute[m(user, market, outcome_str, stake)` |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| 2 — VoteExtended | Calls `vote_on_[1;31mdispute[m(user, market, [1;31mdispute[m_id, bool, stake, reason)` |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| 3 — Resolve[1;31mDispute[m | Calls `[1;31mDispute[mManager::resolve_[1;31mdispute[m` |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| 4 — AdvanceLedger | Time-travels the test ledger by up to 10 × `[1;31mDISPUTE[m_PERIOD_SECS` |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m- Stake amounts: 0, −1, `MIN_[1;31mDISPUTE[m_STAKE − 1`, `MIN_[1;31mDISPUTE[m_STAKE`, `i128::MAX`
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m- Market timing: active, ended-but-in-window, past [1;31mdispute[m window
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m- Duplicate [1;31mdispute[ms by the same user → `Already[1;31mDispute[md`
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m- Per-user stake cap enforcement → `[1;31mDispute[mStakeCapExceeded`
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m- Vote by the [1;31mdispute[m opener → `[1;31mDispute[mrCannotVote`
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m- Double-voting by the same voter → `[1;31mDispute[mAlreadyVoted`
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[mThe fuzzer accepts only the following errors from [1;31mdispute[m entry points.
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `Already[1;31mDispute[md` | 404 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mVoteExpired` | 405 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mVoteDenied` | 406 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mAlreadyVoted` | 407 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mCondNotMet` | 408 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mFeeFailed` | 409 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mError` | 410 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mrCannotVote` | 438 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `[1;31mDispute[mStakeCapExceeded` | 522 |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `Cargo.toml` (workspace root) | Added `"contracts/[1;31mdispute[ms/fuzz"` to `[workspace] members` |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `contracts/[1;31mdispute[ms/Cargo.toml` | Added `[[test]] [1;31mdispute[m_edge_cases` entry |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m| `contracts/[1;31mdispute[ms/fuzz/Cargo.toml` | Added `arbitrary` dependency; added `[[bin]] main` entry |
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[m`contracts/predictify-hybrid/src/[1;31mdispute[ms.rs` (lines 2907 and 3053) that
+[35mcontracts/disputes/FUZZ_TARGET.md[m[36m:[mThese were orphaned method-close braces duplicated inside the `[1;31mDispute[mUtils`
+[35mcontracts/disputes/fuzz/Cargo.toml[m[36m:[mname = "[1;31mdispute[ms-fuzz"
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! Cargo-fuzz target for the [1;31mdispute[ms subsystem (issue #944).
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! Exercises the full [1;31mdispute[m lifecycle via the `predictify-hybrid` contract:
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! | Open [1;31mdispute[m   | `[1;31mDispute[mManager::process_[1;31mdispute[m`        |
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! | Vote on [1;31mdispute[m| `[1;31mDispute[mManager::vote_on_[1;31mdispute[m`        |
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! | Resolve [1;31mdispute[m| `[1;31mDispute[mManager::resolve_[1;31mdispute[m`        |
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! - Stake amounts: zero, negative, below/at/above `MIN_[1;31mDISPUTE[m_STAKE`, `i128::MAX`
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! - Market timing: active, ended-but-in-window, past [1;31mdispute[m window
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! - Duplicate [1;31mdispute[ms by the same user
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! - Per-user stake cap enforcement (`[1;31mDispute[mStakeCapExceeded`)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! - Vote by the [1;31mdispute[m opener (must be rejected with `[1;31mDispute[mrCannotVote`)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mdispute[m family (codes frozen in `contracts/[1;31mdispute[ms/tests/err_stab.rs`):
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! Already[1;31mDispute[md          = 404
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mVoteExpired       = 405
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mVoteDenied        = 406
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mAlreadyVoted      = 407
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mCondNotMet        = 408
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mFeeFailed         = 409
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mError             = 410
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mrCannotVote       = 438
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! [1;31mDispute[mStakeCapExceeded  = 522
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m//! cargo +nightly fuzz run --fuzz-dir contracts/[1;31mdispute[ms/fuzz main
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m    [1;31mdispute[ms::[1;31mDispute[mManager,
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m// Constants mirrored from [1;31mdispute[ms.rs (public values)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m/// Minimum stake required to open a [1;31mdispute[m (stroops).
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[mconst MIN_[1;31mDISPUTE[m_STAKE: i128 = 10_000_000;
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m/// Default [1;31mdispute[m voting window (seconds).
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[mconst [1;31mDISPUTE[m_PERIOD_SECS: u64 = 86_400;
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m/// Create and store a market that is past its end_time so [1;31mdispute[ms can be opened.
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m    [1;31mdispute[m_window_secs: u64,
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        [1;31mdispute[m_stakes: soroban_sdk::Map::new(env),
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        [1;31mdispute[m_window_seconds: [1;31mdispute[m_window_secs,
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        [1;31mdispute[m_stake_floor: None,
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m    // Pool of 5 users (0 = [1;31mdispute[mr pool, 1..4 = voter pool)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m    // Store admin in contract so resolve_[1;31mdispute[m can find it.
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m    // Pre-create 4 markets with the standard 24 h [1;31mdispute[m window.
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m            create_disputable_market(&env, &admin, i, [1;31mDISPUTE[m_PERIOD_SECS)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m            // 0 — Open[1;31mDispute[m
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                    Some(SorobanString::from_str(&env, "Fuzz [1;31mdispute[m reason"))
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                    [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, stake, reason)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                // Only [1;31mdispute[m-family errors (or success) are acceptable.
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        is_allowed_[1;31mdispute[m_error(e),
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        "process_[1;31mdispute[m returned unexpected error: {:?}",
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m            // 1 — VoteOn[1;31mDispute[m (simple stake-only overload)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                    [1;31mDispute[mManager::vote_on_[1;31mdispute[m(&env, voter, market_id, vote_str, stake)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        is_allowed_[1;31mdispute[m_error(e),
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        "vote_on_[1;31mdispute[m (simple) returned unexpected error: {:?}",
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m            // 2 — VoteOn[1;31mDispute[mExtended (full overload with [1;31mdispute[m_id + reason)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m            //     bytes: [voter_idx(1)] [market_idx(1)] [[1;31mdispute[m_id_tag(1)]
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                let [1;31mdispute[m_tag = data[idx + 2] % 4; // up to 4 [1;31mdispute[m ids
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                let [1;31mdispute[m_id_name = match [1;31mdispute[m_tag {
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                let [1;31mdispute[m_id = Symbol::new(&env, [1;31mdispute[m_id_name);
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                    [1;31mDispute[mManager::vote_on_[1;31mdispute[m(
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        [1;31mdispute[m_id,
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        is_allowed_[1;31mdispute[m_error(e),
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        "vote_on_[1;31mdispute[m (extended) returned unexpected error: {:?}",
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m            // 3 — Resolve[1;31mDispute[m
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                    [1;31mDispute[mManager::resolve_[1;31mdispute[m(&env, market_id, admin.clone())
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        is_allowed_[1;31mdispute[m_error(e),
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                        "resolve_[1;31mdispute[m returned unexpected error: {:?}",
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                let delta = delta % ([1;31mDISPUTE[m_PERIOD_SECS * 10);
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m                    let cap_key = DataKey::[1;31mDispute[mStakeCap(market_id, user);
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m// Helper: classify which errors are acceptable from [1;31mdispute[m entrypoints.
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m// Returns `true` for any error the [1;31mdispute[m subsystem is expected to emit,
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[mfn is_allowed_[1;31mdispute[m_error(e: Error) -> bool {
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        // [1;31mDispute[m-family error codes (frozen in err_stab.rs)
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        Error::Already[1;31mDispute[md           // 404
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mVoteExpired      // 405
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mVoteDenied       // 406
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mAlreadyVoted     // 407
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mCondNotMet       // 408
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mFeeFailed        // 409
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mError            // 410
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mrCannotVote      // 438
+[35mcontracts/disputes/fuzz/targets/main.rs[m[36m:[m        | Error::[1;31mDispute[mStakeCapExceeded // 522
+[35mcontracts/disputes/src/lib.rs[m[36m:[mpub struct [1;31mDispute[msContract;
+[35mcontracts/disputes/src/lib.rs[m[36m:[mimpl [1;31mDispute[msContract {
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! Focused edge-case tests for the [1;31mdispute[ms subsystem.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! `predictify-hybrid/src/tests/[1;31mdispute[m_open_fuzz.rs` with deterministic,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `stake_exactly_at_minimum`                    | stake == MIN_[1;31mDISPUTE[m_STAKE is accepted             |
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `stake_one_below_minimum`                     | stake == MIN_[1;31mDISPUTE[m_STAKE - 1 is rejected         |
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `duplicate_[1;31mdispute[m_same_user`                 | second [1;31mdispute[m by same user → Already[1;31mDispute[md      |
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `[1;31mdispute[m_past_window_rejected`                | [1;31mdispute[m after window → MarketResolved/InvalidState |
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `[1;31mdispute[m_before_end_time_rejected`            | [1;31mdispute[m on active market → MarketClosed/InvalidState|
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `[1;31mdispute[mr_cannot_vote_own_[1;31mdispute[m`            | opener votes own [1;31mdispute[m → [1;31mDispute[mrCannotVote      |
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `stake_cap_exceeded`                          | stake > cap → [1;31mDispute[mStakeCapExceeded              |
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m//! | `error_codes_stable`                          | all [1;31mdispute[m error codes match frozen values        |
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    [1;31mdispute[ms::[1;31mDispute[mManager,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[mconst MIN_[1;31mDISPUTE[m_STAKE: i128 = 10_000_000;
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[mconst [1;31mDISPUTE[m_PERIOD_SECS: u64 = 86_400;
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    // Register a Stellar Asset contract and wire it into the [1;31mdispute[ms contract.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m/// [1;31mdispute[m window) so `process_[1;31mdispute[m` can proceed.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    [1;31mdispute[m_window: u64,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_stakes: soroban_sdk::Map::new(env),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_window_seconds: [1;31mdispute[m_window,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_stake_floor: None,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            "MIN_[1;31mDISPUTE[m_STAKE should not be rejected as insufficient"
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE - 1, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, 0, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, -1, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m// Duplicate [1;31mdispute[m test
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[mfn duplicate_[1;31mdispute[m_same_user() {
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    // First [1;31mdispute[m must succeed.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            MIN_[1;31mDISPUTE[m_STAKE,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        "first [1;31mdispute[m should succeed, got {:?}",
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    // Second [1;31mdispute[m by the same user must be rejected.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        matches!(second, Err(Error::Already[1;31mDispute[md)),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        "duplicate [1;31mdispute[m must return Already[1;31mDispute[md, got {:?}",
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[mfn [1;31mdispute[m_past_window_rejected() {
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    // [1;31mDispute[m window of 1 second — ledger time is already 1 h past end_time.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            Err(Error::MarketResolved) | Err(Error::InvalidState) | Err(Error::[1;31mDispute[mCondNotMet)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        "[1;31mdispute[m past window must be rejected, got {:?}",
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[mfn [1;31mdispute[m_before_end_time_rejected() {
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_stakes: soroban_sdk::Map::new(&env),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_window_seconds: [1;31mDISPUTE[m_PERIOD_SECS,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_stake_floor: None,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        "[1;31mdispute[m before end_time must be rejected, got {:?}",
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[mfn [1;31mdispute[mr_cannot_vote_own_[1;31mdispute[m() {
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    let [1;31mdispute[mr = Address::generate(&env);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    fund(&env, &contract_id, &token_id, &[1;31mdispute[mr);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    // Open the [1;31mdispute[m first.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            [1;31mdispute[mr.clone(),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            MIN_[1;31mDISPUTE[m_STAKE,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    assert!(open.is_ok(), "[1;31mdispute[m open should succeed: {:?}", open);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    // The [1;31mdispute[mr is in `[1;31mdispute[m_stakes`, so this must be rejected.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    let [1;31mdispute[m_id = Symbol::new(&env, "VOT_ID");
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::vote_on_[1;31mdispute[m(
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            [1;31mdispute[mr.clone(),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            [1;31mdispute[m_id,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            MIN_[1;31mDISPUTE[m_STAKE,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        matches!(vote_result, Err(Error::[1;31mDispute[mrCannotVote)),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        "[1;31mdispute[m opener must not be able to vote, got {:?}",
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    let cap: i128 = MIN_[1;31mDISPUTE[m_STAKE; // exactly at minimum
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    let attempted_stake = MIN_[1;31mDISPUTE[m_STAKE + 1; // one above cap
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        let cap_key = DataKey::[1;31mDispute[mStakeCap(market_id.clone(), user.clone());
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, attempted_stake, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        matches!(result, Err(Error::[1;31mDispute[mStakeCapExceeded)),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        "stake above cap must return [1;31mDispute[mStakeCapExceeded, got {:?}",
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    make_market(&env, &contract_id, &admin, &market_id, [1;31mDISPUTE[m_PERIOD_SECS);
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    let cap: i128 = MIN_[1;31mDISPUTE[m_STAKE * 5;
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        let cap_key = DataKey::[1;31mDispute[mStakeCap(market_id.clone(), user.clone());
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        // Stake exactly at the cap — must NOT return [1;31mDispute[mStakeCapExceeded.
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, cap, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            Error::[1;31mDispute[mStakeCapExceeded,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m// Zero-staked market [1;31mdispute[m threshold & processing (Issue #029)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[mfn test_zero_staked_market_[1;31mdispute[m_processing() {
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_stakes: soroban_sdk::Map::new(&env),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_window_seconds: [1;31mDISPUTE[m_PERIOD_SECS,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mdispute[m_stake_floor: None,
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        "[1;31mdispute[m on zero-staked market must succeed without division-by-zero or calculation error: {:?}",
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    let [1;31mdispute[m_errors: &[(Error, u32)] = &[
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::Already[1;31mDispute[md, 404),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mVoteExpired, 405),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mVoteDenied, 406),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mAlreadyVoted, 407),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mCondNotMet, 408),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mFeeFailed, 409),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mError, 410),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mrCannotVote, 438),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m        (Error::[1;31mDispute[mStakeCapExceeded, 522),
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m    for (err, expected) in [1;31mdispute[m_errors {
+[35mcontracts/disputes/tests/dispute_edge_cases.rs[m[36m:[m            "[1;31mdispute[m error code changed for {:?}; this is a client-facing API change",
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m//! Stability snapshot for client-facing [1;31mdispute[m error codes.
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m//! [1;31mDispute[m errors are serialized into contract failures and consumed by client
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m//! The values below are the frozen GrantFox FWC26 [1;31mdispute[m-error snapshot. New
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m//! [1;31mdispute[m errors must use a previously unused explicit discriminant and be
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m/// Frozen numeric codes for every [1;31mdispute[m-related client-facing error.
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[mconst [1;31mDISPUTE[m_ERROR_SNAPSHOT: &[(Error, u32)] = &[
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::Already[1;31mDispute[md, 404),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mVoteExpired, 405),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mVoteDenied, 406),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mAlreadyVoted, 407),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mCondNotMet, 408),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mFeeFailed, 409),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mError, 410),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mrCannotVote, 438),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::No[1;31mDispute[msFound, 496),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    (Error::[1;31mDispute[mStakeCapExceeded, 522),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m/// Asserts that every frozen [1;31mdispute[m error retains its client-facing code.
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[mfn [1;31mdispute[m_error_discriminants_stable() {
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m        [1;31mDISPUTE[m_ERROR_SNAPSHOT.len(),
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m        "the [1;31mdispute[m error snapshot must cover every frozen [1;31mdispute[m error"
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    for &(error, expected) in [1;31mDISPUTE[m_ERROR_SNAPSHOT {
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m            "client-facing [1;31mdispute[m error code changed for {error:?}; this requires an API migration"
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m/// Ensures that no two [1;31mdispute[m errors expose the same numeric code.
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[mfn [1;31mdispute[m_error_discriminants_are_unique() {
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m    for &(error, code) in [1;31mDISPUTE[m_ERROR_SNAPSHOT {
+[35mcontracts/disputes/tests/err_stab.rs[m[36m:[m            "client-facing [1;31mdispute[m error code {code} is reused by {error:?}"
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! Cross-contract call safety tests for the [1;31mdispute[ms subsystem.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! These tests verify that the [1;31mdispute[ms contract correctly handles failures
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! contract). The [1;31mdispute[ms contract calls `token::Client::transfer` at
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! 1. **`process_[1;31mdispute[m`** — transfers stake from the user to the contract
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! 2. **`vote_on_[1;31mdispute[m`** — transfers stake from the voter to the contract
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! 3. **`resolve_[1;31mdispute[m`** — refunds stakes from the contract to [1;31mdispute[mrs
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_process_[1;31mdispute[m_insufficient_balance` | `process_[1;31mdispute[m` reverts when user has no tokens|
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_process_[1;31mdispute[m_insufficient_allowance` | `process_[1;31mdispute[m` reverts when allowance is 0|
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_vote_on_[1;31mdispute[m_insufficient_balance` | `vote_on_[1;31mdispute[m` reverts when voter has no tokens|
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_vote_on_[1;31mdispute[m_insufficient_allowance` | `vote_on_[1;31mdispute[m` reverts when allowance is 0|
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_process_[1;31mdispute[m_zero_address_token` | `process_[1;31mdispute[m` panics when token_id is unset |
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_resolve_[1;31mdispute[m_refund_succeeds` | HAPPY PATH: refund transfer succeeds |
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_resolve_[1;31mdispute[m_contract_no_balance` | `resolve_[1;31mdispute[m` refund fails when contract has no tokens |
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m//! | `xct_process_[1;31mdispute[m_happy_path` | HAPPY PATH: [1;31mdispute[m with sufficient balance succeeds |
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    [1;31mdispute[ms::[1;31mDispute[mManager,
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mconst MIN_[1;31mDISPUTE[m_STAKE: i128 = 10_000_000;
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mconst [1;31mDISPUTE[m_PERIOD_SECS: u64 = 86_400;
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    // Register a Stellar Asset contract and wire it into the [1;31mdispute[ms contract.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// [1;31mdispute[m window) so `process_[1;31mdispute[m` can proceed.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_stakes: soroban_sdk::Map::new(env),
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_window_seconds: [1;31mDISPUTE[m_PERIOD_SECS,
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_stake_floor: None,
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m// process_[1;31mdispute[m — cross-contract failure modes
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// `process_[1;31mdispute[m` must revert when the user has zero token balance
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_process_[1;31mdispute[m_insufficient_balance() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// `process_[1;31mdispute[m` must revert when the user has tokens but has NOT
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_process_[1;31mdispute[m_insufficient_allowance() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// `process_[1;31mdispute[m` must panic when the token ID is not set in storage
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_process_[1;31mdispute[m_unconfigured_token() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// HAPPY PATH: `process_[1;31mdispute[m` succeeds when the user has sufficient
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_process_[1;31mdispute[m_happy_path() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user, market_id, MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    assert!(result.is_ok(), "happy-path [1;31mdispute[m should succeed: {:?}", result);
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m// vote_on_[1;31mdispute[m — cross-contract failure modes
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// `vote_on_[1;31mdispute[m` must revert when the voter has zero token balance.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_vote_on_[1;31mdispute[m_insufficient_balance() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    // Set up a [1;31mdispute[mr that CAN pay, so the [1;31mdispute[m opens successfully.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    let [1;31mdispute[mr = Address::generate(&env);
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    fund_and_approve(&env, &contract_id, &token_id, &[1;31mdispute[mr, 1_000_000_000_000i128);
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    // Open the [1;31mdispute[m.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, [1;31mdispute[mr, market_id.clone(), MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m            .expect("[1;31mdispute[m open should succeed");
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::vote_on_[1;31mdispute[m(&env, voter, market_id, outcome, MIN_[1;31mDISPUTE[m_STAKE)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// `vote_on_[1;31mdispute[m` must revert when the voter has tokens but no allowance.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_vote_on_[1;31mdispute[m_insufficient_allowance() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    let [1;31mdispute[mr = Address::generate(&env);
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    fund_and_approve(&env, &contract_id, &token_id, &[1;31mdispute[mr, 1_000_000_000_000i128);
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, [1;31mdispute[mr, market_id.clone(), MIN_[1;31mDISPUTE[m_STAKE, None)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m            .expect("[1;31mdispute[m open should succeed");
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::vote_on_[1;31mdispute[m(&env, voter, market_id, outcome, MIN_[1;31mDISPUTE[m_STAKE)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m// resolve_[1;31mdispute[m — cross-contract refund behaviour
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// HAPPY PATH: `resolve_[1;31mdispute[m` refunds the [1;31mdispute[mr's stake when the
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// oracle is overturned. The refund token transfer (contract → [1;31mdispute[mr)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_resolve_[1;31mdispute[m_refund_succeeds() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    let stake = MIN_[1;31mDISPUTE[m_STAKE;
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::process_[1;31mdispute[m(&env, user.clone(), market_id.clone(), stake, None)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m            .expect("[1;31mdispute[m should succeed");
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    let balance_after_[1;31mdispute[m = token_client.balance(&user);
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    assert_eq!(balance_after_[1;31mdispute[m, initial_user_balance - stake);
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    // Resolve the [1;31mdispute[m — oracle says "yes", community says "no",
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    // so the oracle is overturned → [1;31mdispute[mrs get refunded.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::vote_on_[1;31mdispute[m(&env, voter, market_id.clone(), SorobanString::from_str(&env, "no"), 100_000_000)
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        // The [1;31mdispute[m impact is ~stake / (stake + total_staked).
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        // With stake=10M and total_staked=100M, [1;31mdispute[m_impact ≈ 0.09 which is < 0.3.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        // unless we have enough [1;31mdispute[m impact. For the refund test, we set up
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m    // We re-create the market with the [1;31mdispute[m stakes already recorded.
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_stakes: soroban_sdk::Map::from_array(&env, &[(user.clone(), stake)]),
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_window_seconds: [1;31mDISPUTE[m_PERIOD_SECS,
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_stake_floor: None,
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m            [1;31mDispute[mManager::resolve_[1;31mdispute[m(&env, market_id2, admin.clone())
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        // because [1;31mdispute[m_impact > 0.3 when the only vote is "no"
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// `resolve_[1;31mdispute[m` must handle the case where the contract does NOT
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m/// hold sufficient tokens to refund [1;31mdispute[mrs. This simulates a token
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[mfn xct_resolve_[1;31mdispute[m_contract_insufficient_balance() {
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_stakes: soroban_sdk::Map::from_array(&env, &[(user.clone(), MIN_[1;31mDISPUTE[m_STAKE)]),
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_window_seconds: [1;31mDISPUTE[m_PERIOD_SECS,
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mdispute[m_stake_floor: None,
+[35mcontracts/disputes/tests/xcontract.rs[m[36m:[m        [1;31mDispute[mManager::resolve_[1;31mdispute[m(&env, market_id, admin)
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m  keyed per-entity (per market, per user, per [1;31mdispute[m).
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `[1;31mDispute[mHistoryCap` | Persistent | Global admin-configured cap on retained [1;31mdispute[m history entries ([`[1;31mdispute[ms.rs`](../src/[1;31mdispute[ms.rs)). A single global config value that must survive indefinitely once set; Instance would be viable too, but Persistent keeps it independent from the shared instance-TTL budget used by the hot [`MarketCache`](#markets---per-market-instance-cache) keys. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `[1;31mDispute[mHistory(Symbol)` | Persistent | Per-market list of resolved/expired [1;31mdispute[ms, capped by `[1;31mDispute[mHistoryCap`. Keyed per market and needs its own long-lived TTL (explicitly bumped to the ~365-day ledger count on every write), independent of any other market's history. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `[1;31mDispute[mStakeCap(Symbol, Address)` | Persistent | Per-(market, user) [1;31mdispute[m stake cap, read on every [1;31mdispute[m-stake validation. Keyed per-entity, so Persistent (with its own TTL/rent) is required; Instance's shared-TTL model doesn't scale to a key with unbounded cardinality. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `[1;31mDispute[mCumulativeStakeCap(Address)` | Persistent | Per-user cumulative [1;31mdispute[m stake cap **across all markets** ([`[1;31mdispute[ms.rs`](../src/[1;31mdispute[ms.rs)). Same per-entity reasoning as `[1;31mDispute[mStakeCap`. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `AntiGriefFloor` | Persistent | Global minimum [1;31mdispute[m-stake floor. A single config value, but grouped with the rest of the [1;31mdispute[m-config keys (`[1;31mDispute[mCooldownSeconds`, `[1;31mDispute[mHistoryCap`) which are also Persistent; keeping the whole config family in one tier avoids splitting related admin-config reads/writes across two TTL models. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `[1;31mDispute[mCooldownSeconds` | Persistent | Global cooldown between admin actions on [1;31mdispute[ms. Same rationale as `AntiGriefFloor`. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `[1;31mDispute[mAdminLastAction(Symbol)` | Persistent | Per-admin-function-name last-action timestamp used to enforce `[1;31mDispute[mCooldownSeconds`. Keyed per function name (unbounded-ish, low cardinality but still per-entity), so Persistent. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `ResolutionCooldownSeconds` | Persistent | Global cooldown between admin actions on resolution ([`resolution.rs`](../src/resolution.rs)). Same config-family rationale as the [1;31mdispute[m cooldown keys. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `ResolutionAdminLastAction(Symbol)` | Persistent | Per-function-name last-action timestamp for the resolution cooldown, mirroring `[1;31mDispute[mAdminLastAction`. |
+[35mcontracts/predictify-hybrid/docs/storage.md[m[36m:[m| `(Symbol("Event"), event_id)` | `EventManager::event_storage_key` | Persistent | Per-event record. Uses the **Event** TTL tier (~90 days by default) — long enough to outlive typical [1;31mdispute[m/resolution windows without matching the full one-year Market tier. |
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// Manage [1;31mdispute[ms
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    Manage[1;31mDispute[m,
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// - [1;31mDispute[m resolution parameters
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// - `"manage_[1;31mdispute[ms"` - [1;31mDispute[m management
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// | `"manage_[1;31mdispute[ms"` | `AdminPermission::Manage[1;31mDispute[m` |
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m            "manage_[1;31mdispute[ms" => Ok(AdminPermission::Manage[1;31mDispute[m),
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// - CollectFees, Manage[1;31mDispute[m, ViewAnalytic, Emergency
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m                AdminPermission::Manage[1;31mDispute[m,
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m            return Err(Error::[1;31mDispute[mError);
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// # let market_id = Symbol::new(&env, "[1;31mdispute[md_market");
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// // Finalize a [1;31mdispute[md market with admin decision
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m    /// - **[1;31mDispute[m Resolution**: Resolve [1;31mdispute[md markets with admin decision
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m            AdminPermission::Manage[1;31mDispute[m => {
+[35mcontracts/predictify-hybrid/src/admin.rs[m[36m:[m                String::from_str(&soroban_sdk::Env::default(), "Manage[1;31mDispute[m")
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m    [1;31mDispute[m, [1;31mDispute[mEscalation, [1;31mDispute[mFeeDistribution, [1;31mDispute[mResolution, [1;31mDispute[mStats,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m    [1;31mDispute[mStatus, [1;31mDispute[mTimeout, [1;31mDispute[mTimeoutOutcome, [1;31mDispute[mTimeoutStatus, Market,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[mpub const MIN_[1;31mDISPUTE[m_STAKE: i128 = 10_000_000;
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[mpub const [1;31mDISPUTE[m_PERIOD_SECS: u64 = 86400;
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[mpub struct [1;31mDispute[mValidator;
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[mpub struct [1;31mDispute[mDecayConfig {
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// Comprehensive statistics about [1;31mdispute[ms for a specific market.
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// This structure aggregates [1;31mdispute[m activity data to provide insights into
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// community engagement, [1;31mdispute[m patterns, and market controversy levels.
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// * `total_[1;31mdispute[ms` - Total number of [1;31mdispute[ms ever raised for this market
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// * `total_[1;31mdispute[m_stakes` - Sum of all stakes committed to [1;31mdispute[ms (in stroops)
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// * `active_[1;31mdispute[ms` - Number of [1;31mdispute[ms currently accepting votes
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// * `resolved_[1;31mdispute[ms` - Number of [1;31mdispute[ms that have been finalized
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// * `unique_[1;31mdispute[mrs` - Count of unique addresses that have [1;31mdispute[md this market
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// # use predictify_hybrid::[1;31mdispute[ms::[1;31mDispute[mStats;
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// let stats = [1;31mDispute[mStats {
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m///     total_[1;31mdispute[ms: 3,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m///     total_[1;31mdispute[m_stakes: 50_000_000, // 5 XLM total
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m///     active_[1;31mdispute[ms: 1,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m///     resolved_[1;31mdispute[ms: 2,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m///     unique_[1;31mdispute[mrs: 3,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// // Calculate average stake per [1;31mdispute[m
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// let avg_stake = stats.total_[1;31mdispute[m_stakes / stats.total_[1;31mdispute[ms as i128;
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// let controversy_ratio = stats.total_[1;31mdispute[ms as f64 / 10.0; // Assume 10 total participants
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// - **Market Quality**: High [1;31mdispute[m rates may indicate poor oracle data
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// - **Community Engagement**: [1;31mDispute[m participation shows market interest
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// - Patterns of systematic [1;31mdispute[ms
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[mpub struct [1;31mDispute[mStats {
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m    pub total_[1;31mdispute[ms: u32,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m    pub total_[1;31mdispute[m_stakes: i128,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m    pub active_[1;31mdispute[ms: u32,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m    pub resolved_[1;31mdispute[ms: u32,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m    pub unique_[1;31mdispute[mrs: u32,
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// Contains the final resolution data for a completed [1;31mdispute[m process.
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// * `final_outcome` - The definitive outcome after [1;31mdispute[m resolution
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// * `[1;31mdispute[m_impact` - How much [1;31mdispute[ms affected the final outcome (scaled integer)
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// # use predictify_hybrid::[1;31mdispute[ms::[1;31mDispute[mResolution;
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// let resolution = [1;31mDispute[mResolution {
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m///     [1;31mdispute[m_impact: 25, // 25% change from original oracle result
+[35mcontracts/predictify-hybrid/src/disputes.rs[m[36m:[m/// let community_influenced = resolution.[1;31mdispute[m_impact > 20;
+[
