@@ -500,6 +500,10 @@ impl BetManager {
         // Lock funds (transfer from user to contract)
         BetUtils::lock_funds(env, &user, amount)?;
 
+        // Token transfers are external calls; do not commit against a market
+        // snapshot that may have been resolved during the transfer.
+        market = Self::load_market_for_bet_commit(env, &market_id, amount)?;
+
         // Create bet
         let bet = Bet::new(
             env,
@@ -538,8 +542,6 @@ impl BetManager {
         Self::update_market_bet_stats(env, &market_id, &outcome, amount)?;
 
         // Update market's total staked (for payout pool calculation)
-        market.total_staked += amount;
-
         // Also update votes and stakes for backward compatibility with payout distribution
         // This allows distribute_payouts to work with both bets and votes
         market.votes.set(user.clone(), outcome.clone());
@@ -645,9 +647,8 @@ impl BetManager {
         // Enforce fee slippage guard once for the batch
         BetValidator::validate_fee_slippage(env, max_fee_bps)?;
 
-        // Markets with their post-batch `total_staked` already computed, so the
-        // commit phase has no fallible arithmetic left.
-        let mut markets: soroban_sdk::Vec<Market> = soroban_sdk::Vec::new(env);
+        // Pre-validate arithmetic before locking funds; commit reloads each
+        // market afterward to preserve any state changes during the transfer.
         let mut seen_markets: soroban_sdk::Vec<Symbol> = soroban_sdk::Vec::new(env);
         let mut total_amount: i128 = 0;
 
@@ -663,7 +664,7 @@ impl BetManager {
             seen_markets.push_back(market_id.clone());
 
             // Get and validate market
-            let mut market = MarketStateManager::get_market(env, &market_id)?;
+            let market = MarketStateManager::get_market(env, &market_id)?;
             BetValidator::validate_market_for_betting(env, &market)?;
 
             // Validate bet parameters
@@ -692,7 +693,7 @@ impl BetManager {
 
             // Pre-compute the market's new total so overflow is caught now,
             // not halfway through the commit loop.
-            market.total_staked = market
+            let _updated_total_staked = market
                 .total_staked
                 .checked_add(amount)
                 .ok_or(Error::InvalidInput)?;
@@ -702,7 +703,6 @@ impl BetManager {
                 .checked_add(amount)
                 .ok_or(Error::InvalidInput)?;
 
-            markets.push_back(market);
         }
 
         // Enforce the global per-ledger bet cap for each bet in the batch. The
@@ -724,9 +724,9 @@ impl BetManager {
         // =====================================================================
         let mut placed_bets = soroban_sdk::Vec::new(env);
 
-        for (i, bet_data) in bets.iter().enumerate() {
+        for bet_data in bets.iter() {
             let (market_id, outcome, amount) = bet_data;
-            let mut market = markets.get(i as u32).unwrap();
+            let mut market = Self::load_market_for_bet_commit(env, &market_id, amount)?;
 
             // Create bet
             let bet = Bet::new(
@@ -803,6 +803,20 @@ impl BetManager {
     /// Returns `true` if the user has already placed a bet, `false` otherwise.
     pub fn has_user_bet(env: &Env, market_id: &Symbol, user: &Address) -> bool {
         BetStorage::get_bet(env, market_id, user).is_some()
+    }
+
+    fn load_market_for_bet_commit(
+        env: &Env,
+        market_id: &Symbol,
+        amount: i128,
+    ) -> Result<Market, Error> {
+        let mut market = MarketStateManager::get_market(env, market_id)?;
+        BetValidator::validate_market_for_betting(env, &market)?;
+        market.total_staked = market
+            .total_staked
+            .checked_add(amount)
+            .ok_or(Error::InvalidInput)?;
+        Ok(market)
     }
 
     /// Get a user's bet on a specific market.
@@ -1893,6 +1907,32 @@ mod tests {
             86400,
             MarketState::Active,
         )
+    }
+
+    #[test]
+    fn test_bet_commit_rejects_market_resolved_after_initial_validation() {
+        let env = Env::default();
+        let contract_id = env.register(crate::PredictifyHybrid, ());
+        let market_id = Symbol::new(&env, "commit_resolved_market");
+        let end_time = env.ledger().timestamp() + 10_000;
+
+        env.as_contract(&contract_id, || {
+            let mut market = test_market(&env, end_time);
+            MarketStateManager::update_market(&env, &market_id, &market);
+
+            assert!(BetManager::load_market_for_bet_commit(&env, &market_id, 5).is_ok());
+
+            market.state = MarketState::Resolved;
+            let mut winning_outcomes = soroban_sdk::Vec::new(&env);
+            winning_outcomes.push_back(String::from_str(&env, "yes"));
+            market.winning_outcomes = Some(winning_outcomes);
+            MarketStateManager::update_market(&env, &market_id, &market);
+
+            assert_eq!(
+                BetManager::load_market_for_bet_commit(&env, &market_id, 5).err(),
+                Some(Error::MarketClosed)
+            );
+        });
     }
 
     /// A failure on entry #3 of a batch must leave no trace of entries #1 and #2.
