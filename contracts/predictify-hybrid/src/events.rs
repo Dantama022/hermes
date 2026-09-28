@@ -73,6 +73,28 @@ pub struct BetStatusUpdatedEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when a bettor cancels a still-open bet inside the configured
+/// cancellation window (topic catalog: `bet_cancelled`).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BetCancelledEvent {
+    pub market_id: Symbol,
+    pub bettor: Address,
+    pub amount: i128,
+    pub nonce: u64,
+    pub timestamp: u64,
+}
+
+/// Emitted when the admin updates the global bet-cancellation window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BetCancelWindowSetEvent {
+    pub admin: Address,
+    pub window_seconds: u64,
+    pub nonce: u64,
+    pub timestamp: u64,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MaxBetCapSetEvent {
@@ -1044,6 +1066,14 @@ impl EventSchemaRegistry {
                 topic: symbol_short!("bet_plc"),
                 schema_version: 1,
             }),
+            "bet_cancelled" => Some(EventSchemaEntry {
+                topic: symbol_short!("bet_cncl"),
+                schema_version: 1,
+            }),
+            "bet_cancel_window_set" => Some(EventSchemaEntry {
+                topic: symbol_short!("cncl_win"),
+                schema_version: 1,
+            }),
             "market_description_updated" => Some(EventSchemaEntry {
                 topic: symbol_short!("mkt_dsc"),
                 schema_version: 1,
@@ -1165,6 +1195,36 @@ impl EventEmitter {
         };
         Self::store_event(env, &symbol_short!("bet_upd"), &event);
         env.events().publish((symbol_short!("bet_upd"), market_id.clone()), event);
+    }
+
+    /// Emit a dedicated bet-cancellation event.
+    ///
+    /// Topic: `bet_cancelled` (short symbol `bet_cncl`). Distinct from
+    /// [`Self::emit_bet_status_updated`] so indexers can react to a
+    /// user-initiated cancellation (inside the configured window) without
+    /// inspecting the status strings.
+    pub fn emit_bet_cancelled(env: &Env, market_id: &Symbol, bettor: &Address, amount: i128) {
+        let event = BetCancelledEvent {
+            market_id: market_id.clone(), bettor: bettor.clone(), amount,
+            nonce: Self::get_and_increment_nonce(env, symbol_short!("bet_cncl")),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("bet_cncl"), &event);
+        env.events().publish((symbol_short!("bet_cncl"), market_id.clone()), event);
+    }
+
+    /// Emit the new global bet-cancellation window.
+    ///
+    /// Topic: `bet_cancel_window_set` (short symbol `cncl_win`). Lets
+    /// indexers and front-ends track the configured window.
+    pub fn emit_bet_cancel_window_set(env: &Env, admin: &Address, window_seconds: u64) {
+        let event = BetCancelWindowSetEvent {
+            admin: admin.clone(), window_seconds,
+            nonce: Self::get_and_increment_nonce(env, symbol_short!("cncl_win")),
+            timestamp: env.ledger().timestamp(),
+        };
+        Self::store_event(env, &symbol_short!("cncl_win"), &event);
+        env.events().publish((symbol_short!("cncl_win"),), event);
     }
 
     pub fn emit_max_bet_cap_set(env: &Env, cap: i128) {

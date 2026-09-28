@@ -93,6 +93,15 @@ pub enum Error {
     /// placing another bet.  The cool-off window is configurable per-market or globally
     /// by the contract admin.
     BetCoolOffActive = 113,
+    /// The bet is outside the short cancellation window and can no longer be
+    /// cancelled. A bet may only be cancelled within
+    /// `get_bet_cancel_window` seconds of being placed; the locked stake then
+    /// stands until the market resolves.
+    ///
+    /// # Error Code
+    ///
+    /// Numeric value: `114`
+    BetCancellationWindowClosed = 114,
 
     // ===== ORACLE ERRORS =====
     /// The oracle service is unavailable. External data source may be temporarily
@@ -894,6 +903,7 @@ impl ErrorHandler {
             Error::FeeExceedsMax => RecoveryStrategy::Retry,
             Error::BetExceedsCap => RecoveryStrategy::NoRecovery,
             Error::BetCoolOffActive => RecoveryStrategy::RetryWithDelay,
+            Error::BetCancellationWindowClosed => RecoveryStrategy::NoRecovery,
             Error::OperationWouldExceedBudget => RecoveryStrategy::NoRecovery,
             // Limit errors driven by caller input: retrying with a smaller value works.
             Error::BetAboveMaximum | Error::BatchEmpty | Error::BatchSizeExceeded => {
@@ -1316,7 +1326,8 @@ impl ErrorHandler {
             | Error::InvalidOracleConfig
             | Error::InvalidOracleProvider
             | Error::InvalidOracleFeed
-            | Error::OperationWouldExceedBudget => 0,
+            | Error::OperationWouldExceedBudget
+            | Error::BetCancellationWindowClosed => 0,
             _ => 1,
         }
     }
@@ -1507,6 +1518,11 @@ impl ErrorHandler {
                 ErrorCategory::Financial,
                 RecoveryStrategy::NoRecovery,
             ),
+            Error::BetCancellationWindowClosed => (
+                ErrorSeverity::Low,
+                ErrorCategory::UserOperation,
+                RecoveryStrategy::NoRecovery,
+            ),
             Error::OperationWouldExceedBudget => (
                 ErrorSeverity::Critical,
                 ErrorCategory::System,
@@ -1651,6 +1667,7 @@ impl Error {
             }
             Error::InsufficientBalance => "Insufficient balance for operation",
             Error::BetCoolOffActive => "User is within the cool-off period; wait before placing another bet",
+            Error::BetCancellationWindowClosed => "Bet is outside the cancellation window and can no longer be cancelled",
             Error::InsufficientStorageRentBudget => "Insufficient storage rent for persistent key allocation",
             Error::OracleUnavailable => "Oracle is unavailable",
             Error::InvalidOracleConfig => "Invalid oracle configuration",
@@ -1772,6 +1789,7 @@ impl Error {
             Error::BetsAlreadyPlaced => "BETS_ALREADY_PLACED",
             Error::InsufficientBalance => "INSUFFICIENT_BALANCE",
             Error::BetCoolOffActive => "BET_COOL_OFF_ACTIVE",
+            Error::BetCancellationWindowClosed => "BET_CANCELLATION_WINDOW_CLOSED",
             Error::OracleUnavailable => "ORACLE_UNAVAILABLE",
             Error::InvalidOracleConfig => "INVALID_ORACLE_CONFIG",
             Error::GasBudgetExceeded => "GAS_BUDGET_EXCEEDED",

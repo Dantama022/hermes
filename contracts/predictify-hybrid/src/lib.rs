@@ -3244,6 +3244,62 @@ impl PredictifyHybrid {
         crate::bets::get_effective_bet_limits(&env, &market_id)
     }
 
+    /// Set the global bet-cancellation window in seconds (admin only).
+    ///
+    /// A bettor may cancel a still-open bet only within this many seconds of
+    /// placing it. Shorter windows protect market liquidity; the value is
+    /// bounded by `crate::bets::MAX_BET_CANCEL_WINDOW_SECONDS`.
+    ///
+    /// # Parameters
+    ///
+    /// - `admin`   – Must be the primary admin address
+    /// - `seconds` – New cancellation window in seconds
+    ///
+    /// # Errors
+    ///
+    /// - `Error::Unauthorized` when `admin` is not the primary admin
+    /// - `Error::InvalidInput` when `seconds` is zero or above the maximum
+    ///
+    /// # Events
+    ///
+    /// Emits a `bet_cancel_window_set` event so indexers can track the change.
+    pub fn set_bet_cancel_window(
+        env: Env,
+        admin: Address,
+        seconds: u64,
+    ) -> Result<(), Error> {
+        Self::require_primary_admin(&env, &admin)?;
+        crate::bets::set_bet_cancel_window(&env, seconds)?;
+        EventEmitter::emit_bet_cancel_window_set(&env, &admin, seconds);
+        Ok(())
+    }
+
+    /// Get the effective global bet-cancellation window in seconds.
+    ///
+    /// # Events
+    ///
+    /// Read-only query paths emit no events.
+    pub fn get_bet_cancel_window(env: Env) -> u64 {
+        crate::bets::get_bet_cancel_window(&env)
+    }
+
+    /// Cancel a still-open bet within the configured cancellation window and
+    /// refund the bettor in full (bettor only).
+    ///
+    /// # Errors
+    ///
+    /// - `Error::NothingToClaim` when the caller has no bet on the market
+    /// - `Error::InvalidState` when the bet is not `Active`
+    /// - `Error::MarketClosed` when the market has already ended
+    /// - `Error::BetCancellationWindowClosed` when the cancellation window has elapsed
+    ///
+    /// # Events
+    ///
+    /// Emits `bet_cancelled` (and the generic `bet_status_updated`).
+    pub fn cancel_bet(env: Env, user: Address, market_id: Symbol) -> Result<(), Error> {
+        crate::bets::BetManager::cancel_bet(&env, user, market_id)
+    }
+
     /// Set the per-market maximum single-bet cap (admin only).
     ///
     /// Once set, any individual bet whose `amount` exceeds `cap` is rejected with

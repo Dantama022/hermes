@@ -39,6 +39,7 @@ error_code_snapshot! {
     BetsAlreadyPlaced = 111,
     InsufficientBalance = 112,
     BetCoolOffActive = 113,
+    BetCancellationWindowClosed = 114,
 
     OracleUnavailable = 200,
     InvalidOracleConfig = 201,
@@ -165,7 +166,7 @@ error_code_snapshot! {
 
 #[test]
 fn contract_error_codes_are_stable() {
-    assert_eq!(ERROR_CODE_SNAPSHOT.len(), 130);
+    assert_eq!(ERROR_CODE_SNAPSHOT.len(), 131);
 
     for &(error, expected) in ERROR_CODE_SNAPSHOT {
         assert_eq!(
