@@ -286,6 +286,10 @@ impl FeeManager {
         admin.require_auth();
         let market = crate::markets::MarketStateManager::get_market(env, &market_id)?;
         if !market.resolved {
+            let mut schedule = Self::get_withdrawal_schedule(env);
+            schedule.status = FeeWithdrawalStatus::Failed;
+            let key = Symbol::new(env, SYM_FEE_SCHEDULE);
+            env.storage().persistent().set(&key, &schedule);
             return Err(Error::MarketNotResolved);
         }
 
@@ -297,11 +301,23 @@ impl FeeManager {
 
         let config = FeeConfigManager::get_fee_config(env)?;
         if !config.fees_enabled {
+            let mut schedule = Self::get_withdrawal_schedule(env);
+            schedule.status = FeeWithdrawalStatus::Failed;
+            let key = Symbol::new(env, SYM_FEE_SCHEDULE);
+            env.storage().persistent().set(&key, &schedule);
             return Ok(0);
         }
 
         let fee = (market.total_pool * config.platform_fee_percentage) / 10_000;
         env.storage().persistent().set(&collected_key, &fee);
+
+        let mut schedule = Self::get_withdrawal_schedule(env);
+        let now = env.ledger().timestamp();
+        schedule.last_withdrawal = now;
+        schedule.next_withdrawal = now.saturating_add(schedule.cooldown_seconds);
+        schedule.status = FeeWithdrawalStatus::Completed;
+        let key = Symbol::new(env, SYM_FEE_SCHEDULE);
+        env.storage().persistent().set(&key, &schedule);
 
         Ok(fee)
     }

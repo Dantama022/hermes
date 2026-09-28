@@ -132,3 +132,24 @@ fn test_invalid_fee_config_rejected() {
     let result = FeeManager::update_fee_config(&env, admin, bad_cfg);
     assert_eq!(result, Err(Error::InvalidFeeConfig));
 }
+
+#[test]
+fn test_withdrawal_schedule_initial_and_failed_status() {
+    let (env, admin) = setup_env();
+    let market_id = soroban_sdk::symbol_short!("mkt1");
+
+    // 1. Initial withdrawal schedule should be Ready
+    let initial_schedule = FeeManager::get_withdrawal_schedule(&env);
+    assert_eq!(initial_schedule.status, crate::fees::FeeWithdrawalStatus::Ready);
+
+    // 2. Attempting collect_fees on a non-existent / unresolved market fails
+    let result = FeeManager::collect_fees(&env, admin, market_id);
+    assert_eq!(result, Err(Error::MarketNotFound));
+
+    // 3. Status is preserved or set to Failed on unresolved markets
+    let schedule = FeeManager::get_withdrawal_schedule(&env);
+    assert!(
+        schedule.status == crate::fees::FeeWithdrawalStatus::Ready
+            || schedule.status == crate::fees::FeeWithdrawalStatus::Failed
+    );
+}

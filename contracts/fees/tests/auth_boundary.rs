@@ -241,6 +241,12 @@ fn test_collect_fees_fails_below_threshold() {
     let client = register_and_initialize(&env, &admin);
     let user = Address::generate(&env);
 
+    // Initial schedule should be Ready
+    assert_eq!(
+        client.get_withdrawal_schedule().status,
+        fees::FeeWithdrawalStatus::Ready
+    );
+
     // Record a tiny amount below the default threshold (100M stroops)
     client.record_fee(&user, &100);
 
@@ -249,6 +255,47 @@ fn test_collect_fees_fails_below_threshold() {
         Err(Ok(ContractError::BelowCollectionThreshold)) => {} // Expected
         other => panic!("Collection below threshold should fail, got: {:?}", other),
     }
+
+    // Schedule status must be updated to Failed
+    assert_eq!(
+        client.get_withdrawal_schedule().status,
+        fees::FeeWithdrawalStatus::Failed
+    );
+}
+
+#[test]
+fn test_fee_withdrawal_status_failed_and_recovery() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let client = register_and_initialize(&env, &admin);
+    let user = Address::generate(&env);
+
+    // 1. Initial state is Ready
+    let initial_schedule = client.get_withdrawal_schedule();
+    assert_eq!(initial_schedule.status, fees::FeeWithdrawalStatus::Ready);
+
+    // 2. Trigger failed collection attempt with zero balance
+    let fail_result = client.try_collect_fees(&admin);
+    assert_eq!(
+        fail_result,
+        Err(Ok(ContractError::BelowCollectionThreshold))
+    );
+    let failed_schedule = client.get_withdrawal_schedule();
+    assert_eq!(failed_schedule.status, fees::FeeWithdrawalStatus::Failed);
+
+    // 3. Deposit sufficient fees exceeding threshold (150M stroops > 100M threshold)
+    client.record_fee(&user, &150_000_000);
+
+    // 4. Retry collection and verify successful transition to Completed
+    let success_result = client.try_collect_fees(&admin);
+    assert!(success_result.is_ok());
+
+    let completed_schedule = client.get_withdrawal_schedule();
+    assert_eq!(
+        completed_schedule.status,
+        fees::FeeWithdrawalStatus::Completed
+    );
+    assert_eq!(client.get_collected_fees(), 0);
 }
 
 // ============================================================

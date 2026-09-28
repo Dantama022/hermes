@@ -415,6 +415,11 @@ impl FeesContract {
         let config = Self::get_fee_config_internal(&env)?;
 
         if collected < config.collection_threshold {
+            let mut schedule = Self::get_withdrawal_schedule_internal(&env);
+            schedule.status = FeeWithdrawalStatus::Failed;
+            env.storage()
+                .persistent()
+                .set(&Symbol::new(&env, WITHDRAWAL_SCHEDULE_KEY), &schedule);
             return Err(ContractError::BelowCollectionThreshold);
         }
 
