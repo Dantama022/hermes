@@ -611,3 +611,61 @@ fn test_oracle_allowlist_management() {
     assert!(crate::oracles::OracleRegistry::is_oracle_allowed(&env, &oracle2));
 }
 
+// ============================================================================
+// Oracle Price Validation Tests (Issue #034)
+// ============================================================================
+
+#[test]
+fn test_oracle_data_rejects_negative_or_zero_price() {
+    let env = Env::default();
+    let market_id = Symbol::new(&env, "test_mkt");
+    let provider = OracleProvider::reflector();
+    let feed_id = String::from_str(&env, "BTC/USD");
+
+    // Negative price (e.g., from an integer overflow/sign-wrap) must be rejected
+    let negative_price_data = ReflectorPriceData {
+        price: -1,
+        timestamp: env.ledger().timestamp(),
+        source: String::from_str(&env, "reflector"),
+    };
+    let result = OracleValidationConfigManager::validate_oracle_data(
+        &env,
+        &market_id,
+        &provider,
+        &feed_id,
+        &negative_price_data,
+    );
+    assert_eq!(result, Err(Error::InvalidInput));
+
+    // Zero price must be rejected
+    let zero_price_data = ReflectorPriceData {
+        price: 0,
+        timestamp: env.ledger().timestamp(),
+        source: String::from_str(&env, "reflector"),
+    };
+    let result = OracleValidationConfigManager::validate_oracle_data(
+        &env,
+        &market_id,
+        &provider,
+        &feed_id,
+        &zero_price_data,
+    );
+    assert_eq!(result, Err(Error::InvalidInput));
+
+    // Valid positive price must succeed
+    let valid_price_data = ReflectorPriceData {
+        price: 50_000_00,
+        timestamp: env.ledger().timestamp(),
+        source: String::from_str(&env, "reflector"),
+    };
+    let result = OracleValidationConfigManager::validate_oracle_data(
+        &env,
+        &market_id,
+        &provider,
+        &feed_id,
+        &valid_price_data,
+    );
+    assert!(result.is_ok());
+}
+
+
