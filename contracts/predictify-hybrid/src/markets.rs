@@ -517,20 +517,8 @@ impl MarketValidator {
     ///
     /// assert!(MarketValidator::validate_oracle_config(&env, &oracle_config).is_ok());
     /// ```
-    pub fn validate_oracle_config(_env: &Env, oracle_config: &OracleConfig) -> Result<(), Error> {
-        if oracle_config.threshold <= 0 {
-            return Err(Error::InvalidThreshold);
-        }
-
-        if oracle_config.feed_id.is_empty() {
-            return Err(Error::InvalidOracleFeed);
-        }
-
-        if oracle_config.comparison.is_empty() {
-            return Err(Error::InvalidComparison);
-        }
-
-        Ok(())
+    pub fn validate_oracle_config(env: &Env, oracle_config: &OracleConfig) -> Result<(), Error> {
+        oracle_config.validate(env)
     }
 
     /// Validates that a market is in the correct state to accept votes.

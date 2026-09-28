@@ -826,6 +826,9 @@ impl OracleConfig {
         // Validate provider is supported using new validation method
         self.provider.validate_for_market(env)?;
 
+        // Enforce authorized oracle address validation
+        crate::oracles::OracleRegistry::require_oracle_allowed(env, &self.oracle_address)?;
+
         Ok(())
     }
 

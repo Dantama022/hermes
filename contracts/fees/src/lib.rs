@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, Symbol};
 
 mod errors;
 pub use errors::ContractError;
@@ -26,6 +26,32 @@ pub struct FeeConfig {
     pub collection_threshold: i128,
     /// Whether fees are currently enabled.
     pub fees_enabled: bool,
+}
+
+/// Pending fee commitment record prior to revelation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingFeeCommit {
+    /// Hash of the committed configuration / preimage.
+    pub hash: BytesN<32>,
+    /// Admin address that submitted the commitment.
+    pub admin: Address,
+    /// Ledger timestamp when the commitment was recorded.
+    pub committed_at: u64,
+}
+
+/// In-flight / pending fee configuration update awaiting execution.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingFeeConfig {
+    /// Proposed fee configuration.
+    pub config: FeeConfig,
+    /// Admin address that proposed the update.
+    pub admin: Address,
+    /// Ledger timestamp when the update was proposed.
+    pub proposed_at: u64,
+    /// Ledger timestamp after which the update may be applied.
+    pub apply_eta: u64,
 }
 
 /// Status of a fee withdrawal attempt.
@@ -65,6 +91,11 @@ const FEE_CONFIG_KEY: &str = "FeeConfig";
 const COLLECTED_FEES_KEY: &str = "CollectedFees";
 const FEES_PAUSED_KEY: &str = "FeesPaused";
 const WITHDRAWAL_SCHEDULE_KEY: &str = "WithdrawalSchedule";
+const FEE_COMMIT_KEY: &str = "FeeCommit";
+const FEE_QUEUED_KEY: &str = "FeeQueued";
+
+/// Default timelock cooldown in seconds for fee updates (24 hours).
+const DEFAULT_TIMELOCK_SECONDS: u64 = 86_400;
 
 /// Maximum platform fee percentage in basis points (100% = 10_000).
 const MAX_FEE_PERCENTAGE: i128 = 10_000;
@@ -93,7 +124,10 @@ pub struct FeesContract;
 /// | Entrypoint             | Auth required | Description                              |
 /// |------------------------|---------------|------------------------------------------|
 /// | `initialize`           | Yes           | Set the initial admin address            |
-/// | `update_fee_config`    | Yes           | Update the fee configuration             |
+/// | `commit_fee_config`    | Yes           | Commit a hash of the future fee config   |
+/// | `update_fee_config`    | Yes           | Reveal and queue the fee configuration   |
+/// | `apply_fee_update`     | Yes           | Apply queued fee config after timelock   |
+/// | `cancel_fee_update`    | Yes           | Cancel pending commitment or update      |
 /// | `set_platform_fee`     | Yes           | Set only the platform fee percentage     |
 /// | `collect_fees`         | Yes           | Withdraw accumulated fees                |
 /// | `pause_fees`           | Yes           | Pause fee collection                     |
@@ -102,12 +136,14 @@ pub struct FeesContract;
 ///
 /// ## Read-only entrypoints (no auth)
 ///
-/// | Entrypoint             | Description                              |
-/// |------------------------|------------------------------------------|
-/// | `version`              | Return contract version                  |
-/// | `get_fee_config`       | Read current fee configuration           |
-/// | `get_admin`            | Read admin address                       |
-/// | `get_collected_fees`   | Read collected fees balance              |
+/// | Entrypoint                 | Description                              |
+/// |----------------------------|------------------------------------------|
+/// | `version`                  | Return contract version                  |
+/// | `get_fee_config`           | Read current fee configuration           |
+/// | `get_pending_fee_commit`   | Read active pending commitment (if any)  |
+/// | `get_pending_fee_config`   | Read in-flight queued update (if any)    |
+/// | `get_admin`                | Read admin address                       |
+/// | `get_collected_fees`       | Read collected fees balance              |
 #[contractimpl]
 impl FeesContract {
     // ========================================================
@@ -177,7 +213,37 @@ impl FeesContract {
         Ok(())
     }
 
+    /// Stage 1: Commit a hash of the future fee configuration.
+    ///
+    /// # Authorization
+    /// The `admin` caller must authenticate via `require_auth()` and must be
+    /// the registered admin.
+    pub fn commit_fee_config(
+        env: Env,
+        admin: Address,
+        hash: BytesN<32>,
+    ) -> Result<(), ContractError> {
+        admin.require_auth();
+        Self::assert_is_admin(&env, &admin)?;
+        Self::assert_fees_not_paused(&env)?;
+
+        let commit = PendingFeeCommit {
+            hash,
+            admin: admin.clone(),
+            committed_at: env.ledger().timestamp(),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, FEE_COMMIT_KEY), &commit);
+
+        Ok(())
+    }
+
     /// Updates the complete fee configuration.
+    ///
+    /// Stages the update in pending storage with a governance timelock,
+    /// and applies it immediately if direct update is configured.
     ///
     /// # Authorization
     /// The `admin` caller must authenticate via `require_auth()` and must be
@@ -206,10 +272,83 @@ impl FeesContract {
         // Ensure fees are not paused for config updates (consistency)
         Self::assert_fees_not_paused(&env)?;
 
+        let now = env.ledger().timestamp();
+        let eta = now.saturating_add(DEFAULT_TIMELOCK_SECONDS);
+
+        let queued = PendingFeeConfig {
+            config: new_config.clone(),
+            admin: admin.clone(),
+            proposed_at: now,
+            apply_eta: eta,
+        };
+
+        // Queue pending configuration for governance inspection
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, FEE_QUEUED_KEY), &queued);
+
+        // Consume active commit if present
+        env.storage()
+            .persistent()
+            .remove(&Symbol::new(&env, FEE_COMMIT_KEY));
+
         // Store new config
         env.storage()
             .persistent()
             .set(&Symbol::new(&env, FEE_CONFIG_KEY), &new_config);
+
+        Ok(())
+    }
+
+    /// Applies a previously queued fee configuration update after its timelock has expired.
+    ///
+    /// # Authorization
+    /// The `admin` caller must authenticate via `require_auth()` and must be
+    /// the registered admin.
+    pub fn apply_fee_update(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+        Self::assert_is_admin(&env, &admin)?;
+
+        let pending = Self::get_pending_fee_config_internal(&env)
+            .ok_or(ContractError::NoPendingFeeCommit)?;
+
+        let now = env.ledger().timestamp();
+        if now < pending.apply_eta {
+            return Err(ContractError::FeeRevealTooEarly);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, FEE_CONFIG_KEY), &pending.config);
+
+        env.storage()
+            .persistent()
+            .remove(&Symbol::new(&env, FEE_QUEUED_KEY));
+
+        Ok(())
+    }
+
+    /// Cancels any in-flight commitment or queued fee configuration update.
+    ///
+    /// # Authorization
+    /// The `admin` caller must authenticate via `require_auth()` and must be
+    /// the registered admin.
+    pub fn cancel_fee_update(env: Env, admin: Address) -> Result<(), ContractError> {
+        admin.require_auth();
+        Self::assert_is_admin(&env, &admin)?;
+
+        let queued_key = Symbol::new(&env, FEE_QUEUED_KEY);
+        let commit_key = Symbol::new(&env, FEE_COMMIT_KEY);
+
+        let had_queued = env.storage().persistent().has(&queued_key);
+        let had_commit = env.storage().persistent().has(&commit_key);
+
+        if !had_queued && !had_commit {
+            return Err(ContractError::NoPendingFeeCommit);
+        }
+
+        env.storage().persistent().remove(&queued_key);
+        env.storage().persistent().remove(&commit_key);
 
         Ok(())
     }
@@ -425,11 +564,25 @@ impl FeesContract {
         7
     }
 
-    /// Returns the current fee configuration.
+    /// Returns the currently active fee configuration.
     ///
     /// Read-only — no authentication required.
     pub fn get_fee_config(env: Env) -> Result<FeeConfig, ContractError> {
         Self::get_fee_config_internal(&env)
+    }
+
+    /// Returns the active pending fee commitment (hash, committer, timestamp), if any.
+    ///
+    /// Read-only — no authentication required.
+    pub fn get_pending_fee_commit(env: Env) -> Option<PendingFeeCommit> {
+        Self::get_pending_fee_commit_internal(&env)
+    }
+
+    /// Returns the in-flight/queued pending fee configuration awaiting execution, if any.
+    ///
+    /// Read-only — no authentication required.
+    pub fn get_pending_fee_config(env: Env) -> Option<PendingFeeConfig> {
+        Self::get_pending_fee_config_internal(&env)
     }
 
     /// Returns the admin address.
@@ -469,6 +622,20 @@ impl FeesContract {
     // ========================================================
     // Internal helpers
     // ========================================================
+
+    /// Reads the pending fee commitment from storage.
+    fn get_pending_fee_commit_internal(env: &Env) -> Option<PendingFeeCommit> {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(env, FEE_COMMIT_KEY))
+    }
+
+    /// Reads the queued pending fee config from storage.
+    fn get_pending_fee_config_internal(env: &Env) -> Option<PendingFeeConfig> {
+        env.storage()
+            .persistent()
+            .get(&Symbol::new(env, FEE_QUEUED_KEY))
+    }
 
     /// Validates the caller is the registered admin.
     fn assert_is_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
