@@ -156,7 +156,7 @@ pub enum MarketState {
 /// The provider is stored as a string identifier rather than an enum variant, enabling:
 /// - **Future Provider Addition**: New providers can be added without breaking existing markets
 /// - **Backward Compatibility**: Existing markets continue to work with older contract versions
-/// - **Graceful Degradation**: Unknown providers are handled safely with fallback behavior
+/// - **Unknown Provider Rejection**: Unknown identifiers never alias a supported provider
 ///
 /// # Provider Identifiers
 ///
@@ -181,7 +181,7 @@ pub enum MarketState {
 /// // Create provider instances
 /// let reflector = OracleProvider::reflector();
 /// let pyth = OracleProvider::pyth();
-/// let custom = OracleProvider::from_str(String::from_str(&env, "new_provider"));
+/// let custom = OracleProvider::from_str(&env, String::from_str(&env, "new_provider"));
 ///
 /// // Check support status
 /// assert!(reflector.is_supported());
@@ -191,7 +191,8 @@ pub enum MarketState {
 /// // Get provider identifier
 /// assert_eq!(reflector.as_str(), "reflector");
 /// assert_eq!(pyth.as_str(), "pyth");
-/// assert_eq!(custom.as_str(), "new_provider");
+/// assert_eq!(custom.as_str(), "unknown");
+/// assert!(!custom.is_known());
 ///
 /// // Convert to string for display
 /// println!("Provider: {}", reflector.name());
@@ -210,7 +211,7 @@ pub enum MarketState {
 /// if provider.is_supported() {
 ///     println!("Provider {} is supported", provider.name());
 /// } else {
-///     println!("Provider {} not supported - using fallback", provider.name());
+///     println!("Provider {} is not supported", provider.name());
 /// }
 ///
 /// // Check if provider is known (even if unsupported)
@@ -251,6 +252,7 @@ pub enum OracleProvider {
     Pyth,
     BandProtocol,
     DIA,
+    Unknown,
 }
 
 impl OracleProvider {
@@ -344,9 +346,8 @@ impl OracleProvider {
 
     /// Creates an OracleProvider from a string identifier.
     ///
-    /// This constructor enables forward compatibility by allowing any string
-    /// to be used as a provider identifier. Unknown providers are handled
-    /// gracefully through the `is_supported()` and `is_known()` methods.
+    /// This constructor recognizes registered provider identifiers and maps
+    /// unrecognized identifiers to an explicit marker that fails validation.
     ///
     /// # Arguments
     ///
@@ -354,7 +355,7 @@ impl OracleProvider {
     ///
     /// # Returns
     ///
-    /// `OracleProvider` instance with the specified identifier
+    /// `OracleProvider` instance for a recognized identifier, or `Unknown`
     ///
     /// # Example
     ///
@@ -381,7 +382,7 @@ impl OracleProvider {
         } else if provider_id == String::from_str(env, "dia") {
             OracleProvider::DIA
         } else {
-            OracleProvider::Reflector // Default
+            OracleProvider::Unknown
         }
     }
 
@@ -391,6 +392,7 @@ impl OracleProvider {
             OracleProvider::Pyth => "pyth",
             OracleProvider::BandProtocol => "band_protocol",
             OracleProvider::DIA => "dia",
+            OracleProvider::Unknown => "unknown",
         }
     }
 
@@ -456,7 +458,7 @@ impl OracleProvider {
     /// assert!(pyth.is_known()); // Known but unsupported
     /// ```
     pub fn is_known(&self) -> bool {
-        true
+        !matches!(self, OracleProvider::Unknown)
     }
 
     /// Checks if this oracle provider is supported on the current network.
