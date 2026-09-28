@@ -65,6 +65,22 @@ const PER_EVENT_BET_LIMITS_KEY: &str = "bet_limits_evt";
 /// Storage key for per-market max single-bet cap map (Symbol -> i128).
 const PER_MARKET_MAX_BET_CAP_KEY: &str = "max_bet_cap_mkt";
 
+/// Storage key for the global bet-cancellation window (seconds).
+const BET_CANCEL_WINDOW_KEY: &str = "bet_cncl_win";
+
+/// Default bet-cancellation window in seconds (5 minutes).
+///
+/// A bettor may cancel a still-open bet within this many seconds of placing
+/// it. The window is deliberately short so that accidental placements can be
+/// undone without materially affecting market liquidity.
+pub const DEFAULT_BET_CANCEL_WINDOW_SECONDS: u64 = 300;
+
+/// Absolute upper bound for the configurable cancellation window (24 hours).
+///
+/// Guards against an admin configuring a window so wide that it effectively
+/// disables the "short window" guarantee.
+pub const MAX_BET_CANCEL_WINDOW_SECONDS: u64 = 86_400;
+
 // ===== STORAGE KEY TYPES =====
 
 /// Storage key for user bets on a specific market
@@ -172,6 +188,49 @@ pub fn set_event_bet_limits(
         .unwrap_or(soroban_sdk::Map::new(env));
     per_event.set(market_id.clone(), limits.clone());
     env.storage().persistent().set(&key, &per_event);
+    Ok(())
+}
+
+/// Retrieve the effective global bet-cancellation window in seconds.
+///
+/// The window bounds how long (measured from `Bet::timestamp`) a bettor may
+/// still cancel a bet. It is admin-configurable through
+/// `set_bet_cancel_window`; when unset it defaults to
+/// `DEFAULT_BET_CANCEL_WINDOW_SECONDS`.
+///
+/// # Parameters
+///
+/// - `env` – Soroban environment
+///
+/// # Returns
+///
+/// The active cancellation window in seconds.
+pub fn get_bet_cancel_window(env: &Env) -> u64 {
+    let key = Symbol::new(env, BET_CANCEL_WINDOW_KEY);
+    env.storage()
+        .persistent()
+        .get::<Symbol, u64>(&key)
+        .unwrap_or(DEFAULT_BET_CANCEL_WINDOW_SECONDS)
+}
+
+/// Persist the global bet-cancellation window (admin authorization is enforced
+/// at the contract entrypoint layer).
+///
+/// # Parameters
+///
+/// - `env`     – Soroban environment
+/// - `seconds` – New window length in seconds
+///
+/// # Errors
+///
+/// Returns `Error::InvalidInput` when `seconds` is zero or exceeds
+/// `MAX_BET_CANCEL_WINDOW_SECONDS`.
+pub fn set_bet_cancel_window(env: &Env, seconds: u64) -> Result<(), Error> {
+    if seconds == 0 || seconds > MAX_BET_CANCEL_WINDOW_SECONDS {
+        return Err(Error::InvalidInput);
+    }
+    let key = Symbol::new(env, BET_CANCEL_WINDOW_KEY);
+    env.storage().persistent().set(&key, &seconds);
     Ok(())
 }
 
@@ -1064,10 +1123,50 @@ impl BetManager {
 
         Ok(payout)
     }
-    /// Cancel a bet before the market deadline and refund the user.
+
+    /// Return the age of `bet` in seconds, saturating at zero.
     ///
-    /// This function allows users to cancel their active bets before the market
-    /// deadline, receiving a full refund of their locked funds.
+    /// Used by the cancellation-window checks below. `saturating_sub` keeps
+    /// the age non-negative even if the ledger clock is rewound in tests or if
+    /// a bet somehow carries a future timestamp.
+    fn bet_age_seconds(env: &Env, bet: &Bet) -> u64 {
+        env.ledger().timestamp().saturating_sub(bet.timestamp)
+    }
+
+    /// Return `true` while `bet` is still inside the configured cancellation
+    /// window.
+    ///
+    /// The window is **half-open**: a bet placed at `t` may be cancelled for
+    /// every `current_time < t + get_bet_cancel_window(env)`, and not at
+    /// `current_time == t + window`.
+    ///
+    /// # Parameters
+    ///
+    /// - `env` – Soroban environment
+    /// - `bet` – The bet whose age is compared against the window
+    pub fn is_within_cancel_window(env: &Env, bet: &Bet) -> bool {
+        Self::bet_age_seconds(env, bet) < get_bet_cancel_window(env)
+    }
+
+    /// Validate that `bet` may still be cancelled inside the configured window.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::BetCancellationWindowClosed` once the window has elapsed.
+    pub fn validate_cancel_window(env: &Env, bet: &Bet) -> Result<(), Error> {
+        if Self::is_within_cancel_window(env, bet) {
+            Ok(())
+        } else {
+            Err(Error::BetCancellationWindowClosed)
+        }
+    }
+    /// Cancel a still-open bet within the configured cancellation window and
+    /// refund the user in full.
+    ///
+    /// This function allows users to cancel their active bets only within
+    /// `get_bet_cancel_window` seconds of placement, receiving a full refund
+    /// of their locked funds. Once the window has elapsed the bet is finalised
+    /// and can no longer be cancelled.
     ///
     /// # Parameters
     ///
@@ -1085,6 +1184,7 @@ impl BetManager {
     /// - `Error::NothingToClaim` - User has no bet on this market
     /// - `Error::MarketNotFound` - Market does not exist
     /// - `Error::MarketClosed` - Market deadline has passed
+    /// - `Error::BetCancellationWindowClosed` - The cancellation window has elapsed
     /// - `Error::InvalidState` - Bet is not in Active status
     ///
     /// # Security
@@ -1124,6 +1224,11 @@ impl BetManager {
             return Err(Error::MarketClosed);
         }
 
+        // Enforce the short, configurable cancellation window. A bet may only
+        // be cancelled within `get_bet_cancel_window` seconds of placement;
+        // afterwards it is finalised and the market's locked liquidity stands.
+        Self::validate_cancel_window(env, &bet)?;
+
         // Refund the locked funds
         BetUtils::unlock_funds(env, &user, bet.amount)?;
 
@@ -1140,7 +1245,10 @@ impl BetManager {
         market.stakes.remove(user.clone());
         MarketStateManager::update_market(env, &market_id, &market);
 
-        // Emit bet cancelled event
+        // Emit an explicit bet-cancelled event (topic catalog: `bet_cancelled`)
+        // so indexers can react without parsing status strings, followed by the
+        // generic status transition for backward compatibility.
+        EventEmitter::emit_bet_cancelled(env, &market_id, &user, bet.amount);
         EventEmitter::emit_bet_status_updated(
             env,
             &market_id,
@@ -2578,5 +2686,128 @@ mod tests {
         );
         // Within per-market cap
         assert!(BetValidator::validate_bet_amount_against_limits(&env, &market_id, 2_000_000).is_ok());
+    }
+
+    // ===== Bet cancellation window =====
+
+    /// Set the ledger timestamp to an absolute value.
+    fn set_ledger_time(env: &Env, ts: u64) {
+        env.ledger().set(LedgerInfo {
+            timestamp: ts,
+            protocol_version: 25,
+            sequence_number: env.ledger().sequence(),
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 1,
+            min_persistent_entry_ttl: 1,
+            max_entry_ttl: 10000,
+        });
+    }
+
+    #[test]
+    fn test_cancel_window_defaults_when_unset() {
+        let env = Env::default();
+        assert_eq!(get_bet_cancel_window(&env), DEFAULT_BET_CANCEL_WINDOW_SECONDS);
+    }
+
+    #[test]
+    fn test_set_cancel_window_roundtrip() {
+        let env = Env::default();
+        set_bet_cancel_window(&env, 120).unwrap();
+        assert_eq!(get_bet_cancel_window(&env), 120);
+    }
+
+    #[test]
+    fn test_set_cancel_window_rejects_zero() {
+        let env = Env::default();
+        assert_eq!(set_bet_cancel_window(&env, 0), Err(Error::InvalidInput));
+        // Rejected values must not clobber the stored/default window.
+        assert_eq!(get_bet_cancel_window(&env), DEFAULT_BET_CANCEL_WINDOW_SECONDS);
+    }
+
+    #[test]
+    fn test_set_cancel_window_rejects_above_max() {
+        let env = Env::default();
+        assert_eq!(
+            set_bet_cancel_window(&env, MAX_BET_CANCEL_WINDOW_SECONDS + 1),
+            Err(Error::InvalidInput)
+        );
+    }
+
+    /// The window is half-open: `[placed_at, placed_at + window)`.
+    #[test]
+    fn test_cancel_window_boundary_is_half_open() {
+        let env = Env::default();
+        set_bet_cancel_window(&env, 300).unwrap();
+
+        let user = Address::generate(&env);
+        let bet = Bet::new(
+            &env,
+            user,
+            Symbol::new(&env, "mkt_cwin"),
+            String::from_str(&env, "yes"),
+            10_000_000,
+        );
+        let placed_at = bet.timestamp;
+
+        // One second before the boundary: still cancellable.
+        set_ledger_time(&env, placed_at + 299);
+        assert!(BetManager::is_within_cancel_window(&env, &bet));
+        assert!(BetManager::validate_cancel_window(&env, &bet).is_ok());
+
+        // Exactly at the boundary: closed.
+        set_ledger_time(&env, placed_at + 300);
+        assert!(!BetManager::is_within_cancel_window(&env, &bet));
+        assert_eq!(
+            BetManager::validate_cancel_window(&env, &bet),
+            Err(Error::BetCancellationWindowClosed)
+        );
+
+        // Past the boundary: still closed.
+        set_ledger_time(&env, placed_at + 301);
+        assert_eq!(
+            BetManager::validate_cancel_window(&env, &bet),
+            Err(Error::BetCancellationWindowClosed)
+        );
+    }
+
+    #[test]
+    fn test_cancel_window_honors_admin_override() {
+        let env = Env::default();
+        set_bet_cancel_window(&env, 60).unwrap();
+
+        let user = Address::generate(&env);
+        let bet = Bet::new(
+            &env,
+            user,
+            Symbol::new(&env, "mkt_cwin_ovr"),
+            String::from_str(&env, "no"),
+            5_000_000,
+        );
+        let placed_at = bet.timestamp;
+
+        set_ledger_time(&env, placed_at + 61);
+        assert_eq!(
+            BetManager::validate_cancel_window(&env, &bet),
+            Err(Error::BetCancellationWindowClosed)
+        );
+
+        // Widening the window re-opens cancellation for the same bet age.
+        set_bet_cancel_window(&env, 120).unwrap();
+        assert!(BetManager::validate_cancel_window(&env, &bet).is_ok());
+    }
+
+    #[test]
+    fn test_cancellation_window_error_metadata_is_stable() {
+        assert_eq!(Error::BetCancellationWindowClosed as u32, 114);
+        assert_eq!(
+            Error::BetCancellationWindowClosed.code(),
+            "BET_CANCELLATION_WINDOW_CLOSED"
+        );
+        assert!(!Error::BetCancellationWindowClosed.description().is_empty());
+        assert_ne!(
+            Error::BetCancellationWindowClosed as u32,
+            Error::MarketClosed as u32
+        );
     }
 }
