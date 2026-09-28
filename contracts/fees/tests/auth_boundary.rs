@@ -617,3 +617,80 @@ fn test_get_admin_after_initialize() {
     let stored_admin = client.get_admin();
     assert_eq!(stored_admin, admin);
 }
+
+// ============================================================
+// Pending Fee Inspection & Commit-Reveal-Apply Lifecycle Tests
+// ============================================================
+
+#[test]
+fn test_pending_fee_commit_inspection() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let client = register_and_initialize(&env, &admin);
+
+    // Initially no pending commit
+    assert_eq!(client.get_pending_fee_commit(), None);
+
+    // Commit a hash
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0x55u8; 32]);
+    client.commit_fee_config(&admin, &hash);
+
+    // Public read path returns pending commitment details
+    let pending = client.get_pending_fee_commit().expect("pending commit must be present");
+    assert_eq!(pending.hash, hash);
+    assert_eq!(pending.admin, admin);
+    assert_eq!(pending.committed_at, env.ledger().timestamp());
+}
+
+#[test]
+fn test_pending_fee_config_inspection_and_apply() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let client = register_and_initialize(&env, &admin);
+
+    // Initially no pending config
+    assert_eq!(client.get_pending_fee_config(), None);
+
+    // Update stages the config
+    let new_cfg = default_fee_config();
+    client.update_fee_config(&admin, &new_cfg);
+
+    // Public read path returns in-flight pending configuration
+    let pending = client.get_pending_fee_config().expect("pending config must be present");
+    assert_eq!(pending.config, new_cfg);
+    assert_eq!(pending.admin, admin);
+    assert_eq!(pending.proposed_at, env.ledger().timestamp());
+    assert_eq!(pending.apply_eta, env.ledger().timestamp() + 86_400);
+
+    // Apply before timelock fails
+    let early_res = client.try_apply_fee_update(&admin);
+    match early_res {
+        Err(Ok(ContractError::FeeRevealTooEarly)) => {}
+        other => panic!("Expected FeeRevealTooEarly, got: {:?}", other),
+    }
+
+    // Fast-forward past timelock
+    env.ledger().with_mut(|l| {
+        l.timestamp += 86_401;
+    });
+
+    // Apply after timelock succeeds
+    client.apply_fee_update(&admin);
+    assert_eq!(client.get_fee_config(), new_cfg);
+    assert_eq!(client.get_pending_fee_config(), None);
+}
+
+#[test]
+fn test_cancel_fee_update() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let client = register_and_initialize(&env, &admin);
+
+    let hash = soroban_sdk::BytesN::from_array(&env, &[0x77u8; 32]);
+    client.commit_fee_config(&admin, &hash);
+    assert!(client.get_pending_fee_commit().is_some());
+
+    client.cancel_fee_update(&admin);
+    assert_eq!(client.get_pending_fee_commit(), None);
+    assert_eq!(client.get_pending_fee_config(), None);
+}

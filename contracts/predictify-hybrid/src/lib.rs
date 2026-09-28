@@ -1833,6 +1833,28 @@ impl PredictifyHybrid {
         crate::oracles::OracleIntegrationManager::get_oracle_weight(&env, &oracle)
     }
 
+    /// Register an authorized oracle contract address (admin only).
+    pub fn add_allowed_oracle(env: Env, admin: Address, oracle: Address) -> Result<(), Error> {
+        Self::require_primary_admin(&env, &admin)?;
+        crate::oracles::OracleIntegrationManager::add_allowed_oracle(&env, &admin, &oracle)
+    }
+
+    /// Remove an oracle contract address from the authorized allowlist (admin only).
+    pub fn remove_allowed_oracle(env: Env, admin: Address, oracle: Address) -> Result<(), Error> {
+        Self::require_primary_admin(&env, &admin)?;
+        crate::oracles::OracleIntegrationManager::remove_allowed_oracle(&env, &admin, &oracle)
+    }
+
+    /// List all registered and authorized oracle contract addresses.
+    pub fn list_allowed_oracles(env: Env) -> Vec<Address> {
+        crate::oracles::OracleIntegrationManager::list_allowed_oracles(&env)
+    }
+
+    /// Check if a given oracle contract address is authorized.
+    pub fn is_oracle_allowed(env: Env, oracle: Address) -> bool {
+        crate::oracles::OracleIntegrationManager::is_oracle_allowed(&env, &oracle)
+    }
+
     pub fn admin_override_verification(
         env: Env,
         admin: Address,
@@ -3115,9 +3137,40 @@ impl PredictifyHybrid {
         fees::FeeManager::commit_fee_config(&env, admin, hash)
     }
 
-    /// Reveal and apply a committed fee configuration (admin only)
+    /// Reveal and queue a committed fee configuration with timelock (admin only).
     pub fn reveal_fee_config(env: Env, admin: Address, new_config: fees::FeeConfig) -> Result<fees::FeeConfig, Error> {
         fees::FeeManager::update_fee_config(&env, admin, new_config)
+    }
+
+    /// Returns the active pending fee commitment (hash, committer, timestamp), if any.
+    ///
+    /// Read-only — no authentication required.
+    pub fn get_pending_fee_commit(env: Env) -> Option<fees::PendingFeeCommit> {
+        fees::FeeManager::get_pending_fee_commit(&env)
+    }
+
+    /// Returns the in-flight/queued pending fee configuration awaiting execution, if any.
+    ///
+    /// Read-only — no authentication required.
+    pub fn get_pending_fee_config(env: Env) -> Option<fees::PendingFeeConfig> {
+        fees::FeeManager::get_pending_fee_config(&env)
+    }
+
+    /// Returns the currently active fee configuration.
+    ///
+    /// Read-only — no authentication required.
+    pub fn get_fee_config(env: Env) -> Result<fees::FeeConfig, Error> {
+        fees::FeeConfigManager::get_fee_config(&env)
+    }
+
+    /// Apply a previously queued fee configuration update after its timelock has expired.
+    pub fn apply_fee_update(env: Env, admin: Address) -> Result<(), Error> {
+        fees::FeeManager::apply_fee_update(&env, admin)
+    }
+
+    /// Cancel an active fee commitment or queued fee configuration update.
+    pub fn cancel_fee_update(env: Env, admin: Address) -> Result<(), Error> {
+        fees::FeeManager::cancel_fee_update(&env, admin)
     }
 
     /// Set global minimum and maximum bet limits (admin only).

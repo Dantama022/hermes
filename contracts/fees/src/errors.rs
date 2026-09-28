@@ -23,6 +23,10 @@ pub enum ContractError {
     FeePercentageTooHigh = 8,
     /// Fee collection threshold not met.
     BelowCollectionThreshold = 9,
+    /// No pending fee commit was found for reveal or apply.
+    NoPendingFeeCommit = 10,
+    /// Fee config apply was attempted before the timelock expired.
+    FeeRevealTooEarly = 11,
 }
 
 #[cfg(test)]
@@ -41,5 +45,7 @@ mod tests {
         assert_eq!(ContractError::FeeConfigNotFound as u32, 7);
         assert_eq!(ContractError::FeePercentageTooHigh as u32, 8);
         assert_eq!(ContractError::BelowCollectionThreshold as u32, 9);
+        assert_eq!(ContractError::NoPendingFeeCommit as u32, 10);
+        assert_eq!(ContractError::FeeRevealTooEarly as u32, 11);
     }
 }

@@ -545,3 +545,69 @@ fn test_auto_pause_deviation_spike_triggers_pause() {
     });
 }
 
+// ============================================================================
+// Oracle Address Allowlist & Anti-Spoofing Tests (Issue #033)
+// ============================================================================
+
+#[test]
+fn test_spoofed_oracle_rejected_when_allowlist_configured() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let trusted_oracle = Address::generate(&env);
+    let spoofed_oracle = Address::generate(&env);
+
+    // Register trusted oracle in allowlist
+    crate::oracles::OracleRegistry::add_allowed_oracle(&env, &admin, &trusted_oracle).unwrap();
+
+    // Valid config with trusted oracle
+    let valid_cfg = OracleConfig {
+        provider: OracleProvider::reflector(),
+        oracle_address: trusted_oracle.clone(),
+        feed_id: String::from_str(&env, "BTC/USD"),
+        threshold: 100,
+        comparison: String::from_str(&env, "gt"),
+    };
+    assert!(valid_cfg.validate(&env).is_ok());
+    assert!(MarketValidator::validate_oracle_config(&env, &valid_cfg).is_ok());
+
+    // Spoofed oracle address must be rejected
+    let spoofed_cfg = OracleConfig {
+        provider: OracleProvider::reflector(),
+        oracle_address: spoofed_oracle.clone(),
+        feed_id: String::from_str(&env, "BTC/USD"),
+        threshold: 100,
+        comparison: String::from_str(&env, "gt"),
+    };
+    let validation_res = spoofed_cfg.validate(&env);
+    assert_eq!(validation_res, Err(Error::InvalidOracleConfig));
+    assert_eq!(MarketValidator::validate_oracle_config(&env, &spoofed_cfg), Err(Error::InvalidOracleConfig));
+}
+
+#[test]
+fn test_oracle_allowlist_management() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let oracle1 = Address::generate(&env);
+    let oracle2 = Address::generate(&env);
+
+    // Initially unconfigured
+    assert!(crate::oracles::OracleRegistry::is_oracle_allowed(&env, &oracle1));
+
+    // Add oracle1
+    crate::oracles::OracleRegistry::add_allowed_oracle(&env, &admin, &oracle1).unwrap();
+    assert!(crate::oracles::OracleRegistry::is_oracle_allowed(&env, &oracle1));
+    assert!(!crate::oracles::OracleRegistry::is_oracle_allowed(&env, &oracle2));
+
+    // Add oracle2
+    crate::oracles::OracleRegistry::add_allowed_oracle(&env, &admin, &oracle2).unwrap();
+    assert!(crate::oracles::OracleRegistry::is_oracle_allowed(&env, &oracle2));
+
+    let list = crate::oracles::OracleRegistry::list_allowed_oracles(&env);
+    assert_eq!(list.len(), 2);
+
+    // Remove oracle1
+    crate::oracles::OracleRegistry::remove_allowed_oracle(&env, &admin, &oracle1).unwrap();
+    assert!(!crate::oracles::OracleRegistry::is_oracle_allowed(&env, &oracle1));
+    assert!(crate::oracles::OracleRegistry::is_oracle_allowed(&env, &oracle2));
+}
+
