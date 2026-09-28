@@ -15,6 +15,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Run workspace tests
         run: cargo test --workspace
+      - name: Verify committed snapshot goldens
+        env:
+          SNAPSHOT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git cat-file -e "${SNAPSHOT_BASE}^{commit}" 2>/dev/null; then
+            SNAPSHOT_BASE="$(git rev-parse HEAD^)"
+          fi
+
+          deleted_snapshots="$(git diff --diff-filter=D --name-only "${SNAPSHOT_BASE}...HEAD" -- 'contracts/**/test_snapshots/**')"
+          if [[ -n "$deleted_snapshots" ]]; then
+            printf 'Snapshot goldens were deleted relative to the base revision:\n%s\n' "$deleted_snapshots"
+            exit 1
+          fi
+
+          tracked_snapshots="$(git ls-files -- 'contracts/**/test_snapshots/**' | sort)"
+          generated_snapshots="$(find contracts -type f -path '*/test_snapshots/*' -print | sort)"
+          if [[ "$tracked_snapshots" != "$generated_snapshots" ]]; then
+            printf 'Snapshot files do not match the committed inventory:\n'
+            diff -u <(printf '%s\n' "$tracked_snapshots") <(printf '%s\n' "$generated_snapshots") || true
+            exit 1
+          fi
+
+          if ! git diff --quiet HEAD -- 'contracts/**/test_snapshots/**'; then
+            printf 'Snapshot goldens changed during the test run:\n'
+            git diff -- 'contracts/**/test_snapshots/**'
+            exit 1
+          fi
