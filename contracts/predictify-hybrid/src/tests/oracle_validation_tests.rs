@@ -33,6 +33,18 @@ fn test_oracle_provider_validation() {
 }
 
 #[test]
+fn test_oracle_factory_rejects_unregistered_provider() {
+    let env = Env::default();
+    let provider = OracleProvider::from_str(&env, String::from_str(&env, "unregistered"));
+
+    assert!(!provider.is_known());
+    assert_eq!(
+        crate::oracles::OracleFactory::create_oracle(provider, Address::generate(&env)).err(),
+        Some(Error::InvalidOracleProvider)
+    );
+}
+
+#[test]
 fn test_oracle_config_impossible_combinations() {
     let env = Env::default();
     let oracle_address = Address::generate(&env);

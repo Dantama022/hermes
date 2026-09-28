@@ -130,6 +130,9 @@ impl OracleFactory {
         provider: OracleProvider,
         oracle_address: Address,
     ) -> Result<OracleClient, Error> {
+        if !provider.is_supported() {
+            return Err(Error::InvalidOracleProvider);
+        }
         Ok(OracleClient {
             provider,
             oracle_address,
