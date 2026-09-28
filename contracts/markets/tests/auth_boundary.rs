@@ -64,6 +64,7 @@ fn create_market_with_mock_auth(setup: &TestSetup<'_>) -> u32 {
         env,
         [String::from_str(env, "Yes"), String::from_str(env, "No")],
     );
+    let required_oracles = 0u32;
 
     // Authorize ONLY the market_creator for this specific create_market call.
     env.mock_auths(&[MockAuth {
@@ -78,6 +79,7 @@ fn create_market_with_mock_auth(setup: &TestSetup<'_>) -> u32 {
                 &end_time,
                 &resolution_source,
                 &outcome_tags,
+                &required_oracles,
             )
                 .into_val(env),
             sub_invokes: &[],
@@ -91,6 +93,7 @@ fn create_market_with_mock_auth(setup: &TestSetup<'_>) -> u32 {
         &end_time,
         &resolution_source,
         &outcome_tags,
+        &required_oracles,
     )
 }
 
@@ -105,6 +108,7 @@ fn create_market_with_auth_check(setup: &TestSetup<'_>) -> u32 {
         env,
         [String::from_str(env, "Yes"), String::from_str(env, "No")],
     );
+    let required_oracles = 0u32;
 
     setup.client.create_market(
         &setup.market_creator,
@@ -113,6 +117,7 @@ fn create_market_with_auth_check(setup: &TestSetup<'_>) -> u32 {
         &end_time,
         &resolution_source,
         &outcome_tags,
+        &required_oracles,
     )
 }
 
@@ -138,6 +143,7 @@ fn test_create_market_requires_auth() {
         &env,
         [String::from_str(&env, "Yes"), String::from_str(&env, "No")],
     );
+    let required_oracles = 0u32;
 
     let result = client.try_create_market(
         &unauthorized,
@@ -146,6 +152,7 @@ fn test_create_market_requires_auth() {
         &end_time,
         &resolution_source,
         &outcome_tags,
+        &required_oracles,
     );
     assert!(
         result.is_err(),
@@ -248,6 +255,159 @@ fn test_resolve_market_requires_auth() {
     );
 }
 
+
+// ── submit_oracle_outcome ─────────────────────────────────────────────────
+
+#[test]
+fn test_submit_oracle_outcome_requires_auth() {
+    let env = Env::default();
+    let setup = setup_test_environment(&env);
+    // No mock_all_auths — require_auth should fail for unauthorized users.
+
+    let question = String::from_str(&env, "Will price be above $100?");
+    let description = String::from_str(&env, "Multi-oracle market");
+    let end_time = env.ledger().timestamp() + 86400;
+    let resolution_source = String::from_str(&env, "Multi-Oracle");
+    let outcome_tags = Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "Yes"),
+            String::from_str(&env, "No"),
+            String::from_str(&env, "Unknown"),
+        ],
+    );
+
+    let market_id = create_market_with_mock_auth(&setup);
+
+    // Unauthorized user should not be able to submit oracle outcome
+    let result = setup
+        .client
+        .try_submit_oracle_outcome(&setup.unauthorized, &market_id, &0u32);
+    assert!(
+        result.is_err(),
+        "Unauthorized oracle should not submit outcome"
+    );
+}
+
+#[test]
+fn test_submit_oracle_outcome_requires_auth_success() {
+    let env = Env::default();
+    let setup = setup_test_environment(&env);
+    env.mock_all_auths();
+
+    let question = String::from_str(&env, "Will price be above $100?");
+    let description = String::from_str(&env, "Multi-oracle market");
+    let end_time = env.ledger().timestamp() + 86400;
+    let resolution_source = String::from_str(&env, "Multi-Oracle");
+    let outcome_tags = Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "Yes"),
+            String::from_str(&env, "No"),
+            String::from_str(&env, "Unknown"),
+        ],
+    );
+    let required_oracles = 3u32;
+
+    let market_id = setup.client.create_market(
+        &setup.market_creator,
+        &question,
+        &description,
+        &end_time,
+        &resolution_source,
+        &outcome_tags,
+        &required_oracles,
+    );
+
+    let result = setup
+        .client
+        .try_submit_oracle_outcome(&setup.user1, &market_id, &0u32);
+    assert!(result.is_ok(), "Authorized oracle should submit outcome");
+}
+
+// ── resolve_market_with_oracles ───────────────────────────────────────────
+
+#[test]
+fn test_resolve_market_with_oracles_requires_auth() {
+    let env = Env::default();
+    let setup = setup_test_environment(&env);
+    // No mock_all_auths — require_auth should fail for unauthorized users.
+
+    let market_id = create_market_with_mock_auth(&setup);
+
+    let oracle_addresses = Vec::from_array(
+        &env,
+        [
+            setup.user1.clone(),
+            setup.user2.clone(),
+            setup.unauthorized.clone(),
+        ],
+    );
+
+    let result = setup
+        .client
+        .try_resolve_market_with_oracles(&setup.unauthorized, &market_id, &oracle_addresses);
+    assert!(
+        result.is_err(),
+        "Unauthorized user should not resolve market with oracles"
+    );
+}
+
+#[test]
+fn test_resolve_market_with_oracles_requires_auth_success() {
+    let env = Env::default();
+    let setup = setup_test_environment(&env);
+    env.mock_all_auths();
+
+    let question = String::from_str(&env, "Will price be above $100?");
+    let description = String::from_str(&env, "Multi-oracle market");
+    let end_time = env.ledger().timestamp() + 86400;
+    let resolution_source = String::from_str(&env, "Multi-Oracle");
+    let outcome_tags = Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "Yes"),
+            String::from_str(&env, "No"),
+            String::from_str(&env, "Unknown"),
+        ],
+    );
+    let required_oracles = 3u32;
+
+    let market_id = setup.client.create_market(
+        &setup.market_creator,
+        &question,
+        &description,
+        &end_time,
+        &resolution_source,
+        &outcome_tags,
+        &required_oracles,
+    );
+
+    // Submit oracle outcomes
+    let _ = setup.client.try_submit_oracle_outcome(&setup.user1, &market_id, &0u32);
+    let _ = setup.client.try_submit_oracle_outcome(&setup.user2, &market_id, &1u32);
+    let _ = setup
+        .client
+        .try_submit_oracle_outcome(&setup.unauthorized, &market_id, &2u32);
+
+    let oracle_addresses = Vec::from_array(
+        &env,
+        [
+            setup.user1.clone(),
+            setup.user2.clone(),
+            setup.unauthorized.clone(),
+        ],
+    );
+
+    // Market creator should be able to resolve
+    let result = setup
+        .client
+        .try_resolve_market_with_oracles(&setup.market_creator, &market_id, &oracle_addresses);
+    assert!(
+        result.is_ok(),
+        "Authorized market creator should resolve market with oracles"
+    );
+}
 #[test]
 fn test_resolve_market_requires_auth_creator() {
     let env = Env::default();
