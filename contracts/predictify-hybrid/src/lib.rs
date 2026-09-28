@@ -400,6 +400,7 @@ impl PredictifyHybrid {
         }
 
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
         env.storage().persistent().extend_ttl(&market_id, MARKET_TTL_LEDGERS, MARKET_TTL_LEDGERS);
 
         crate::events::EventEmitter::emit_market_created(&env, &market_id, &question, &outcomes, &admin, end_time);
@@ -736,6 +737,7 @@ impl PredictifyHybrid {
         // Mark this market as swept so a second call returns SweepAlreadyDone.
         market.winnings_swept = true;
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
         EventEmitter::emit_unclaimed_winnings_swept(
             &env,
             &market_id,
@@ -800,7 +802,7 @@ impl PredictifyHybrid {
     /// # Performance
     ///
     /// This is a read-only operation that doesn't modify contract state.
-    /// It retrieves data from persistent storage with minimal computational overhead.
+    /// It retrieves data from the instance cache when available, falling back to persistent storage.
     ///
     /// # Errors
     ///
@@ -810,7 +812,7 @@ impl PredictifyHybrid {
     ///
     /// State-changing paths may emit events through internal managers; read-only query paths emit no events.
     pub fn get_market(env: Env, market_id: Symbol) -> Option<Market> {
-        env.storage().persistent().get(&market_id)
+        markets::MarketStateManager::get_market(&env, &market_id).ok()
     }
 
     /// Verifies a client's expected metadata commitment against on-chain market metadata.
@@ -820,10 +822,9 @@ impl PredictifyHybrid {
     /// match the commitment stored at creation/update time, or when any committed field
     /// in storage was changed without refreshing the stored commitment.
     pub fn verify_market_metadata(env: Env, market_id: Symbol, expected: BytesN<32>) -> bool {
-        let market: Option<Market> = env.storage().persistent().get(&market_id);
-        match market {
-            Some(market) => market.verify_metadata_commitment(&env, &expected),
-            None => false,
+        match markets::MarketStateManager::get_market(&env, &market_id) {
+            Ok(market) => market.verify_metadata_commitment(&env, &expected),
+            Err(_) => false,
         }
     }
 
@@ -964,6 +965,7 @@ impl PredictifyHybrid {
             env.ledger().timestamp(),
         );
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         // Resolve bets to mark them as won/lost
         let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes_vec);
@@ -1135,6 +1137,7 @@ impl PredictifyHybrid {
             env.ledger().timestamp(),
         );
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         // Resolve bets to mark them as won/lost
         let _ = bets::BetManager::resolve_market_bets(&env, &market_id, &winning_outcomes);
@@ -1280,6 +1283,7 @@ impl PredictifyHybrid {
         );
 
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         force_resolve::ForceResolveManager::mark_resolved(
             &env,
@@ -1464,6 +1468,7 @@ impl PredictifyHybrid {
             Ok(outcome) => {
                 market.oracle_result = Some(outcome.clone());
                 env.storage().persistent().set(&market_id, &market);
+                markets::MarketReadCache::new(&env).invalidate(&market_id);
                 Ok(outcome)
             }
             Err(_) if market.has_fallback => {
@@ -1471,6 +1476,7 @@ impl PredictifyHybrid {
                     Ok(outcome) => {
                         market.oracle_result = Some(outcome.clone());
                         env.storage().persistent().set(&market_id, &market);
+                        markets::MarketReadCache::new(&env).invalidate(&market_id);
                         EventEmitter::emit_fallback_used(
                             &env,
                             &market_id,
@@ -2934,6 +2940,7 @@ impl PredictifyHybrid {
 
         // ── Persist updated claim map ──────────────────────────────────────────
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         Ok(total_distributed)
     }
@@ -3282,6 +3289,7 @@ impl PredictifyHybrid {
             .unwrap_or_else(|| panic_with_error!(&env, Error::MarketNotFound));
         market.max_participants = max_participants;
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
         Ok(())
     }
 
@@ -3689,6 +3697,7 @@ impl PredictifyHybrid {
 
         // Save market
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         // Emit description update event
         EventEmitter::emit_market_description_updated(
@@ -3841,6 +3850,7 @@ impl PredictifyHybrid {
 
         // Save market
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         // Emit outcomes update event
         EventEmitter::emit_market_outcomes_updated(
@@ -3961,6 +3971,7 @@ impl PredictifyHybrid {
 
         // Save market
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         // Emit category update event
         EventEmitter::emit_category_updated(&env, &market_id, &old_category, &category, &admin);
@@ -4083,6 +4094,7 @@ impl PredictifyHybrid {
 
         // Save market
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         // Emit tags update event
         EventEmitter::emit_tags_updated(&env, &market_id, &old_tags, &tags, &admin);
@@ -4338,6 +4350,7 @@ impl PredictifyHybrid {
         // Update market state to cancelled
         market.state = MarketState::Cancelled;
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         // Refund all bets (batch of token transfers)
         let refund_result = bets::BetManager::refund_market_bets(&env, &market_id);
@@ -4428,6 +4441,7 @@ impl PredictifyHybrid {
         let old_state = market.state.clone();
         market.state = MarketState::Cancelled;
         env.storage().persistent().set(&market_id, &market);
+        markets::MarketReadCache::new(&env).invalidate(&market_id);
 
         let refund_result = bets::BetManager::refund_market_bets(&env, &market_id);
         refund_result?;
@@ -7478,6 +7492,28 @@ mod tests {
         });
 
         market_id
+    }
+
+    #[test]
+    fn public_get_market_uses_instance_cache() {
+        let env = Env::default();
+        let contract_id = env.register(PredictifyHybrid, ());
+        let market_id = setup_resolved_market(&env, &contract_id);
+
+        env.as_contract(&contract_id, || {
+            assert!(PredictifyHybrid::get_market(env.clone(), market_id.clone()).is_some());
+            let ttl_after_miss = env.storage().persistent().get_ttl(&market_id);
+
+            env.ledger().with_mut(|ledger| {
+                ledger.sequence_number += 10;
+            });
+
+            assert!(PredictifyHybrid::get_market(env.clone(), market_id.clone()).is_some());
+            assert_eq!(
+                env.storage().persistent().get_ttl(&market_id),
+                ttl_after_miss - 10
+            );
+        });
     }
 
     #[test]
