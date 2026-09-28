@@ -169,7 +169,7 @@ impl OracleValidationConfigManager {
         _feed_id: &String,
         price_data: &ReflectorPriceData,
     ) -> Result<(), Error> {
-        if price_data.price < 0 {
+        if price_data.price <= 0 {
             return Err(Error::InvalidInput);
         }
         let now = env.ledger().timestamp();
