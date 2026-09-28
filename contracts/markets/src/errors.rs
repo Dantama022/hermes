@@ -34,6 +34,17 @@ pub enum ContractError {
     AdminAddressInvalid = 13,
     /// The requested admin operation is not permitted in the current contract state.
     AdminOperationNotPermitted = 14,
+    // ===== MULTI-ORACLE ERROR VARIANTS (15-19) =====
+    /// Insufficient oracle submissions; not enough oracles have submitted data.
+    InsufficientOracleSubmissions = 15,
+    /// Oracle already submitted; an oracle has already provided data for this market.
+    OracleAlreadySubmitted = 16,
+    /// Invalid oracle outcome; the oracle submitted an outcome outside valid range.
+    InvalidOracleOutcome = 17,
+    /// Duplicate oracle; attempted to add the same oracle address multiple times.
+    DuplicateOracle = 18,
+    /// Insufficient oracles configured; market requires at least 3 oracles for multi-oracle resolution.
+    InsufficientOraclesConfigured = 19,
 }
 
 #[cfg(test)]
@@ -56,5 +67,10 @@ mod tests {
         assert_eq!(ContractError::AdminCooldownActive as u32, 12);
         assert_eq!(ContractError::AdminAddressInvalid as u32, 13);
         assert_eq!(ContractError::AdminOperationNotPermitted as u32, 14);
+        assert_eq!(ContractError::InsufficientOracleSubmissions as u32, 15);
+        assert_eq!(ContractError::OracleAlreadySubmitted as u32, 16);
+        assert_eq!(ContractError::InvalidOracleOutcome as u32, 17);
+        assert_eq!(ContractError::DuplicateOracle as u32, 18);
+        assert_eq!(ContractError::InsufficientOraclesConfigured as u32, 19);
     }
 }
