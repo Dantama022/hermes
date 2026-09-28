@@ -234,6 +234,67 @@ fn test_place_bet_requires_auth_success() {
     assert!(result.is_ok(), "Authorized user should place bet");
 }
 
+#[test]
+fn test_place_bet_returns_market_closed_for_expired_market() {
+    let env = Env::default();
+    let setup = setup_test_environment(&env);
+    env.mock_all_auths();
+
+    let market_id = create_market_with_auth_check(&setup);
+    env.ledger().with_mut(|ledger| ledger.timestamp += 86400);
+
+    let result = setup
+        .client
+        .try_place_bet(&setup.user1, &market_id, &0, &100);
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        markets::errors::ContractError::MarketClosed
+    );
+}
+
+#[test]
+fn test_place_bet_returns_market_already_resolved_for_resolved_market() {
+    let env = Env::default();
+    let setup = setup_test_environment(&env);
+    env.mock_all_auths();
+
+    let market_id = create_market_with_auth_check(&setup);
+    setup
+        .client
+        .resolve_market(&setup.market_creator, &market_id, &0);
+
+    let result = setup
+        .client
+        .try_place_bet(&setup.user1, &market_id, &0, &100);
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        markets::errors::ContractError::MarketAlreadyResolved
+    );
+}
+
+#[test]
+fn test_place_bet_returns_invalid_state_for_cancelled_market() {
+    let env = Env::default();
+    let setup = setup_test_environment(&env);
+    env.mock_all_auths();
+
+    let market_id = create_market_with_auth_check(&setup);
+    setup
+        .client
+        .cancel_market(&setup.market_creator, &market_id);
+
+    let result = setup
+        .client
+        .try_place_bet(&setup.user1, &market_id, &0, &100);
+
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        markets::errors::ContractError::InvalidState
+    );
+}
+
 // ── resolve_market ────────────────────────────────────────────────────────────
 
 #[test]

@@ -228,9 +228,23 @@ impl MarketsContract {
     pub fn place_bet(env: Env, user: Address, market_id: u32, outcome_index: u32, amount: i128) {
         user.require_auth();
 
-        // Verify the target market exists.
-        if !env.storage().persistent().has(&DataKey::Market(market_id)) {
-            panic_with_error!(env, ContractError::MarketNotFound);
+        let market: MarketData = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::Market(market_id))
+        {
+            Some(market) => market,
+            None => panic_with_error!(env, ContractError::MarketNotFound),
+        };
+
+        if market.resolved {
+            panic_with_error!(env, ContractError::MarketAlreadyResolved);
+        }
+        if market.cancelled {
+            panic_with_error!(env, ContractError::InvalidState);
+        }
+        if env.ledger().timestamp() >= market.end_time {
+            panic_with_error!(env, ContractError::MarketClosed);
         }
 
         let bet = BetData {
