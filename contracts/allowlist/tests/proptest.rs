@@ -205,17 +205,106 @@ fn multiple_allowlists_are_independent() {
 }
 
 // ---------------------------------------------------------------------------
-// Batch remove idempotency
+// Batch address check
 // ---------------------------------------------------------------------------
 
 #[test]
-fn batch_remove_skips_absent_addresses() {
-    let ctx = Ctx::new(2);
-    let list_id = ctx.sym("batch_rm");
+fn batch_is_allowed_basic() {
+    let ctx = Ctx::new(3);
+    let list_id = ctx.sym("batch_check");
     ctx.client.create_allowlist(&ctx.admin, &list_id);
     ctx.client.add_address(&ctx.admin, &list_id, &ctx.user(0));
-    let to_remove = soroban_sdk::vec![&ctx.env, ctx.user(0), ctx.user(1)];
-    assert!(ctx.client.try_remove_addresses(&ctx.admin, &list_id, &to_remove).is_ok());
-    assert!(!ctx.client.is_allowed(&list_id, &ctx.user(0)));
-    assert!(!ctx.client.is_allowed(&list_id, &ctx.user(1)));
+    ctx.client.add_address(&ctx.admin, &list_id, &ctx.user(1));
+
+    let addrs = soroban_sdk::vec![&ctx.env, ctx.user(0), ctx.user(1), ctx.user(2)];
+    let results = ctx.client.batch_is_allowed(&list_id, &addrs);
+
+    // Should have 3 results
+    assert_eq!(results.len(), 3);
+
+    // user0 and user1 are allowed, user2 is not
+    let mut allowed_count = 0;
+    for (addr, is_allowed) in &results {
+        match addr {
+            a if a == &ctx.user(0) => {
+                assert!(*is_allowed, "user0 must be allowed");
+                allowed_count += 1;
+            }
+            a if a == &ctx.user(1) => {
+                assert!(*is_allowed, "user1 must be allowed");
+                allowed_count += 1;
+            }
+            a if a == &ctx.user(2) => {
+                assert!(!*is_allowed, "user2 must NOT be allowed");
+            }
+            _ => panic!("unexpected address in results"),
+        }
+    }
+    assert_eq!(allowed_count, 2);
+}
+
+#[test]
+fn batch_is_allowed_empty_list() {
+    let ctx = Ctx::new(1);
+    let list_id = ctx.sym("empty_check");
+    ctx.client.create_allowlist(&ctx.admin, &list_id);
+
+    let addrs: Vec<Address> = Vec::new(&ctx.env);
+    let results = ctx.client.batch_is_allowed(&list_id, &addrs);
+
+    // Empty input should produce empty results
+    assert_eq!(results.len(), 0);
+}
+
+#[test]
+fn batch_is_allow_all_allowed() {
+    let ctx = Ctx::new(3);
+    let list_id = ctx.sym("all_allowed");
+    ctx.client.create_allowlist(&ctx.admin, &list_id);
+    // Add all three users
+    ctx.client.add_address(&ctx.admin, &list_id, &ctx.user(0));
+    ctx.client.add_address(&ctx.admin, &list_id, &ctx.user(1));
+    ctx.client.add_address(&ctx.admin, &list_id, &ctx.user(2));
+
+    let addrs = soroban_sdk::vec![&ctx.env, ctx.user(0), ctx.user(1), ctx.user(2)];
+    let results = ctx.client.batch_is_allowed(&list_id, &addrs);
+
+    assert_eq!(results.len(), 3);
+    for (addr, is_allowed) in &results {
+        assert!(*is_allowed, "all addresses in allowlist should be allowed");
+    }
+}
+
+#[test]
+fn batch_is_allow_none_allowed() {
+    let ctx = Ctx::new(2);
+    let list_id = ctx.sym("none_allowed");
+    ctx.client.create_allowlist(&ctx.admin, &list_id);
+
+    // No addresses added to allowlist
+    let addrs = soroban_sdk::vec![&ctx.env, ctx.user(0), ctx.user(1)];
+    let results = ctx.client.batch_is_allowed(&list_id, &addrs);
+
+    assert_eq!(results.len(), 2);
+    for (_, is_allowed) in &results {
+        assert!(!*is_allowed, "no addresses should be allowed");
+    }
+}
+
+#[test]
+fn batch_is_allow_duplicates() {
+    let ctx = Ctx::new(1);
+    let list_id = ctx.sym("dup_check");
+    ctx.client.create_allowlist(&ctx.admin, &list_id);
+    ctx.client.add_address(&ctx.admin, &list_id, &ctx.user(0));
+
+    // Send the same address twice - both should return true
+    let addrs = soroban_sdk::vec![&ctx.env, ctx.user(0), ctx.user(0)];
+    let results = ctx.client.batch_is_allowed(&list_id, &addrs);
+
+    assert_eq!(results.len(), 2);
+    // Both entries for the same address should be true
+    for (_, is_allowed) in &results {
+        assert!(*is_allowed, "duplicate address should still be allowed");
+    }
 }

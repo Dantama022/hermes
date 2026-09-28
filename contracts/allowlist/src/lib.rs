@@ -476,6 +476,29 @@ impl AllowlistContract {
         Ok(addrs.contains(&address))
     }
 
+    /// Batch check whether each `address` in `addresses` is present in the
+    /// allowlist identified by `allowlist_id`.
+    ///
+    /// This endpoint reduces ledger reads by performing a single storage read
+    /// for the allowlist, then checking all addresses against the in-memory
+    /// vector. Significantly halves the read cost compared to calling
+    /// `is_allowed` once per address.
+    ///
+    /// # Errors
+    /// - [`AllowlistError::AllowlistNotFound`] if the allowlist does not exist.
+    pub fn batch_is_allowed(
+        env: Env,
+        allowlist_id: Symbol,
+        addresses: Vec<Address>,
+    ) -> Result<Vec<(Address, bool)>, AllowlistError> {
+        let addrs = Self::load_allowlist(&env, &allowlist_id)?;
+        let mut results: Vec<(Address, bool)> = Vec::new(&env);
+        for addr in addresses.iter() {
+            results.push_back((addr.clone(), addrs.contains(&addr)));
+        }
+        Ok(results)
+    }
+
     /// Return all addresses in the allowlist identified by `allowlist_id`.
     ///
     /// # Errors
