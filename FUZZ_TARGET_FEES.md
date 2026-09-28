@@ -43,6 +43,31 @@ cargo +nightly fuzz run --fuzz-dir contracts/predictify-hybrid/fuzz fees \
 
 These CLI flags are identical to the disputes harness; the two harnesses are intended to be run side-by-side in CI with identical resource budgets.
 
+### Seed corpus path
+
+As with the disputes harness, `cargo fuzz` uses a per-target working corpus
+directory that is created on first run and is **not** checked in:
+
+- Fees harness (this target): `contracts/predictify-hybrid/fuzz/corpus/fees/`
+- Disputes harness (reference): `contracts/disputes/fuzz/corpus/main/`
+
+A fresh clone therefore starts from an empty corpus. To initialise a meaningful
+starting corpus, place hand-crafted byte files (each a concatenation of 15-byte
+action chunks — see Section 3.2) in a seed directory such as
+`contracts/predictify-hybrid/fuzz/seeds/fees/`, then pass that directory to
+libFuzzer with `-seed_inputs`:
+
+```
+cargo +nightly fuzz run --fuzz-dir contracts/predictify-hybrid/fuzz fees \
+    contracts/predictify-hybrid/fuzz/corpus/fees \
+    -- -seed_inputs=contracts/predictify-hybrid/fuzz/seeds/fees
+```
+
+Alternatively, copy the seed files straight into
+`contracts/predictify-hybrid/fuzz/corpus/fees/` before the first run. The
+disputes harness documents the same flow under "Seeding the corpus" in
+`contracts/disputes/FUZZ_TARGET.md`.
+
 ---
 
 ## 3. Harness design
