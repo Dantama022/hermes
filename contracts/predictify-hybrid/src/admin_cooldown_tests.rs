@@ -26,14 +26,21 @@ mod tests {
 
         VotingValidator::record_admin_action(&env);
 
+        // Assert that a second call within 24 hours is rejected
+        let result_within_cooldown =
+            VotingValidator::validate_admin_cooldown(&env);
+        assert!(result_within_cooldown.is_err());
+
+        // Advance time beyond 24 hours
         env.ledger()
             .set_timestamp(
-                env.ledger().timestamp() + 3601
+                env.ledger().timestamp() + 86401
             );
 
-        let result =
+        // Assert that the call succeeds after cooldown expires
+        let result_after_cooldown =
             VotingValidator::validate_admin_cooldown(&env);
 
-        assert!(result.is_ok());
+        assert!(result_after_cooldown.is_ok());
     }
 }
