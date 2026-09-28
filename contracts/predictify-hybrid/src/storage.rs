@@ -19,10 +19,12 @@ pub const MARKETS_LIFETIME_THRESHOLD: u32 = 31 * LEDGERS_PER_DAY;
 pub const MARKETS_BUMP_AMOUNT: u32 = MARKET_TTL_LEDGERS;
 const EVENT_TTL_LEDGERS: u32 = 90 * LEDGERS_PER_DAY;
 const ARCHIVE_TTL_LEDGERS: u32 = 365 * LEDGERS_PER_DAY;
-/// TTL for consumed `place_bets` idempotency keys (≈ 7 days at 5 s/ledger).
-/// A key stored beyond this window is treated as expired; the same raw bytes
-/// can be reused in a fresh batch after expiry.
-pub const PLACE_BETS_IDEM_TTL_LEDGERS: u32 = 7 * LEDGERS_PER_DAY;
+/// Retention for consumed `place_bets` idempotency keys.
+///
+/// These keys protect a value-transferring operation and must outlive the
+/// short retry window. Keeping them for the same one-year horizon as market
+/// records prevents a delayed replay from becoming valid after seven days.
+pub const PLACE_BETS_IDEM_TTL_LEDGERS: u32 = MARKET_TTL_LEDGERS;
 
 /// Hard cap on entries kept in each per-market leaderboard heap.
 ///

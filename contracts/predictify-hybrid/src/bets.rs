@@ -571,9 +571,9 @@ impl BetManager {
     /// - `bets` - Vector of tuples (market_id, outcome, amount)
     /// - `max_fee_bps` - Optional maximum platform fee percentage in basis points (slippage guard)
     /// - `idempotency_key` - Caller-supplied 32-byte token that makes this batch unique.
-    ///   Consumed on the first successful call; reuse within the 7-day TTL window returns
+    ///   Consumed on the first successful call; reuse within the one-year retention window returns
     ///   `Error::IdempotentBatchAlreadyApplied`.  The TTL is defined by
-    ///   `crate::storage::PLACE_BETS_IDEM_TTL_LEDGERS` (≈ 7 days at 5 s/ledger).
+    ///   `crate::storage::PLACE_BETS_IDEM_TTL_LEDGERS` (≈ 365 days at 5 s/ledger).
     ///
     /// # Returns
     ///
@@ -782,7 +782,9 @@ impl BetManager {
         );
 
         // Phase 5: Consume the idempotency key so replays are rejected.
-        // Stored as temporary (cheaper rent) with PLACE_BETS_IDEM_TTL_LEDGERS TTL.
+        // Retain the replay guard for the full market-record horizon. A short
+        // seven-day TTL would allow a delayed transaction to be replayed after
+        // the guard expired and charge the user a second time.
         let ttl = crate::storage::PLACE_BETS_IDEM_TTL_LEDGERS;
         env.storage().persistent().set(&idem_key, &true);
         env.storage().persistent().extend_ttl(&idem_key, ttl, ttl);
