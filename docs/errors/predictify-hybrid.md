@@ -40,6 +40,27 @@ Retrying without changing the market state will always fail.
 
 ---
 
+## Oracle configuration rejections
+
+Oracle configuration validation (`OracleConfig::validate`,
+`OracleProvider::validate_for_market`, and
+`MarketValidator::validate_oracle_config`) reports the specific field that was
+rejected instead of a single generic error.
+
+| Code | Name | Rejected when |
+|---|---|---|
+| `201` | `InvalidOracleConfig` | The configuration is the reserved "no oracle" sentinel. |
+| `215` | `InvalidOracleProvider` | The provider is not supported on the current network. |
+| `209` | `InvalidOracleFeed` | The feed ID is empty, is an unsupported Reflector asset, or its format is incompatible with the provider. |
+| `303` | `InvalidThreshold` | The threshold is zero or negative. |
+| `304` | `InvalidComparison` | The comparison operator is empty or not one of `gt`, `lt`, `eq`. |
+
+These errors are terminal for the current call: fix the reported field and
+resubmit. The SDK recovery strategy for the oracle-specific codes is
+`RecoveryStrategy::NoRecovery`.
+
+---
+
 ## Full Error Table
 
 | Code | Name | Description |
@@ -58,12 +79,16 @@ Retrying without changing the market state will always fail.
 | `111` | `BetsAlreadyPlaced` | Market parameters cannot be updated after bets have been placed. |
 | `112` | `InsufficientBalance` | User balance is too low for the requested operation. |
 | `200` | `OracleUnavailable` | External oracle is down or unreachable. |
-| `201` | `InvalidOracleConfig` | Oracle configuration is malformed or invalid. |
+| `201` | `InvalidOracleConfig` | Oracle configuration is missing or is the reserved "no oracle" sentinel. |
 | `202` | `OracleStale` | Oracle data exceeds the freshness threshold. |
 | `203` | `OracleNoConsensus` | Multiple oracle instances could not reach consensus. |
+| `209` | `InvalidOracleFeed` | Oracle feed ID is empty, unsupported, or malformed for the provider. |
+| `215` | `InvalidOracleProvider` | Oracle provider is not supported on the current network. |
 | `300` | `InvalidQuestion` | Market question is empty or fails validation. |
 | `301` | `InvalidOutcomes` | Outcome list is invalid (too few, duplicates, or empty). |
 | `302` | `InvalidDuration` | Market duration is outside the allowed range (1–365 days). |
+| `303` | `InvalidThreshold` | Oracle threshold is zero or negative. |
+| `304` | `InvalidComparison` | Oracle comparison operator is empty or unsupported. |
 | `401` | `InvalidInput` | One or more parameters failed validation. |
 | `494` | `InvalidState` | Contract or market is in an unexpected/illegal state. |
 

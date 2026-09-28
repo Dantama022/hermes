@@ -524,7 +524,7 @@ impl OracleProvider {
     /// # Returns
     ///
     /// `Ok(())` if the provider is valid for market creation
-    /// `Err(Error::InvalidOracleConfig)` if validation fails
+    /// `Err(Error::InvalidOracleProvider)` if validation fails
     ///
     /// # Example
     ///
@@ -541,7 +541,7 @@ impl OracleProvider {
     /// ```
     pub fn validate_for_market(&self, _env: &soroban_sdk::Env) -> Result<(), crate::Error> {
         if !self.is_supported() {
-            return Err(crate::Error::InvalidOracleConfig);
+            return Err(crate::Error::InvalidOracleProvider);
         }
         Ok(())
     }
@@ -700,10 +700,11 @@ impl OracleProvider {
 /// # Error Handling
 ///
 /// Common configuration errors:
+/// - **InvalidOracleConfig**: Configuration is the reserved "no oracle" sentinel
+/// - **InvalidOracleProvider**: Unsupported oracle provider
+/// - **InvalidOracleFeed**: Empty feed identifier or feed format incompatible with the provider
 /// - **InvalidThreshold**: Threshold is zero or negative
 /// - **InvalidComparison**: Unsupported comparison operator
-/// - **InvalidOracleConfig**: Unsupported oracle provider
-/// - **InvalidFeed**: Empty or malformed feed identifier
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OracleConfig {
@@ -777,9 +778,12 @@ impl OracleConfig {
 impl OracleConfig {
     /// Validate the oracle configuration
     pub fn validate(&self, env: &Env) -> Result<(), crate::Error> {
-        // Reject empty/sentinel config
-        if self.is_none_sentinel() || self.feed_id.is_empty() {
+        if self.is_none_sentinel() {
             return Err(crate::Error::InvalidOracleConfig);
+        }
+
+        if self.feed_id.is_empty() {
+            return Err(crate::Error::InvalidOracleFeed);
         }
 
         crate::metadata_limits::validate_feed_id_length(&self.feed_id)?;
@@ -806,16 +810,16 @@ impl OracleConfig {
             // Reflector uses short asset symbols like "BTC/USD" or "XLM"
             // Hex strings of 64+ chars are Pyth feeds and impossible for Reflector
             if feed_id_len >= 64 {
-                return Err(crate::Error::InvalidOracleConfig);
+                return Err(crate::Error::InvalidOracleFeed);
             }
         } else if provider_str == "pyth" {
             // Pyth uses 64-char hex strings (sometimes 66 with 0x)
             if feed_id_len < 64 || feed_id_len > 66 {
-                return Err(crate::Error::InvalidOracleConfig);
+                return Err(crate::Error::InvalidOracleFeed);
             }
         } else if provider_str == "band_protocol" || provider_str == "dia" {
             if feed_id_len >= 64 {
-                return Err(crate::Error::InvalidOracleConfig);
+                return Err(crate::Error::InvalidOracleFeed);
             }
         }
 
@@ -1663,7 +1667,7 @@ impl Market {
         // FIX: only validate fallback if it's actually provided (not sentinel)
         if self.has_fallback && !self.fallback_oracle_config.is_none_sentinel() {
             if self.fallback_oracle_config.feed_id.is_empty() {
-                return Err(crate::Error::InvalidOracleConfig);
+                return Err(crate::Error::InvalidOracleFeed);
             }
 
             self.fallback_oracle_config.validate(env)?;
@@ -3015,7 +3019,8 @@ pub struct ExtensionStats {
 ///         // - InvalidOutcomes: Less than 2 outcomes or duplicates
 ///         // - InvalidDuration: Duration too short or too long
 ///         // - InsufficientFee: Creation fee below minimum
-///         // - InvalidOracleConfig: Oracle configuration errors
+///         // - InvalidOracleProvider / InvalidOracleFeed / InvalidThreshold /
+///         //   InvalidComparison: Oracle configuration errors
 ///     }
 /// }
 /// ```
@@ -4138,8 +4143,7 @@ impl ReflectorAsset {
     /// Validates the asset for use in market creation
     pub fn validate_for_market(&self, _env: &soroban_sdk::Env) -> Result<(), crate::Error> {
         if !self.is_supported() {
-            // Allow unknown providers ONLY if fallback is disabled
-            return Err(Error::InvalidOracleConfig);
+            return Err(Error::InvalidOracleFeed);
         }
         Ok(())
     }
@@ -4239,10 +4243,7 @@ mod tests {
             MarketState::Active,
         );
 
-        assert_eq!(
-            market.validate(&env),
-            Err(crate::Error::InvalidOracleConfig)
-        );
+        assert_eq!(market.validate(&env), Err(crate::Error::InvalidOracleFeed));
     }
 
     #[test]

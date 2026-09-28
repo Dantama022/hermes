@@ -58,7 +58,9 @@ impl MarketCreator {
     /// * `Error::InvalidOutcomes` - Less than 2 outcomes or empty outcome strings
     /// * `Error::InvalidDuration` - Duration is 0 or exceeds 365 days
     /// * `Error::InsufficientBalance` - Admin lacks funds for creation fee
-    /// * `Error::InvalidOracleConfig` - Oracle configuration is malformed
+    /// * `Error::InvalidThreshold` - Oracle threshold is zero or negative
+    /// * `Error::InvalidOracleFeed` - Oracle feed ID is empty
+    /// * `Error::InvalidComparison` - Oracle comparison operator is empty
     ///
     /// # Example
     ///
@@ -176,8 +178,7 @@ impl MarketCreator {
     ///
     /// # Errors
     ///
-    /// Same as `create_market`, plus:
-    /// * `Error::InvalidOracleConfig` - Invalid asset symbol or comparison operator
+    /// Same as `create_market`.
     ///
     /// # Example
     ///
@@ -258,8 +259,7 @@ impl MarketCreator {
     ///
     /// # Errors
     ///
-    /// Same as `create_market`, plus:
-    /// * `Error::InvalidOracleConfig` - Invalid feed ID or comparison operator
+    /// Same as `create_market`.
     ///
     /// # Example
     ///
@@ -496,8 +496,9 @@ impl MarketValidator {
     ///
     /// # Errors
     ///
-    /// * `Error::InvalidOracleConfig` - Invalid provider, feed ID, or comparison operator
-    /// * `Error::InvalidThreshold` - Threshold value is out of acceptable range
+    /// * `Error::InvalidThreshold` - Threshold is zero or negative
+    /// * `Error::InvalidOracleFeed` - Feed ID is empty
+    /// * `Error::InvalidComparison` - Comparison operator is empty
     ///
     /// # Example
     ///
@@ -517,21 +518,16 @@ impl MarketValidator {
     /// assert!(MarketValidator::validate_oracle_config(&env, &oracle_config).is_ok());
     /// ```
     pub fn validate_oracle_config(_env: &Env, oracle_config: &OracleConfig) -> Result<(), Error> {
-        // Minimal validation to match existing tests
-
-        // threshold must be positive
         if oracle_config.threshold <= 0 {
-            return Err(Error::InvalidOracleConfig);
+            return Err(Error::InvalidThreshold);
         }
 
-        // feed_id must not be empty
-        if oracle_config.feed_id.len() == 0 {
-            return Err(Error::InvalidOracleConfig);
+        if oracle_config.feed_id.is_empty() {
+            return Err(Error::InvalidOracleFeed);
         }
 
-        // comparison must not be empty
-        if oracle_config.comparison.len() == 0 {
-            return Err(Error::InvalidOracleConfig);
+        if oracle_config.comparison.is_empty() {
+            return Err(Error::InvalidComparison);
         }
 
         Ok(())
@@ -2706,7 +2702,8 @@ impl MarketTestHelpers {
     ///
     /// Same as `MarketCreator::create_market`, including:
     /// * `Error::InsufficientBalance` - Test admin lacks creation fee funds
-    /// * `Error::InvalidOracleConfig` - Oracle configuration issues
+    /// * `Error::InvalidThreshold` / `Error::InvalidOracleFeed` / `Error::InvalidComparison` -
+    ///   Oracle configuration issues
     ///
     /// # Prerequisites
     ///
