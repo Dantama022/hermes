@@ -8,20 +8,42 @@ This contract provides core admin functionality with comprehensive gas snapshot 
 
 ## Entrypoints
 
-### `initialize(env: Env, admin: Address) -> Result<(), ContractError>`
-Initializes the contract with a primary administrator. Can only be called once.
+Every entrypoint below is a `#[contractimpl]` method on `AdminContract` in
+`src/lib.rs`. The **required role** column is the authorization the contract
+itself enforces — there is no other gate in front of these methods, so this
+table is the audit surface for admin access.
 
-### `admin(env: Env) -> Result<Address, ContractError>`
-Returns the configured admin address.
+| Entrypoint | Required role / authorization | Mutates storage | Returns |
+| --- | --- | --- | --- |
+| `initialize(env, admin)` | The `admin` address must authorize the call (`admin.require_auth()`). Succeeds at most once. | Yes — `DataKey::Admin` (instance) | `Result<(), ContractError>` |
+| `admin(env)` | None — read-only view. | No | `Result<Address, ContractError>` |
+| `set_admin_cooldown(env, admin, seconds)` | `admin.require_auth()` **and** `admin` must equal the stored admin. | Yes — `DataKey::AdminCooldownSeconds` (persistent) | `Result<(), ContractError>` |
+| `get_admin_cooldown(env)` | None — read-only view. | No | `u64` (`0` when unset) |
+| `check_admin_cooldown(env, admin, function_name)` | `admin.require_auth()` **and** `admin` must equal the stored admin. | Yes — `DataKey::AdminLastAction(function_name)` on success only | `Result<(), ContractError>` |
 
-### `set_admin_cooldown(env: Env, admin: Address, seconds: u64) -> Result<(), ContractError>`
-Sets the cooldown period (in seconds) between admin actions. Only callable by the current admin.
+### Authorization notes
 
-### `get_admin_cooldown(env: Env) -> u64`
-Returns the configured admin cooldown period in seconds (0 if not set).
+- **`initialize`** is the only way to set the admin, and it is deliberately not
+  idempotent: a second call returns `AlreadyInitialized` (`1`).
+- **`set_admin_cooldown`** and **`check_admin_cooldown`** are the only mutating
+  entrypoints that read the stored admin. Both return `AdminNotSet` (`2`) before
+  initialization, and `Unauthorized` (`3`) for any caller that has not proved it
+  is the stored admin. Authorization is checked *before* any storage write.
+- **`check_admin_cooldown`** is the throttle other contracts call. While the
+  cooldown is active it returns `AdminActionTimelocked` (`4`) and does **not**
+  update the last-action timestamp, so a blocked call does not extend the window.
+- **Views** (`admin`, `get_admin_cooldown`) require no authorization and expose
+  only non-secret configuration.
 
-### `check_admin_cooldown(env: Env, admin: Address, function_name: Symbol) -> Result<(), ContractError>`
-Enforces admin cooldown for a specific function. Updates the last action timestamp on success.
+### Signatures
+
+```rust
+pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError>
+pub fn admin(env: Env) -> Result<Address, ContractError>
+pub fn set_admin_cooldown(env: Env, admin: Address, seconds: u64) -> Result<(), ContractError>
+pub fn get_admin_cooldown(env: Env) -> u64
+pub fn check_admin_cooldown(env: Env, admin: Address, function_name: Symbol) -> Result<(), ContractError>
+```
 
 ## Gas Snapshots
 
