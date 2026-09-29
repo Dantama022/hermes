@@ -470,12 +470,24 @@ impl MarketValidator {
         outcomes: &Vec<String>,
         duration_days: u32,
     ) -> Result<(), Error> {
+        Self::validate_unique_outcomes(outcomes)?;
         crate::validation::CreationValidator::validate_market_creation(
             env,
             question,
             outcomes,
             &duration_days,
         )
+    }
+
+    /// Reject repeated outcome labels before they can make resolution ambiguous.
+    pub fn validate_unique_outcomes(outcomes: &Vec<String>) -> Result<(), Error> {
+        for (index, outcome) in outcomes.iter().enumerate() {
+            if outcomes.iter().skip(index + 1).any(|next| next == outcome) {
+                return Err(Error::InvalidOutcomes);
+            }
+        }
+
+        Ok(())
     }
 
     /// Validates oracle configuration for market creation.
@@ -3361,6 +3373,25 @@ mod tests {
                 30
             )
             .is_ok());
+
+            let duplicate_outcomes = vec![
+                &env,
+                String::from_str(&env, "Yes"),
+                String::from_str(&env, "Yes"),
+            ];
+            assert_eq!(
+                MarketValidator::validate_unique_outcomes(&duplicate_outcomes),
+                Err(Error::InvalidOutcomes)
+            );
+            assert_eq!(
+                MarketValidator::validate_market_params(
+                    &env,
+                    &valid_question,
+                    &duplicate_outcomes,
+                    30
+                ),
+                Err(Error::InvalidOutcomes)
+            );
 
             // Test invalid question
             let invalid_question = String::from_str(&env, "");
