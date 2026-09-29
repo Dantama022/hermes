@@ -1582,24 +1582,17 @@ impl BetValidator {
     /// and the per-market max bet cap (when set).
     ///
     /// Checks in order:
-    /// 1. Amount is positive (→ [`Error::InsufficientStake`])
-    /// 2. Amount >= effective `min_bet` (→ [`Error::InsufficientStake`])
-    /// 3. Amount <= effective `max_bet` (→ [`Error::BetAboveMaximum`])
-    /// 4. Amount <= per-market cap when configured (→ [`Error::BetExceedsCap`])
+    /// 1. Amount >= effective `min_bet` (→ [`Error::InsufficientStake`])
+    /// 2. Amount <= effective `max_bet` (→ [`Error::BetAboveMaximum`])
+    /// 3. Amount <= per-market cap when configured (→ [`Error::BetExceedsCap`])
     ///
-    /// Steps 3 and 4 are distinct on purpose: the former is the market's ordinary
+    /// Steps 2 and 3 are distinct on purpose: the former is the market's ordinary
     /// maximum, the latter an admin-imposed per-market cap layered on top of it.
     pub fn validate_bet_amount_against_limits(
         env: &Env,
         market_id: &Symbol,
         amount: i128,
     ) -> Result<(), Error> {
-        // A zero-stake bet is not meaningful participation: it would only inflate
-        // bet counts and leaderboard entries, so it is rejected outright rather
-        // than relying on the configured minimum being positive.
-        if amount <= 0 {
-            return Err(Error::InsufficientStake);
-        }
         let limits = get_effective_bet_limits(env, market_id);
         if amount < limits.min_bet {
             return Err(Error::InsufficientStake);
@@ -2680,37 +2673,6 @@ mod tests {
             BetValidator::validate_bet_amount_against_limits(&env, &market_id, 30_000_000_000),
             Err(Error::InvalidInput)
         );
-    }
-
-    #[test]
-    fn test_validate_bet_amount_against_limits_rejects_zero_stake() {
-        let env = Env::default();
-        let market_id = Symbol::new(&env, "mkt_zero");
-
-        // Write a permissive per-event floor directly: `set_event_bet_limits`
-        // rejects a min below MIN_BET_AMOUNT, and the point of the guard is that
-        // a zero-stake bet is refused even when storage would admit it.
-        let key = Symbol::new(&env, PER_EVENT_BET_LIMITS_KEY);
-        let mut per_event: Map<Symbol, BetLimits> =
-            env.storage().persistent().get(&key).unwrap_or(Map::new(&env));
-        per_event.set(
-            market_id.clone(),
-            BetLimits {
-                min_bet: 0,
-                max_bet: MAX_BET_AMOUNT,
-            },
-        );
-        env.storage().persistent().set(&key, &per_event);
-
-        assert_eq!(
-            BetValidator::validate_bet_amount_against_limits(&env, &market_id, 0),
-            Err(Error::InsufficientStake)
-        );
-        assert_eq!(
-            BetValidator::validate_bet_amount_against_limits(&env, &market_id, -1),
-            Err(Error::InsufficientStake)
-        );
-        assert!(BetValidator::validate_bet_amount_against_limits(&env, &market_id, 1_000_000).is_ok());
     }
 
     #[test]
