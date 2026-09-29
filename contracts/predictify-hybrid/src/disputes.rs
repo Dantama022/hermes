@@ -3377,23 +3377,33 @@ impl DisputeAnalytics {
         (weight * 100.0) as i128
     }
 
-    /// Determine which outcome the community favours by summing stake-weighted votes.
+    /// Determine which outcome the community favours using **stake-weighted**
+    /// voting (Issue #031).
     ///
-    /// Returns a [`CommunityConsensus`] with the winning outcome, the
-    /// confidence as an integer percentage, and the total vote stake.
+    /// Each voter's influence is proportional to the amount they staked, not
+    /// the number of addresses that voted. This prevents a sybil-style attack
+    /// where many low-stake addresses outvote a single high-economic-exposure
+    /// participant.
+    ///
+    /// Returns a [`CommunityConsensus`] where:
+    /// - `outcome` is the outcome with the highest total backing stake.
+    /// - `confidence` is `(max_outcome_stake * 100) / total_stake` (0–100).
+    /// - `total_votes` is the sum of all staked amounts across all outcomes.
     pub fn calculate_community_consensus(env: &Env, market: &Market) -> CommunityConsensus {
-        let mut outcome_totals = Map::new(env);
-        let mut total_votes = 0;
+        // Accumulate total stake per outcome.
+        let mut outcome_totals: Map<String, i128> = Map::new(env);
+        let mut total_stake: i128 = 0;
 
         for (user, outcome) in market.votes.iter() {
             let stake = market.stakes.get(user).unwrap_or(0);
             let current_total = outcome_totals.get(outcome.clone()).unwrap_or(0);
-            outcome_totals.set(outcome, current_total + stake);
-            total_votes += stake;
+            outcome_totals.set(outcome.clone(), current_total + stake);
+            total_stake += stake;
         }
 
+        // Find the leading outcome by total staked weight.
         let mut winning_outcome = String::from_str(env, "");
-        let mut max_stake = 0;
+        let mut max_stake: i128 = 0;
 
         for (outcome, stake) in outcome_totals.iter() {
             if stake > max_stake {
@@ -3402,8 +3412,9 @@ impl DisputeAnalytics {
             }
         }
 
-        let confidence = if total_votes > 0 {
-            (max_stake as i128) * 100 / total_votes
+        // Confidence = fraction of total stake behind the winning outcome.
+        let confidence: i128 = if total_stake > 0 {
+            (max_stake * 100) / total_stake
         } else {
             0
         };
@@ -3411,7 +3422,7 @@ impl DisputeAnalytics {
         CommunityConsensus {
             outcome: winning_outcome,
             confidence,
-            total_votes,
+            total_votes: total_stake,
         }
     }
 

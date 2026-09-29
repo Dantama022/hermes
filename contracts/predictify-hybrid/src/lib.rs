@@ -324,6 +324,10 @@ impl PredictifyHybrid {
             }
         }
 
+        if let Err(e) = crate::markets::MarketValidator::validate_unique_outcomes(&outcomes) {
+            panic_with_error!(env, e);
+        }
+
         if let Err(e) = crate::validation::CreationValidator::validate_market_creation(&env, &question, &outcomes, &duration_days) {
             panic_with_error!(env, e);
         }

@@ -15,6 +15,7 @@
 //! - [`OraclesContract::get_price`] — fetch a raw price from an oracle
 //! - [`OraclesContract::get_price_data`] — fetch full price data from an oracle
 //! - [`OraclesContract::is_oracle_healthy`] — check if an oracle is live
+//! - [`OraclesContract::check_oracle_health`] — check liveness and feed readiness
 
 pub mod views;
 
@@ -94,6 +95,8 @@ pub enum Error {
 const REGISTRY_TTL_BUMP_THRESHOLD: u32 = 120_960;
 /// Extended TTL ledgers for the oracle registry key.
 const REGISTRY_TTL_BUMP_TO: u32 = 518_400;
+/// Maximum age in seconds for an oracle price publication.
+const MAX_PRICE_STALENESS_SECONDS: u64 = 3_600;
 
 /// Bump the TTL of the oracle list on hot storage access without writing data.
 fn bump_registry_ttl(env: &Env) {
@@ -209,6 +212,12 @@ impl OraclesContract {
             soroban_sdk::vec![&env, feed_id.clone().into_val(&env)],
         );
         if let Some(data) = full {
+            let now = env.ledger().timestamp();
+            if now > data.publish_time
+                && now.saturating_sub(data.publish_time) > MAX_PRICE_STALENESS_SECONDS
+            {
+                return Err(Error::OracleStale);
+            }
             return Ok(data);
         }
 
@@ -241,5 +250,23 @@ impl OraclesContract {
             soroban_sdk::vec![&env],
         );
         Ok(live.unwrap_or(false))
+    }
+
+    /// Check provider liveness and verify that a specific feed returns fresh, valid price data.
+    pub fn check_oracle_health(
+        env: Env,
+        oracle: Address,
+        feed_id: String,
+    ) -> Result<(), Error> {
+        if !Self::is_oracle_healthy(env.clone(), oracle.clone())? {
+            return Err(Error::OracleUnavailable);
+        }
+
+        let price_data = Self::get_price_data(env, oracle, feed_id)?;
+        if price_data.price <= 0 {
+            return Err(Error::OracleUnavailable);
+        }
+
+        Ok(())
     }
 }

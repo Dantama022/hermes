@@ -2,7 +2,7 @@
 
 use soroban_sdk::{
     contract, contractimpl, Address, Env, String,
-    testutils::Address as _,
+    testutils::{Address as _, Ledger as _},
 };
 use oracles::{OraclesContract, OraclesContractClient, Error, OraclePriceData};
 
@@ -100,6 +100,7 @@ fn test_oracle_lifecycle_and_queries() {
 
     // 4. Check health
     assert!(client.is_oracle_healthy(&oracle_addr));
+    client.check_oracle_health(&oracle_addr, &feed);
 
     // 5. Register Price-only oracle
     let price_only_addr = env.register(MockOraclePriceOnly, ());
@@ -124,6 +125,10 @@ fn test_oracle_lifecycle_and_queries() {
     let unhealthy_addr = env.register(MockOracleUnhealthy, ());
     client.add_oracle(&admin, &unhealthy_addr);
     assert!(!client.is_oracle_healthy(&unhealthy_addr));
+    assert_eq!(
+        client.try_check_oracle_health(&unhealthy_addr, &feed),
+        Err(Ok(Error::OracleUnavailable))
+    );
 
     // 7. Register Failing oracle
     let failing_addr = env.register(MockOracleFailing, ());
@@ -154,6 +159,10 @@ fn test_oracle_lifecycle_and_queries() {
         client.try_is_oracle_healthy(&unregistered_addr),
         Err(Ok(Error::InvalidOracleConfig))
     );
+    assert_eq!(
+        client.try_check_oracle_health(&unregistered_addr, &feed),
+        Err(Ok(Error::InvalidOracleConfig))
+    );
 
     // 9. Remove oracle
     client.remove_oracle(&admin, &oracle_addr);
@@ -164,6 +173,29 @@ fn test_oracle_lifecycle_and_queries() {
     // Remove nonexistent oracle (should be a no-op)
     client.remove_oracle(&admin, &oracle_addr);
     assert_eq!(client.list_oracles().len(), 3);
+}
+
+#[test]
+fn test_get_price_data_rejects_stale_publication() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|ledger| ledger.timestamp = 7_200);
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register(OraclesContract, ());
+    let client = OraclesContractClient::new(&env, &contract_id);
+    let oracle_addr = env.register(MockOracle, ());
+    client.add_oracle(&admin, &oracle_addr);
+
+    let feed = String::from_str(&env, "BTC/USD");
+    assert_eq!(
+        client.try_check_oracle_health(&oracle_addr, &feed),
+        Err(Ok(Error::OracleStale))
+    );
+    assert_eq!(
+        client.try_get_price_data(&oracle_addr, &feed),
+        Err(Ok(Error::OracleStale))
+    );
 }
 
 #[test]
