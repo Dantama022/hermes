@@ -1228,15 +1228,29 @@ impl VotingUtils {
         crate::fees::FeeCalculator::calculate_platform_fee(market)
     }
 
-    /// Get voting statistics for a market
-    pub fn get_voting_stats(_market: &Market) -> VotingStats {
-        // TODO: Implement proper voting stats calculation
-        // This requires access to the environment for Map creation
+    /// Get voting statistics for a market using **stake-weighted** tallies.
+    ///
+    /// Each outcome's share of the pool is measured by the sum of stakes
+    /// behind it rather than a raw head-count, so that high-economic-exposure
+    /// participants are properly represented (Issue #031).
+    pub fn get_voting_stats(env: &Env, market: &Market) -> VotingStats {
+        let total_votes = market.votes.len() as u32;
+        let unique_voters = total_votes; // one vote per address by design
+        let total_staked = market.total_staked;
+
+        // Build per-outcome stake totals (stake-weighted distribution).
+        let mut outcome_distribution: Map<String, i128> = Map::new(env);
+        for (user, outcome) in market.votes.iter() {
+            let stake = market.stakes.get(user.clone()).unwrap_or(0);
+            let current = outcome_distribution.get(outcome.clone()).unwrap_or(0);
+            outcome_distribution.set(outcome, current + stake);
+        }
+
         VotingStats {
-            total_votes: 0,
-            total_staked: 0,
-            outcome_distribution: Map::new(&Env::default()),
-            unique_voters: 0,
+            total_votes,
+            total_staked,
+            outcome_distribution,
+            unique_voters,
         }
     }
 
@@ -1717,11 +1731,83 @@ mod tests {
         let user = Address::generate(&env);
         market.add_vote(user.clone(), String::from_str(&env, "yes"), 1000);
 
-        let stats = VotingUtils::get_voting_stats(&market);
-        assert_eq!(stats.total_votes, 0); // Simplified implementation returns 0
-        assert_eq!(stats.total_staked, 0); // Simplified implementation returns 0
-        assert_eq!(stats.unique_voters, 0); // Simplified implementation returns 0
+        let stats = VotingUtils::get_voting_stats(&env, &market);
+        // Real implementation should now return correct values.
+        assert_eq!(stats.total_votes, 1);
+        assert_eq!(stats.total_staked, 1000);
+        assert_eq!(stats.unique_voters, 1);
+        // Outcome distribution should record the stake under "yes".
+        let yes_stake = stats.outcome_distribution.get(String::from_str(&env, "yes")).unwrap_or(0);
+        assert_eq!(yes_stake, 1000);
         assert!(VotingUtils::has_user_voted(&market, &user));
+    }
+
+    // ── Issue #031: stake-weighted get_voting_stats tests ───────────────────
+
+    /// Helper to build a minimal market in tests.
+    fn make_voting_test_market(env: &Env) -> Market {
+        Market::new(
+            env,
+            Address::generate(env),
+            String::from_str(env, "Stats test?"),
+            soroban_sdk::vec![
+                env,
+                String::from_str(env, "yes"),
+                String::from_str(env, "no"),
+            ],
+            env.ledger().timestamp() + 86400,
+            OracleConfig::new(
+                OracleProvider::pyth(),
+                Address::generate(env),
+                String::from_str(env, "BTC/USD"),
+                2_500_000,
+                String::from_str(env, "gt"),
+            ),
+            None,
+            0,
+            crate::types::MarketState::Active,
+        )
+    }
+
+    /// `outcome_distribution` must reflect total stake per outcome, not count.
+    #[test]
+    fn test_get_voting_stats_stake_weighted_distribution() {
+        let env = Env::default();
+        let mut market = make_voting_test_market(&env);
+
+        let user_a = Address::generate(&env);
+        let user_b = Address::generate(&env);
+        let user_c = Address::generate(&env);
+
+        market.add_vote(user_a, String::from_str(&env, "yes"), 3_000);
+        market.add_vote(user_b, String::from_str(&env, "yes"), 2_000);
+        market.add_vote(user_c, String::from_str(&env, "no"),  1_000);
+
+        let stats = VotingUtils::get_voting_stats(&env, &market);
+
+        assert_eq!(stats.total_votes, 3);
+        assert_eq!(stats.total_staked, 6_000);
+        assert_eq!(stats.unique_voters, 3);
+
+        let yes_stake = stats.outcome_distribution.get(String::from_str(&env, "yes")).unwrap_or(0);
+        let no_stake  = stats.outcome_distribution.get(String::from_str(&env, "no")).unwrap_or(0);
+
+        assert_eq!(yes_stake, 5_000, "yes should aggregate 3000+2000=5000");
+        assert_eq!(no_stake,  1_000, "no should record 1000");
+    }
+
+    /// Empty market → all zeros, no panic.
+    #[test]
+    fn test_get_voting_stats_empty_market() {
+        let env = Env::default();
+        let market = make_voting_test_market(&env);
+        let stats = VotingUtils::get_voting_stats(&env, &market);
+
+        assert_eq!(stats.total_votes, 0);
+        assert_eq!(stats.total_staked, 0);
+        assert_eq!(stats.unique_voters, 0);
+        assert!(stats.outcome_distribution.is_empty());
+    }
     }
 
     #[test]
