@@ -1862,34 +1862,59 @@ impl MarketAnalytics {
     /// }
     /// ```
     pub fn calculate_community_consensus(market: &Market) -> CommunityConsensus {
-        let mut vote_counts: Map<String, u32> = Map::new(&market.votes.env());
+        // Stake-weighted quorum: weight each vote by the voter's stake so that
+        // economic exposure drives consensus rather than a raw head-count.
+        // A single whale with a large stake correctly outweighs many
+        // low-stake addresses (Issue #031).
+        let env = market.votes.env();
+        let mut stake_totals: Map<String, i128> = Map::new(&env);
 
-        for (_, outcome) in market.votes.iter() {
-            let count = vote_counts.get(outcome.clone()).unwrap_or(0);
-            vote_counts.set(outcome.clone(), count + 1);
+        for (user, outcome) in market.votes.iter() {
+            let stake = market.stakes.get(user).unwrap_or(0);
+            let current = stake_totals.get(outcome.clone()).unwrap_or(0);
+            stake_totals.set(outcome.clone(), current + stake);
         }
 
-        let mut consensus_outcome = String::from_str(&market.votes.env(), "");
-        let mut max_votes = 0;
-        let mut total_votes = 0;
+        let mut consensus_outcome = String::from_str(&env, "");
+        let mut max_stake: i128 = 0;
+        let mut total_stake: i128 = 0;
+        let total_votes = market.votes.len() as u32;
 
-        for (outcome, count) in vote_counts.iter() {
-            total_votes += count;
-            if count > max_votes {
-                max_votes = count;
+        for (outcome, stake) in stake_totals.iter() {
+            total_stake += stake;
+            if stake > max_stake {
+                max_stake = stake;
                 consensus_outcome = outcome.clone();
             }
         }
 
-        let consensus_percentage = if total_votes > 0 {
-            (max_votes * 100) / total_votes
+        // `percentage` represents the fraction of total staked weight behind
+        // the leading outcome (0–100).
+        let consensus_percentage: i128 = if total_stake > 0 {
+            (max_stake * 100) / total_stake
+        } else {
+            0
+        };
+
+        // `votes` is kept as the *count* of addresses that voted for the
+        // leading outcome for backward-compatible display; the decisive metric
+        // is now `percentage` which is stake-weighted.
+        let leading_vote_count = if total_stake > 0 {
+            let mut count: u32 = 0;
+            for (user, outcome) in market.votes.iter() {
+                if outcome == consensus_outcome {
+                    let _ = user; // used only for iteration
+                    count += 1;
+                }
+            }
+            count
         } else {
             0
         };
 
         CommunityConsensus {
             outcome: consensus_outcome,
-            votes: max_votes,
+            votes: leading_vote_count,
             total_votes,
             percentage: consensus_percentage,
         }
@@ -3572,6 +3597,128 @@ mod tests {
             // TTL should never exceed max_ttl
             assert!(effective_ttl <= max_ttl);
         });
+    }
+
+    // ── Issue #031: Stake-weighted quorum tests ──────────────────────────────
+
+    /// Helper that creates a minimal market for quorum tests.
+    fn make_quorum_market(env: &Env) -> Market {
+        Market::new(
+            env,
+            Address::generate(env),
+            String::from_str(env, "Quorum test market?"),
+            vec![
+                env,
+                String::from_str(env, "yes"),
+                String::from_str(env, "no"),
+            ],
+            env.ledger().timestamp() + 86400,
+            OracleConfig::new(
+                OracleProvider::pyth(),
+                Address::from_str(
+                    env,
+                    "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+                ),
+                String::from_str(env, "BTC/USD"),
+                2_500_000,
+                String::from_str(env, "gt"),
+            ),
+            None,
+            86400,
+            MarketState::Active,
+        )
+    }
+
+    /// A single whale (10 000 stake) should beat nine low-stake voters
+    /// (1 stake each) under stake-weighted quorum even though the whale
+    /// has fewer addresses on their side (Issue #031).
+    #[test]
+    fn test_stake_weighted_quorum_whale_beats_crowd() {
+        let env = Env::default();
+        let mut market = make_quorum_market(&env);
+
+        // One whale votes "yes" with a large stake.
+        let whale = Address::generate(&env);
+        market.add_vote(whale, String::from_str(&env, "yes"), 10_000);
+
+        // Nine low-stake voters choose "no".
+        for _ in 0..9 {
+            let voter = Address::generate(&env);
+            market.add_vote(voter, String::from_str(&env, "no"), 1);
+        }
+
+        let consensus = MarketAnalytics::calculate_community_consensus(&market);
+
+        // "yes" should win because it carries 10 000 / 10 009 ≈ 99.9% of stake.
+        assert_eq!(consensus.outcome, String::from_str(&env, "yes"),
+            "whale stake should determine the leading outcome");
+
+        // Stake-weighted percentage should be ~99, definitely > 50.
+        assert!(
+            consensus.percentage > 50,
+            "whale's outcome percentage ({}) should be a strong majority",
+            consensus.percentage
+        );
+    }
+
+    /// Under old head-count voting the crowd would win; under stake-weighted
+    /// quorum the side with the most total stake wins regardless of addresses.
+    #[test]
+    fn test_stake_weighted_quorum_equal_stake_different_counts() {
+        let env = Env::default();
+        let mut market = make_quorum_market(&env);
+
+        // Two voters on "yes" with 500 each → total 1 000.
+        for _ in 0..2 {
+            let voter = Address::generate(&env);
+            market.add_vote(voter, String::from_str(&env, "yes"), 500);
+        }
+
+        // Three voters on "no" with 100 each → total 300.
+        for _ in 0..3 {
+            let voter = Address::generate(&env);
+            market.add_vote(voter, String::from_str(&env, "no"), 100);
+        }
+
+        let consensus = MarketAnalytics::calculate_community_consensus(&market);
+
+        // "yes" has more total stake (1 000 vs 300) even though fewer addresses.
+        assert_eq!(
+            consensus.outcome,
+            String::from_str(&env, "yes"),
+            "outcome with higher total stake should win"
+        );
+
+        // percentage should be 1000*100/(1000+300) ≈ 76
+        let expected_pct = (1000_i128 * 100) / 1300;
+        assert_eq!(consensus.percentage, expected_pct);
+    }
+
+    /// With no votes, consensus should be empty and percentage 0.
+    #[test]
+    fn test_stake_weighted_quorum_empty_market() {
+        let env = Env::default();
+        let market = make_quorum_market(&env);
+        let consensus = MarketAnalytics::calculate_community_consensus(&market);
+
+        assert_eq!(consensus.total_votes, 0);
+        assert_eq!(consensus.percentage, 0);
+    }
+
+    /// A single voter should get 100% percentage.
+    #[test]
+    fn test_stake_weighted_quorum_single_voter() {
+        let env = Env::default();
+        let mut market = make_quorum_market(&env);
+
+        let voter = Address::generate(&env);
+        market.add_vote(voter, String::from_str(&env, "yes"), 5_000);
+
+        let consensus = MarketAnalytics::calculate_community_consensus(&market);
+
+        assert_eq!(consensus.outcome, String::from_str(&env, "yes"));
+        assert_eq!(consensus.percentage, 100);
+        assert_eq!(consensus.total_votes, 1);
     }
 }
 
